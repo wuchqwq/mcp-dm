@@ -1,21 +1,64 @@
-# DigitalMicrograph 2D image analysis
+---
+name: dm-2d-analysis
+description: Use a connected DigitalMicrograph MCP for explicit post-acquisition 2D image inspection, calibration, preview, profiles, FFT or export. Choose only the required tools; a full report is optional. Do not use for acquisition, hardware control, 4D analysis or unverified scientific identification.
+---
 
-Use this workflow for a post-acquisition 2D STEM image when the user asks for statistics, a line profile, an FFT, or a reviewable report. It does not control microscope hardware or alter the source image.
+# DigitalMicrograph tool-use guide
 
-## Workflow
+This is optional guidance for composing existing tools, not a required pipeline.
+MCP registration does not install this directory. Read it directly or explicitly
+copy it to a client-supported skill location; do not overwrite an installed Skill.
 
-1. Call `dm_status` and `dm_datasets`. Confirm `backend="digitalmicrograph"`, identify the intended 2D image, and inspect its shape, dtype, x/y scales, units, and physical values at pixel zero. Do not infer axis meaning or missing calibration. If a physical scale is needed but is absent, inconsistent, zero, or nonfinite, stop that interpretation and ask for the calibration; pixel-domain calculations may be labeled as such.
-2. Choose a new local capture directory. Call `dm_2d_capture` with the exact `image_id`; omit it only when the user explicitly means the image that is frontmost at that moment. Supply `rect` only when the requested working region is smaller than the image. The call resolves the image once and saves a bounded pixel/calibration copy. Do not edit the source while capture runs: DM does not provide an atomic pixel-plus-calibration snapshot.
-3. Check the capture result (`state`, `shape_yx`, `dtype`, `source_rect_xyxy`, calibration, and input hash). If capture fails, the identity is unclear, calibration changed, or the memory budget rejects the requested region, stop and explain the evidence. Do not silently shrink, clip, or repeat into the same directory.
-4. Call `dm_2d_preview` on that capture. Inspect the actual image block if the client displays it; otherwise open `preview_path` locally. Use the returned mapping to convert display edges to source edges and preview pixel centers to source pixel centers. Never pass preview coordinates as source coordinates without this conversion. ROI edges are half-open `[x0,y0,x1,y1)`; profile endpoints are pixel centers `[x,y]` with y increasing downward.
-5. Select the ROI and profile based on the visible feature and the scientific question. If the user already gave the coordinates and width, do not ask again. Call `dm_2d_preview` again with those source-coordinate selections to inspect the overlay. If the image is not visible or the overlay does not match the intended feature, stop before calculation and state what could not be reviewed.
-6. Call `dm_2d_analyze` with the same `capture_dir`, the reviewed source-coordinate ROI/profile, a new `result_dir`, and a stable unique `operation_id`. The worker uses the captured NPY, never the current DM window or display PNG. It rejects nonfinite FFT input; statistics exclude NaN/Inf and report counts; no values are imputed.
-7. Verify the returned state and inspect `report.md`, `stats.json`, `profile.csv`/`profile.json`, `fft.json`, and the full `fft_magnitude.npy`. Confirm the report ROI, units, profile coordinates and FFT shape match the reviewed inputs. The FFT plot is display-scaled; the saved FFT NPY is the numeric result. A peak is a frequency-grid sample, not an identified reflection, lattice plane, phase, or spacing.
-8. Run `python replay.py --verify` from the result directory using Python 3.10+ with NumPy, Matplotlib and Pillow. Report its numeric comparison result and tolerance. `python replay.py --output NEW_EMPTY_DIRECTORY` creates a separate replay package; never choose an existing directory.
+## Choose the shortest valid path
 
-## Unknown states and data sharing
+First confirm `dm_status.backend="digitalmicrograph"` and identify the intended
+image with `dm_datasets`. Keep an explicit image ID for subsequent live calls;
+stop if it disappears. An ID does not freeze pixels or calibration.
 
-- If a tool wait times out, call `dm_2d_result` for the exact `capture_dir` or `result_dir`. `unknown` means status is unresolved; it does not mean the work stopped. Do not automatically resubmit a capture or analysis with side effects.
-- The capture and result directories contain local data. The MCP does not upload them, but a client may send image blocks, metadata, coordinates, calibration and numeric results to its selected model service. Follow the user's data-sharing constraint and do not include source paths or unrelated metadata in the report.
-- The capture records a copy and its hashes, not an atomic snapshot of concurrent DM edits. Results are fixed to that captured copy; if the source was edited during capture, the run cannot establish which instant the pixels represent.
-- Keep computed facts, interpretations and items requiring human review separate. Do not claim hardware acquisition, EDS/EELS, 4D-STEM, crystallographic identification or phase reconstruction from this workflow.
+For metadata, call `dm_metadata` with the needed prefix and inspect `path_status`,
+`complete` and `issues`. For a specified measurement or export, use `dm_stats`,
+`dm_profile`, `dm_fft`, `dm_crop` or `dm_export` directly. Do not require a capture,
+preview or report merely to read a value. Do not repeat questions the user already
+answered. Refuse to invent calibration or alter the requested ROI.
+
+For visual selection or fixed multi-step inputs, capture the intended bounded 2D
+image/ROI once using `dm_2d_capture`, then view it with `dm_2d_preview`. Capture must
+not overlap source editing; the DM API does not guarantee an atomic snapshot.
+Use the image block or open the returned local PNG. A path or transported block
+alone does not establish that you actually viewed the image. Preview is
+nearest-center display sampling and may miss fine features: request a smaller
+capture or explicit higher preview resolution when needed.
+
+Convert preview coordinates using the returned mapping. Rectangles use original
+source-pixel half-open edges; profile endpoints use original pixel centers, x
+right and y down. Review a proposed overlay before a visual measurement. All
+numerical work must use captured NPY or explicit live-image tools, never PNG.
+Clearly distinguish live operations from operations on a fixed capture.
+
+## Optional combined report
+
+Only when the user needs the existing combined statistics/profile/FFT bundle,
+call `dm_2d_analyze` with a reviewed capture, new result directory and unique stable
+operation ID. Otherwise return the requested operation's numerical result or
+calibrated export and let the agent/user choose subsequent tools.
+
+For a report, inspect the real output files. `sampled_coordinates` are original
+source pixel centers; `sampled_coordinates_local` and the profile calibration are
+capture-relative. Intensities are raw pixels; recorded intensity scale/origin/unit
+have not been applied. FFT samples are not identified reflections or phases.
+
+Run `python replay.py --verify` when verification is requested or needed for this
+report. Require both zero exit status and `state="verified"`; failed or unresolved
+verification exits nonzero. Regeneration requires a new directory. Old bundles
+retain their own scripts and are not rewritten in place.
+
+## Failures and data sharing
+
+After a timeout, query the exact capture/result directory with `dm_2d_result`.
+Unknown is not stopped or succeeded. Never automatically repeat a side effect.
+This result-query mechanism does not recover every arbitrary live DM operation.
+
+Do not modify source files, close unrelated documents, enable arbitrary scripts
+or call microscope hardware. The bridge is local, but a hosted client may send
+preview images, metadata or values to its model provider. Respect the user's
+sharing limits. Separate computed facts from interpretations and human review.

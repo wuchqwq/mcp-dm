@@ -1,5 +1,4 @@
-# Optional external worker for preview, task-A reports and replay.
-# Never install these packages into GMS-managed Python.
-numpy>=1.23,<3
+# Optional combined report example; not required by core MCP or image preview.
+# Use an external Python environment, never GMS-managed Python.
+-r requirements-preview.txt
 matplotlib>=3.7,<4
-Pillow>=9.1,<13

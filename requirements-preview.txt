@@ -1,0 +1,4 @@
+# Optional external image preview; never install into GMS-managed Python.
+# Core DM operations do not require this environment.
+numpy>=1.23,<3
+Pillow>=9.1,<13

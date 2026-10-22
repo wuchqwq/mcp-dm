@@ -1,20 +1,54 @@
-name: Synthetic contracts
+name: Isolated MCP scope validation
 on:
+  push:
+    branches: [repair/validate-mcp-scope-20261022]
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   synthetic:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install -r requirements-dev.txt
-      - run: python -B -m unittest discover -s tests -p "test_*.py" -v
-      - run: npm test
-      - run: npm run test:mock
+      - name: Install independent test dependencies
+        run: python -m pip install -r requirements-dev.txt -r requirements-analysis.txt
+      - name: Apply revision-guarded scope changes
+        run: python .github/apply_scope_patch.py
+      - name: Full synthetic and fake-DM regression
+        run: python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Node protocol regression
+        run: node --test
+      - name: Mock MCP chain
+        run: node selftest.mjs
         env:
           DM_TEST_PYTHON: python
+      - name: Preview-only installation without Matplotlib
+        run: |
+          python -m venv .preview-test-env
+          .preview-test-env/Scripts/python.exe -m pip install -r requirements-preview.txt
+          .preview-test-env/Scripts/python.exe -B .github/check_minimal_preview.py
+      - name: Check Python 3.7 syntax for unchanged host code
+        run: |
+          python -c "import ast,pathlib; [ast.parse(p.read_text(encoding='utf-8'),feature_version=(3,7)) for p in pathlib.Path('bridge').glob('*.py')]; print('Host Python 3.7 syntax PASS (not runtime validation)')"
+      - name: Publish only tested product changes to a repair branch
+        run: |
+          git diff --check
+          git read-tree d92cff64c7abeb8d8bd14c8d2b68fd89c6bd3695
+          git add -- README.md README.en.md AGENTS.md ROADMAP.md requirements-preview.txt requirements-analysis.txt server.mjs tools/analysis_worker.py skills/dm-2d-analysis/SKILL.md tests/test_scope_contract.py docs/SCOPE_AUDIT.md
+          tree=$(git write-tree)
+          commit=$(printf 'refactor: focus MCP on DM tools and make report rendering optional\n\nSplit optional preview dependencies; bound preview arrays; fix source profile coordinates and verification exit semantics. Bind operation identity to metadata and label raw intensity explicitly. Add bilingual scope docs and regressions. Windows synthetic checks only; real DM/client acceptance NOT_TESTED.\n' | git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit-tree "$tree" -p d92cff64c7abeb8d8bd14c8d2b68fd89c6bd3695)
+          git diff --stat d92cff64c7abeb8d8bd14c8d2b68fd89c6bd3695 "$commit"
+          git push origin "$commit:refs/heads/repair/mcp-scope-tested-20261022"
+          echo "Tested commit: $commit"
