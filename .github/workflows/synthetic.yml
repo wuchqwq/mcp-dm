@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -32,4 +32,4 @@ jobs:
         run: python -c "import ast,pathlib; [ast.parse(p.read_text(encoding='utf-8'),feature_version=(3,7)) for p in pathlib.Path('bridge').glob('*.py')]; print('syntax PASS')"
       - name: Check diff
         shell: bash
-        run: git diff --check HEAD^ HEAD
+        run: git diff --check 3cf9c7c95a0a4feb9c329d68e62ad25c9fc0c57f HEAD

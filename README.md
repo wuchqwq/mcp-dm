@@ -80,7 +80,7 @@ $gmsPython = 'C:\ProgramData\Miniconda3\envs\GMS_VENV_PYTHON\python.exe'
 
 ## 2. 启动真实 DM 桥
 
-**合成测试图应先于常驻 Bridge 创建。** DM 同一时刻只能运行一个常规 Python 脚本，常驻 Bridge 的监听循环会占用执行槽。若 Bridge 已运行而需要手动执行 [合成图脚本](examples/create_2d_client_fixture.py)，先断开 WorkBuddy、Codex 等 MCP 客户端，在 PowerShell 中执行 `.\\setup\\start_bridge.ps1 -Stop`，确认 Bridge 完全退出、Python 脚本槽释放；然后在 DM Python 工作区运行合成图脚本，最后重新启动 Bridge。**不要在 Bridge 正运行时再注入第二个 /ef Python 脚本，也不要因此结束 DM 进程。** 使用已有图像时，无需创建合成图。详见 [本机验收](docs/CLIENT_ACCEPTANCE.md)。
+**合成测试图应先于常驻 Bridge 创建。** DM 同一时刻只能运行一个常规 Python 脚本，常驻 Bridge 的监听循环会占用执行槽。若 Bridge 已运行而需要手动执行 [合成图脚本](examples/create_2d_client_fixture.py)，先断开 WorkBuddy、Codex 等 MCP 客户端，在 PowerShell 中执行 `.\setup\start_bridge.ps1 -Stop`，确认 Bridge 完全退出、Python 脚本槽释放；然后在 DM Python 工作区运行合成图脚本，最后重新启动 Bridge。**不要在 Bridge 正运行时再注入第二个 /ef Python 脚本，也不要因此结束 DM 进程。** 使用已有图像时，无需创建合成图。详见 [本机验收](docs/CLIENT_ACCEPTANCE.md)。
 
 在仓库根目录运行：
 

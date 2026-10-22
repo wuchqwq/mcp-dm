@@ -81,7 +81,7 @@ $gmsPython = 'C:\ProgramData\Miniconda3\envs\GMS_VENV_PYTHON\python.exe'
 
 ## 2. Start the real DM bridge
 
-**Create optional synthetic test images before starting the persistent bridge.** DM runs one ordinary Python script at a time, and the bridge listener occupies that execution slot. If the bridge is already running, disconnect WorkBuddy/Codex and other MCP clients, run `.\\setup\\start_bridge.ps1 -Stop` in PowerShell, and confirm the bridge has fully exited and freed DM's Python script slot. Run [the synthetic fixture script](examples/create_2d_client_fixture.py) in the DM Python workspace, then restart the bridge. **Do not inject a second /ef Python script while the bridge is active or terminate the DM application.** Existing images do not require a fixture. See [client acceptance](docs/CLIENT_ACCEPTANCE.md).
+**Create optional synthetic test images before starting the persistent bridge.** DM runs one ordinary Python script at a time, and the bridge listener occupies that execution slot. If the bridge is already running, disconnect WorkBuddy/Codex and other MCP clients, run `.\setup\start_bridge.ps1 -Stop` in PowerShell, and confirm the bridge has fully exited and freed DM's Python script slot. Run [the synthetic fixture script](examples/create_2d_client_fixture.py) in the DM Python workspace, then restart the bridge. **Do not inject a second /ef Python script while the bridge is active or terminate the DM application.** Existing images do not require a fixture. See [client acceptance](docs/CLIENT_ACCEPTANCE.md).
 
 From the repository root:
 

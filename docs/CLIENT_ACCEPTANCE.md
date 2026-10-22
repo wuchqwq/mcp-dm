@@ -24,7 +24,7 @@ WorkBuddy 官方文档提供用户级 `~/.workbuddy/mcp.json` 和项目级 `<项
 
 **正确顺序：DM 就绪 → 创建合成图 → 启动常驻 Bridge → 连接 WorkBuddy。** Bridge 使用一个持续运行的 DM Python 脚本，会占用宿主脚本槽。不要在 Bridge 正运行时再用 `/ef` 注入第二个 Python 脚本，这种失败不代表 MCP 连通性问题。
 
-如 Bridge 已运行：先断开所有 MCP 客户端，使用 `.\\setup\\start_bridge.ps1 -Stop` 请求正常停止；确认 Bridge 已完全退出且 Python 脚本槽释放，再运行合成图脚本，随后重新运行 `.\\setup\\start_bridge.ps1`。如返回 busy/unknown 或正在执行任务，停止测试并排查，**不强制杀死或重启 DM，也不自动重注入**。Bridge 重启会丢失其内存里的会话/隐藏文档引用，不能把旧会话 ID 当成持久引用。
+如 Bridge 已运行：先断开所有 MCP 客户端，使用 `.\setup\start_bridge.ps1 -Stop` 请求正常停止；确认 Bridge 已完全退出且 Python 脚本槽释放，再运行合成图脚本，随后重新运行 `.\setup\start_bridge.ps1`。如返回 busy/unknown 或正在执行任务，停止测试并排查，**不强制杀死或重启 DM，也不自动重注入**。Bridge 重启会丢失其内存里的会话/隐藏文档引用，不能把旧会话 ID 当成持久引用。
 
 在 DM 的 Python 工作区手动运行 `examples/create_2d_client_fixture.py`。该脚本仅创建两个新的小图，不读取实验文件、不修改现有图、不控制显微镜、不启用任意脚本 MCP。先保留自己的工作；运行完保留脚本工作区与两张图，记录打印出的名称和 ID。名称含随机后缀，重跑时不要混淆不同轮次。
 
