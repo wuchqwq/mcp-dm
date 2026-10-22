@@ -1,11 +1,21 @@
-name: Synthetic contracts
+name: Isolated 2D ROI repair validation
 on:
+  push:
+    branches: [repair/validate-2d-roi-20261022]
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   synthetic:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -13,8 +23,29 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -r requirements-dev.txt
-      - run: python -B -m unittest discover -s tests -p "test_*.py" -v
-      - run: npm test
-      - run: npm run test:mock
+      - name: Apply revision-guarded repair
+        run: python .github/apply_roi_patch.py
+      - name: Python synthetic and fake-DM regression tests
+        run: python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Node protocol tests
+        run: npm test
+      - name: Mock MCP chain
+        run: npm run test:mock
         env:
           DM_TEST_PYTHON: python
+      - name: Publish tested code only to a repair branch
+        run: |
+          git diff --check
+          git read-tree 098f7e581976e7e56938b82e4cf233e9d846141d
+          git add -- bridge/dm_bridge.py server.mjs tests/test_analysis.py tests/test_roi_contract.py README.md README.en.md AGENTS.md
+          tree=$(git write-tree)
+          commit=$(printf 'fix: reject invalid 2D ROIs and bind native crop results\n\nSynthetic regression suites passed on Windows; real DM acceptance remains NOT_TESTED.\n' | git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit-tree "$tree" -p 098f7e581976e7e56938b82e4cf233e9d846141d)
+          git diff --stat 098f7e581976e7e56938b82e4cf233e9d846141d "$commit"
+          git push origin "$commit:refs/heads/repair/strict-2d-roi-tested-20261022"
+          echo "Tested commit: $commit"
+          git archive --format=zip -o roi-fix-source.zip "$commit"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-roi-fix-source
+          path: roi-fix-source.zip
+          retention-days: 3
