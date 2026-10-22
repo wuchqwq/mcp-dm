@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "digitalmicrograph": {
+      "command": "__ABS_NODE_EXE__",
+      "args": ["__ABS_REPO_PATH__/server.mjs"],
+      "env": {
+        "DM_BRIDGE_HOST": "127.0.0.1",
+        "DM_BRIDGE_PORT": "8765",
+        "DM_MCP_TIMEOUT_MS": "600000",
+        "DM_MCP_ALLOW_DMSCRIPT": "0",
+        "DM_ANALYSIS_PYTHON": "__ABS_PREVIEW_PYTHON_EXE__",
+        "DM_ANALYSIS_TIMEOUT_MS": "1200000"
+      }
+    }
+  }
+}

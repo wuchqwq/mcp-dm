@@ -254,3 +254,11 @@ mock 自测使用临时 loopback 端口和合成数组，不连接正在运行�
 `skills/dm-2d-analysis/SKILL.md` 是可选使用指南。注册 MCP 不会自动安装它；可直接要求 Agent 阅读该文件。Codex 本地发现时，可将整个 `dm-2d-analysis` 目录复制到工作目录的 `.agents/skills/`，已有同名目录先检查，不覆盖。[官方 Skill 文档](https://developers.openai.com/codex/skills/)
 
 工具名称与 21 项目录保持兼容，没有新增模式开关。可选报告的剖面 `sampled_coordinates` 现为原图坐标，副本坐标在 `sampled_coordinates_local`；强度明确为原始像素值，强度标定只保留为元数据；`replay.py --verify` 失败或状态未知时非零退出。旧结果包保留自己的复跑代码，不原位改写。新变更的真实 DM/客户端验收仍须分别执行。范围决策与剩余限制见 [ROADMAP.md](ROADMAP.md) 和 [审计记录](docs/SCOPE_AUDIT.md)。
+
+## 普通客户端测试版本（D0 → 本机 P0）
+
+核心 MCP 不依赖 Codex。需要预览的通用 stdio 配置见 [mcp.preview.json.example](mcp.preview.json.example)，核心工具配置仍使用 [mcp.json.example](mcp.json.example)。必须替换所有绝对路径占位符，不自动覆盖客户端配置。
+
+[本机客户端验收](docs/CLIENT_ACCEPTANCE.md) 包含 WorkBuddy 官方配置参考、手动创建的两张合成图和短任务。先在新会话不用 Skill、不读源码、不临时写替代分析脚本，检查模型能否凭工具说明完成基本操作；失败后再单独记录带 Skill 的辅助测试。
+
+D0 只表示代码、合成回归和交付准备完成；本次真实 DM、WorkBuddy 图像显示、模型看图及操作正确性仍须本机 P0 验收。当前桥一次服务一个持续连接：测试前断开其它 MCP 客户端，不要因 busy/unknown 重启 DM 或重复注入桥。详见 [D0 交接边界](docs/D0_HANDOFF.md)。

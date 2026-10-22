@@ -320,6 +320,12 @@ def preview(payload):
     output = os.path.join(out_dir, "preview-" + uuid.uuid4().hex + ".png")
     _, mapping = _preview_image(array, info, max_side, roi, profile, output)
     return {"state": "complete", "capture_id": info["capture_id"],
+            "source_image_id": info.get("source_image_id"),
+            "working_calibration_xy": info["working_calibration_xy"],
+            "calibration_coordinate_frame": "captured pixel centers; source coordinates subtract source_rect_xyxy origin first",
+            "intensity_calibration": info.get("intensity_calibration"),
+            "intensity_values": "raw pixels; intensity origin/scale have not been applied",
+            "input_metadata_sha256": manifest["input_metadata_sha256"],
             "input_sha256": info["input_sha256"], "preview_path": output,
             "preview_sha256": _sha256_file(output), "preview_bytes": os.path.getsize(output),
             "mapping": mapping, "same_input_for_computation": "capture package input.npy"}
@@ -715,7 +721,7 @@ def main():
         result = preview(request)
     elif action == "analyze":
         operation_id = request.get("operation_id")
-        if not isinstance(operation_id, str) or not operation_id or len(operation_id) > 128:
+        if not isinstance(operation_id, str) or not operation_id.strip() or len(operation_id) > 128:
             raise ValueError("operation_id must be a nonempty string up to 128 characters")
         result = _compute(request["capture_dir"], request, request["result_dir"], operation_id)
     elif action == "result":

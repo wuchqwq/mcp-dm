@@ -232,7 +232,7 @@ function tool(name, description, properties, required = []) {
 const tools = [
   tool(
     "dm_status",
-    "链路自检：桥接后端（digitalmicrograph/mock）、DM 版本、宿主 Python 与 numpy 版本、官方离线手册路径。任何工具报错时先调它。",
+    "链路自检：桥接后端（digitalmicrograph/mock）、DM 版本、宿主 Python 与 numpy 版本、官方离线手册路径。DM 连接或原生操作出错时检查它；本地预览/报告依赖错误应检查 DM_ANALYSIS_PYTHON，不要因此重启 DM。",
     {}
   ),
   tool(
@@ -278,7 +278,7 @@ const tools = [
   ),
   tool(
     "dm_fft",
-    "二维 FFT：返回去均值前后的 DC、频谱格点坐标与按两个方向标定换算的空间频率/间距。d_pix 仅为频谱格点半径，不能当作 1/pixel 或晶格间距。",
+    "二维 FFT：返回去均值后的 DC、频谱格点坐标与按两个方向标定换算的空间频率/间距。d_pix 仅为频谱格点半径，不能当作 1/pixel 或晶格间距。",
     {
       image_id: IMAGE_ID,
       rect: RECT,
@@ -294,7 +294,7 @@ const tools = [
   ),
   tool(
     "dm_2d_preview",
-    "从 dm_2d_capture 包生成线性显示 PNG 和准确源坐标映射；可叠加 ROI 与剖面条带。显示拉伸不用于计算，返回 MCP image block，并保留本地 PNG 路径。",
+    "从 dm_2d_capture 包生成线性显示 PNG 和准确源坐标映射；可叠加 ROI 与剖面条带。显示拉伸不用于计算，返回 MCP image block、本地 PNG 路径及捕获时的标定。只看图无需调用 dm_2d_analyze；不能显示图片时明确说明，不假装看见。",
     { capture_dir: { type: "string", description: "dm_2d_capture 返回的目录" },
       roi: { ...RECT, description: "原图 source pixel 的半开边界 [x0,y0,x1,y1]，须在捕获区域内" },
       profile: { type: "object", properties: {
@@ -442,35 +442,70 @@ const LOCAL_ACTIONS = {
 
 function runAnalysisWorker(payload, signal) {
   if (signal?.aborted) return Promise.reject(new Error("请求已取消，尚未启动本地分析进程"));
-  const child = spawn(ANALYSIS_PYTHON, [ANALYSIS_WORKER], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   const body = JSON.stringify(payload);
   if (Buffer.byteLength(body, "utf8") > 1024 * 1024) {
-    child.kill();
-    return Promise.reject(new Error("分析请求超过 1 MiB"));
+    return Promise.reject(new Error("分析请求超过 1 MiB；未启动进程"));
   }
+  const child = spawn(ANALYSIS_PYTHON, [ANALYSIS_WORKER], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   return new Promise((resolve, reject) => {
-    let stdout = Buffer.alloc(0), stderr = "", settled = false, timedOut = false;
-    const settle = (fn, value) => { if (!settled) { settled = true; clearTimeout(timer); signal?.removeEventListener("abort", onAbort); fn(value); } };
-    const onAbort = () => settle(reject, new Error("已停止等待；本地计算可能仍在执行，状态未知。使用 dm_2d_result 检查 result_dir，不要自动重试。"));
-    const timer = setTimeout(() => { timedOut = true; child.kill(); }, ANALYSIS_WORKER_TIMEOUT_MS);
+    let chunks = [], bytes = 0, stderr = "", settled = false, discardOutput = false;
+    const queryHint = "结果状态未知；使用 dm_2d_result 查询对应 capture_dir/result_dir，勿自动重试。";
+    // Settling a client wait is not the end of the child process lifetime.
+    const settle = (fn, value) => {
+      if (!settled) { settled = true; signal?.removeEventListener("abort", onAbort); fn(value); }
+    };
+    const killChild = () => { try { child.kill(); } catch {} };
+    const discard = () => { discardOutput = true; chunks = []; };
+    const onAbort = () => {
+      discard();
+      settle(reject, new Error("已停止等待；本地计算可能仍在执行。" + queryHint));
+    };
+    // This deadline survives cancellation. Termination is requested, never
+    // represented as proof that all side effects were rolled back.
+    const timer = setTimeout(() => {
+      discard(); killChild();
+      settle(reject, new Error("本地分析达到运行时限，已请求终止进程；" + queryHint));
+    }, ANALYSIS_WORKER_TIMEOUT_MS);
+    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
     signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.on("data", chunk => {
-      stdout = Buffer.concat([stdout, chunk]);
-      if (stdout.length > 4 * 1024 * 1024) { child.kill(); settle(reject, new Error("本地分析响应超过 4 MiB；结果目录状态请用 dm_2d_result 查询")); }
+      if (discardOutput) return;
+      bytes += chunk.length;
+      if (bytes > 4 * 1024 * 1024) {
+        discard(); killChild();
+        settle(reject, new Error("本地分析响应超过 4 MiB；" + queryHint));
+        return;
+      }
+      chunks.push(chunk);
     });
     child.stderr.on("data", chunk => { if (stderr.length < 8192) stderr += chunk.toString("utf8").slice(0, 8192 - stderr.length); });
-    child.once("error", err => settle(reject, new Error("无法启动独立分析 Python（DM_ANALYSIS_PYTHON）: " + err.message)));
+    child.once("error", err => {
+      cleanup(); discard();
+      settle(reject, new Error("无法启动独立分析 Python（DM_ANALYSIS_PYTHON）: " + err.message));
+    });
+    const inputError = err => {
+      discard(); killChild();
+      settle(reject, new Error("本地分析输入管道失败: " + err.message + "；" + queryHint));
+    };
+    // EPIPE must be a tool error, not an unhandled EventEmitter error that
+    // terminates the MCP server and all of the client's other tool calls.
+    child.stdin.on("error", inputError);
     child.once("close", code => {
+      cleanup();
       if (settled) return;
-      if (timedOut) return settle(reject, new Error("本地分析进程达到超时上限；结果状态未知，请用 dm_2d_result 查询，勿自动重跑"));
-      let reply;
-      try { reply = JSON.parse(stdout.toString("utf8")); }
-      catch { return settle(reject, new Error("本地分析进程没有返回有效 JSON" + (stderr ? ": " + stderr : ""))); }
-      if (code !== 0 || !reply.ok) return settle(reject, new Error(reply.error || stderr || "本地分析进程失败"));
-      const result = reply.result;
-      if (payload.action === "preview") {
-        try {
-          const content = [{ type: "text", text: JSON.stringify(result, null, 2) }];
+      try {
+        let reply;
+        try { reply = JSON.parse(Buffer.concat(chunks, bytes).toString("utf8")); }
+        catch { throw new Error("本地分析进程没有返回有效 JSON" + (stderr ? ": " + stderr : "")); }
+        if (!reply || typeof reply !== "object" || Array.isArray(reply)) throw new Error("本地分析返回无效响应对象");
+        if (code !== 0 || reply.ok !== true) throw new Error(reply.error || stderr || "本地分析进程失败");
+        const result = reply.result;
+        if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("本地分析返回无效 result 对象");
+        const content = [{ type: "text", text: JSON.stringify(result, null, 2) }];
+        if (payload.action === "preview") {
+          if (!Number.isSafeInteger(result.preview_bytes) || result.preview_bytes < 0 || typeof result.preview_path !== "string") {
+            throw new Error("本地预览缺少有效 PNG 路径或字节数");
+          }
           if (result.preview_bytes <= 2 * 1024 * 1024) {
             const image = requireFile(result.preview_path);
             content.push({ type: "image", data: image.toString("base64"), mimeType: "image/png" });
@@ -478,14 +513,12 @@ function runAnalysisWorker(payload, signal) {
             result.inline_image = "omitted: PNG exceeds 2 MiB; open preview_path locally";
             content[0].text = JSON.stringify(result, null, 2);
           }
-          return settle(resolve, { content });
-        } catch (err) {
-          return settle(reject, err);
         }
-      }
-      return settle(resolve, { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
+        settle(resolve, { content });
+      } catch (err) { settle(reject, err); }
     });
-    child.stdin.end(body);
+    try { child.stdin.end(body); } catch (err) { inputError(err); }
+    if (signal?.aborted) onAbort();
   });
 }
 
@@ -543,7 +576,12 @@ async function callTool(name, args, signal) {
     }
   }
   if (args.rect && (args.rect[2] <= args.rect[0] || args.rect[3] <= args.rect[1])) throw new RpcError(-32602, "rect 必须为正面积，右下边界不包含");
-  if (args.image_id !== undefined && !(Number.isSafeInteger(args.image_id) || /^(front|[0-9]+)$/.test(args.image_id))) throw new RpcError(-32602, 'image_id 必须是整数或 "front"');
+  if (args.image_id !== undefined && args.image_id !== "front") {
+    const numericId = typeof args.image_id === "string" && /^[0-9]+$/.test(args.image_id) ? Number(args.image_id) : args.image_id;
+    if (!Number.isSafeInteger(numericId) || numericId < 0) throw new RpcError(-32602, 'image_id 必须是非负安全整数或 "front"，请使用 dm_datasets 返回的 ID');
+  }
+  if (args.roi && (args.roi[2] <= args.roi[0] || args.roi[3] <= args.roi[1])) throw new RpcError(-32602, "roi 必须是正面积的原图坐标区域，右下边界不包含");
+  if (args.profile && args.profile.start.every((v, i) => v === args.profile.end[i])) throw new RpcError(-32602, "profile 两个端点不能重合；请使用原图像素中心坐标");
   if (args.spatial_bounds?.some(([start, stop]) => stop <= start)) throw new RpcError(-32602, "spatial_bounds 每对必须 start<stop，stop 不包含");
   if (args.energy_window_eV && args.energy_window_eV[1] <= args.energy_window_eV[0]) throw new RpcError(-32602, "energy_window_eV 必须 low<high，high 不包含");
   if (args.path !== undefined && (!/^(?:[A-Za-z]:[\\/]|\\\\)/.test(args.path) || args.path.includes("\0"))) throw new RpcError(-32602, "path 必须是 Windows 绝对路径");
@@ -554,7 +592,7 @@ async function callTool(name, args, signal) {
   }
   if (name === "dm_spectrum_export" && !/\.csv$/i.test(args.path)) throw new RpcError(-32602, "dm_spectrum_export 只支持 .csv 文件");
   if (args.script !== undefined && (!args.script.trim() || Buffer.byteLength(args.script, "utf8") > 1024 * 1024)) throw new RpcError(-32602, "script 不能为空或超过 1 MiB");
-  if (name === "dm_2d_analyze" && (typeof args.operation_id !== "string" || !args.operation_id || args.operation_id.length > 128)) {
+  if (name === "dm_2d_analyze" && (typeof args.operation_id !== "string" || !args.operation_id.trim() || args.operation_id.length > 128)) {
     throw new RpcError(-32602, "operation_id 必须是 1 到 128 字符的非空字符串");
   }
   if (name === "dm_2d_result" && (Boolean(args.result_dir) === Boolean(args.capture_dir))) {

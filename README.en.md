@@ -249,3 +249,11 @@ Read [AGENTS.md](AGENTS.md). Add independent numerical oracles or appropriate pr
 `skills/dm-2d-analysis/SKILL.md` is optional guidance, not installed by MCP registration. Ask an agent to read it directly, or copy the whole `dm-2d-analysis` directory into the working project's `.agents/skills/` for Codex local discovery. Inspect any existing same-name directory first; do not overwrite it. [Official Skill documentation](https://developers.openai.com/codex/skills/)
 
 Tool names and the 21-entry catalog are retained; no new mode flag is required. In optional reports, `sampled_coordinates` now uses original-image coordinates and `sampled_coordinates_local` retains capture-relative coordinates. Intensities are explicitly raw pixel values; intensity calibration is retained as metadata, not applied. `replay.py --verify` exits nonzero for failed or unresolved verification. Existing bundles keep their own replay code and are not rewritten. New real-DM/client behavior still needs separate acceptance. See [ROADMAP.md](ROADMAP.md) and the [scope audit](docs/SCOPE_AUDIT.md).
+
+## General-client candidate (D0 → local P0)
+
+The core MCP does not depend on Codex. For previews use [mcp.preview.json.example](mcp.preview.json.example); [mcp.json.example](mcp.json.example) remains the core-only configuration. Replace all absolute-path placeholders and merge one server entry without overwriting other client settings.
+
+[Local client acceptance](docs/CLIENT_ACCEPTANCE.md) provides official WorkBuddy configuration references, two manually created synthetic images and short tasks. Start a fresh session without the optional Skill, source-code reading or substitute analysis scripts. Measure whether tool descriptions alone are usable; record Skill-assisted retries separately.
+
+D0 covers code, synthetic regression and delivery readiness only. Real DM, WorkBuddy image rendering, model vision and actual operations still require local P0 acceptance. The bridge serves one persistent client connection at a time: disconnect other MCP clients first. Busy/unknown must not trigger DM restarts or duplicate bridge injection. See [D0 handoff](docs/D0_HANDOFF.md).
