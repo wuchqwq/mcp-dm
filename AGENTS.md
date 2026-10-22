@@ -28,6 +28,8 @@ The public MCP catalog has 17 tools, including dm_4dstem_open/read/virtual. Code
 8. Keep arbitrary DM-Script disabled by default at both layers. Do not add camera, beam, stage or optical controls. The script gate is not a security sandbox.
 9. Timeout/cancellation does not cancel a dispatched DM operation. Do not automatically retry operations with side effects. Busy/unknown is not proof that the bridge is stopped.
 
+10. Resolve metadata prefixes before subtree traversal. Keep lookup and value budgets separate, preserve JSON Pointer escapes/list indices, and distinguish confirmed absence from incomplete resolution. Never guess a native getter after failed or truncated type introspection. `complete` describes the requested subtree, not the whole image metadata.
+
 ## Validation and claims
 
 Use PASS / FAIL / NOT_TESTED for each scope. Distinguish arithmetic unit tests, protocol tests, mock-chain checks, actual DM API execution, real-data numerical comparison, export reopening and visual review. A successful mock response does not prove real DM. `dm_status.backend` must be `digitalmicrograph` for actual host claims. Record actual version/source identity.

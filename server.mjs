@@ -29,7 +29,7 @@ if (!Number.isFinite(TIMEOUT_MS) || TIMEOUT_MS < 100 || TIMEOUT_MS > 600000) thr
 
 const INSTRUCTIONS = [
   "DigitalMicrograph 分析用 MCP（仅分析，不控制电镜）。",
-  "推荐顺序：dm_status 确认真实后端 → dm_open → dm_datasets 检查数据集、轴序与标定 → dm_metadata 检查 complete/read_errors → dm_stats / dm_profile / dm_fft → dm_export。",
+  "推荐顺序：dm_status 确认真实后端 → dm_open → dm_datasets 检查数据集、轴序与标定 → dm_metadata 检查 path_status/complete/issues → dm_stats / dm_profile / dm_fft → dm_export。",
   "dm_run_script 调用返回不代表分析成功；必须检查输出和后置条件。超时或取消仅停止等待，已经发送的 DM 操作可能仍在运行，不要自动重试。导出禁止覆盖已有文件。",
   "实验性光谱工具只接受明确指定的 NumPy 能量轴（eV/keV 标定），不自动判断 EDS/EELS；真实 EDS/EELS/SI 为 NOT_TESTED，仅合成数据覆盖。四维衍射与 nm 空间轴不适用。",
   "离线参考手册：Scripting_DigitalMicrograph.pdf（DM-Script）、PythonReference.pdf（Python API），位于 C:\\ProgramData\\Gatan\\Documentation。",
@@ -242,11 +242,11 @@ const tools = [
   ),
   tool(
     "dm_metadata",
-    "读取图像元数据标签树。必须检查 complete、truncation、unsupported 和 read_errors；用 prefix 指定子树，不把截断或读取失败当作标签缺失。",
+    "读取指定元数据子树。先检查 path_status（found/not_found/unavailable），再检查 complete 和 issues；先定位 prefix 再按子树预算读取，不把截断或读取失败当作标签缺失。",
     {
       image_id: IMAGE_ID,
-      max_depth: { type: "integer", minimum: 0, maximum: 32, description: "递归深度上限，默认 8" },
-      prefix: { type: "string", description: '标签路径，如 "Acquisition/Instrument"' },
+      max_depth: { type: "integer", minimum: 0, maximum: 32, description: "所选子树的递归深度上限，默认 8；不限制 prefix 的路径深度" },
+      prefix: { type: "string", description: 'JSON Pointer，如 "/Acquisition/Instrument"；也接受无首斜线形式；~1 表示斜线，~0 表示波浪号；列表用零基索引；省略或空字符串表示根' },
     }
   ),
   tool(

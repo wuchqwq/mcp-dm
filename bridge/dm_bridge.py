@@ -130,6 +130,28 @@ def _rect(a, rect):
     return a[y0:y1, x0:x1], used
 
 
+def _metadata_prefix_parts(prefix):
+    """JSON Pointer tokens; also accept the documented slashless shorthand.
+
+    None/empty selects the root; '/' selects a literal empty label. Do not
+    strip whitespace or trailing separators, which can be actual tag labels.
+    """
+    if prefix is None or prefix == "":
+        return []
+    if not isinstance(prefix, str):
+        raise ValueError("metadata prefix must be a string")
+    if len(prefix.encode("utf-8")) > MAX_TAG_VALUE_BYTES:
+        raise ValueError("metadata prefix exceeds the byte limit")
+    raw = (prefix[1:] if prefix.startswith("/") else prefix).split("/")
+    if len(raw) > 64:
+        raise ValueError("metadata prefix exceeds 64 path segments")
+    for part in raw:
+        if any(c == "~" and (i + 1 == len(part) or part[i + 1] not in "01")
+               for i, c in enumerate(part)):
+            raise ValueError("metadata prefix has an invalid JSON Pointer escape")
+    return [part.replace("~1", "/").replace("~0", "~") for part in raw]
+
+
 def _classify(shape, ndim):
     if ndim == 2:
         return "image"
@@ -376,6 +398,57 @@ class MockBackend(SpectroscopyMixin):
         return {"count": len(imgs), "datasets": imgs}
 
     def metadata(self, image_id, max_depth, prefix):
+        parts = _metadata_prefix_parts(prefix)
+        result = self._metadata_fixture(image_id, max_depth, None)
+        max_depth = max(0, min(int(max_depth), 64))
+        path = ""
+        issues = []
+        status = "found"
+        node = result["tags"]
+        for part in parts:
+            path += "/" + part.replace("~", "~0").replace("/", "~1")
+            if isinstance(node, dict) and part in node:
+                node = node[part]
+            elif (isinstance(node, list) and part.isascii() and part.isdigit()
+                  and (part == "0" or not part.startswith("0"))
+                  and len(part) <= len(str(len(node))) and int(part) < len(node)):
+                node = node[int(part)]
+            else:
+                status = "not_found"
+                issues.append({"path": path, "reason": "path_not_found"})
+                node = None
+                break
+        remaining = [MAX_TAG_NODES]
+        def visit(value, depth, current):
+            if not isinstance(value, (dict, list)):
+                return value
+            if depth > max_depth:
+                issues.append({"path": current or "/", "reason": "depth_limit"})
+                return {"__unavailable__": "depth_limit"}
+            is_dict = isinstance(value, dict)
+            out = {} if is_dict else []
+            for key, child in (value.items() if is_dict else enumerate(value)):
+                if remaining[0] <= 0:
+                    issues.append({"path": current or "/", "reason": "node_budget"})
+                    break
+                remaining[0] -= 1
+                child_path = current + "/" + str(key).replace("~", "~0").replace("/", "~1")
+                converted = visit(child, depth + 1, child_path)
+                if is_dict:
+                    out[key] = converted
+                else:
+                    out.append(converted)
+            return out
+        canonical = "".join("/" + part.replace("~", "~0").replace("/", "~1") for part in parts)
+        result.update({"tags": visit(node, 0, canonical) if status == "found" else None,
+                       "prefix": canonical, "path_status": status,
+                       "complete": status == "found" and not issues, "issues": issues,
+                       "complete_scope": "requested subtree", "synthetic": True})
+        if status == "not_found":
+            result["error"] = "tag path not found: %s" % canonical
+        return result
+
+    def _metadata_fixture(self, image_id, max_depth, prefix):
         if image_id in self._spectral_fixtures:
             name, array, calibration = self._spectral_fixtures[image_id]
             return {"id": image_id, "name": name,
@@ -745,6 +818,91 @@ class DmBackend(SpectroscopyMixin):
             return out
         return self._metadata_issue(path, "unsupported_python_type", type(value).__name__)
 
+    def _metadata_read_entry(self, tg, index, path, raw_label=None, label_encoding=None):
+        record = {"dm_type": None, "tag_size": None}
+        self._tag_types[path] = record
+        if isinstance(raw_label, bytes):
+            record.update({"label_bytes_hex": raw_label.hex(), "label_encoding": label_encoding})
+        try:
+            length = int(tg.GetTagTypeLength(index))
+            if not 0 <= length <= 64:
+                return self._metadata_issue(path, "type_descriptor_limit", length), False
+            descriptor = [int(tg.GetTagType(index, k)) for k in range(length)]
+            record["dm_type"] = descriptor
+        except Exception as exc:
+            return self._metadata_issue(path, "type_read_error", exc), False
+        try:
+            size = tg.GetTagSize(index)
+            if (isinstance(size, bool) or not isinstance(size, numbers.Real)
+                    or not math.isfinite(size) or size < 0):
+                raise ValueError("unknown, nonfinite or negative native tag size")
+            record["tag_size"] = size
+        except Exception as exc:
+            return self._metadata_issue(path, "tag_size_read_error", exc), False
+        if size > MAX_TAG_VALUE_BYTES and descriptor[:1] != [0]:
+            return self._metadata_issue(path, "tag_size_limit", size), False
+        try:
+            # Never guess a getter after failed/truncated type introspection.
+            return self._read_tag_typed(tg, index, descriptor, path), True
+        except NotImplementedError as exc:
+            return self._metadata_issue(path, "unsupported_dm_type", exc), False
+        except Exception as exc:
+            return self._metadata_issue(path, "read_error", exc), False
+
+    def _metadata_locate(self, node, parts):
+        """Read only the selected ancestry; scan sibling labels, not values.
+
+        Lookup has its own bounded budget. An unreadable/ambiguous directory
+        cannot establish absence, even when another label matches the request.
+        """
+        if not (hasattr(node, "CountTags") and hasattr(node, "IsList")):
+            return self._metadata_issue("", "read_error", "invalid native metadata root"), "unavailable"
+        path = ""
+        for step, part in enumerate(parts):
+            child_path = self._tag_path(path, part)
+            if not (hasattr(node, "CountTags") and hasattr(node, "IsList")):
+                return self._metadata_issue(child_path, "not_a_container"), "not_found"
+            try:
+                count = int(node.CountTags())
+                is_list = bool(node.IsList())
+                if count < 0:
+                    raise ValueError("negative tag count")
+            except Exception as exc:
+                return self._metadata_issue(path, "read_error", exc), "unavailable"
+            raw_label = label_encoding = None
+            if is_list:
+                if not (part.isascii() and part.isdigit()
+                        and (part == "0" or not part.startswith("0"))
+                        and len(part) <= len(str(count)) and int(part) < count):
+                    return self._metadata_issue(child_path, "path_not_found"), "not_found"
+                if self._lookup_budget <= 0:
+                    return self._metadata_issue(child_path, "lookup_budget", MAX_TAG_NODES), "unavailable"
+                self._lookup_budget -= 1
+                index = int(part)
+            else:
+                index = None
+                for i in range(count):
+                    if self._lookup_budget <= 0:
+                        return self._metadata_issue(child_path, "lookup_budget", MAX_TAG_NODES), "unavailable"
+                    self._lookup_budget -= 1
+                    try:
+                        candidate = node.GetTagLabel(i)
+                        label, encoding = self._decode_dm_text(candidate)
+                    except Exception as exc:
+                        return self._metadata_issue(child_path, "label_read_error", exc), "unavailable"
+                    if label == part:
+                        if index is not None:
+                            return self._metadata_issue(child_path, "duplicate_label", i), "unavailable"
+                        index, raw_label, label_encoding = i, candidate, encoding
+                if index is None:
+                    return self._metadata_issue(child_path, "path_not_found"), "not_found"
+            value, readable = self._metadata_read_entry(node, index, child_path, raw_label, label_encoding)
+            if not readable:
+                # The final label exists, even when its payload cannot be read.
+                return value, "found" if step == len(parts) - 1 else "unavailable"
+            node, path = value, child_path
+        return node, "found"
+
     def _walk_tags(self, tg, depth, max_depth, path=""):
         if depth > max_depth:
             return self._metadata_issue(path, "depth_limit", max_depth)
@@ -771,32 +929,8 @@ class DmBackend(SpectroscopyMixin):
                 key = i if is_list else "__index_%d" % i
                 self._metadata_issue(self._tag_path(path, key), "label_read_error", exc)
             child_path = self._tag_path(path, key)
-            descriptor = []
-            try:
-                length = int(tg.GetTagTypeLength(i))
-                descriptor = [int(tg.GetTagType(i, k)) for k in range(min(length, 64))]
-                if length > 64:
-                    self._metadata_issue(child_path, "type_descriptor_limit", length)
-            except Exception as exc:
-                self._metadata_issue(child_path, "type_read_error", exc)
-            size = self._safe(tg.GetTagSize, i)
-            self._tag_types[child_path] = {"dm_type": descriptor, "tag_size": size}
-            if isinstance(raw_label, bytes):
-                self._tag_types[child_path]["label_bytes_hex"] = raw_label.hex()
-                self._tag_types[child_path]["label_encoding"] = label_encoding
-            if size is not None and size > MAX_TAG_VALUE_BYTES and descriptor[:1] != [0]:
-                child = self._metadata_issue(child_path, "tag_size_limit", size)
-            else:
-                try:
-                    # Some GMS versions coerce tg[key] numeric values to shortened
-                    # strings. Indexed, descriptor-directed access avoids that
-                    # precision loss and avoids byte-label path encoding bugs.
-                    value = self._read_tag_typed(tg, i, descriptor, child_path)
-                    child = self._metadata_value(value, depth + 1, max_depth, child_path)
-                except NotImplementedError as exc:
-                    child = self._metadata_issue(child_path, "unsupported_dm_type", exc)
-                except Exception as exc:
-                    child = self._metadata_issue(child_path, "read_error", exc)
+            value, readable = self._metadata_read_entry(tg, i, child_path, raw_label, label_encoding)
+            child = self._metadata_value(value, depth + 1, max_depth, child_path) if readable else value
             if is_list:
                 out.append(child)
             elif key in out:
@@ -806,31 +940,35 @@ class DmBackend(SpectroscopyMixin):
         return out
 
     def metadata(self, image_id, max_depth, prefix):
+        parts = _metadata_prefix_parts(prefix)
+        canonical = "".join(self._tag_path("", part) for part in parts)
         img = self._resolve(image_id)
         self._node_budget = MAX_TAG_NODES
+        self._lookup_budget = MAX_TAG_NODES
         self._tag_types = {}
         self._metadata_issues = []
+        max_depth = max(0, min(int(max_depth), 64))
         result = {"id": int(img.GetID()), "name": self._safe(img.GetName)}
         try:
-            max_depth = max(0, min(int(max_depth), 64))
-            tree = self._walk_tags(img.GetTagGroup(), 0, max_depth)
+            node, status = self._metadata_locate(img.GetTagGroup(), parts)
+            tree = (self._metadata_value(node, 0, max_depth, canonical)
+                    if status == "found" and not self._metadata_issues else node)
         except Exception as exc:
-            tree = self._metadata_issue("", "read_error", exc)
-        if prefix:
-            node = tree
-            for part in str(prefix).strip("/").split("/"):
-                if isinstance(node, dict) and part in node:
-                    node = node[part]
-                else:
-                    return dict(result, error="tag path not found: %s" % prefix)
-            tree = node
-        result["tags"] = tree
-        result["tag_types"] = self._tag_types
-        result["complete"] = not bool(self._metadata_issues)
-        result["issues"] = self._metadata_issues
-        result["limits"] = {"max_depth": max_depth, "max_nodes": MAX_TAG_NODES,
-                            "max_tag_value_bytes": MAX_TAG_VALUE_BYTES}
-        result["tag_path_format"] = "JSON Pointer; calibration dimensions use DM order X,Y,Z,..."
+            tree = self._metadata_issue(canonical, "read_error", exc)
+            status = "unavailable"
+        result.update({"tags": None if status == "not_found" else tree,
+                       "prefix": canonical, "path_status": status,
+                       "tag_types": self._tag_types,
+                       "complete": status == "found" and not bool(self._metadata_issues),
+                       "complete_scope": "requested subtree", "issues": self._metadata_issues,
+                       "limits": {"max_depth": max_depth, "max_nodes": MAX_TAG_NODES,
+                                  "max_lookup_nodes": MAX_TAG_NODES, "max_path_segments": 64,
+                                  "max_tag_value_bytes": MAX_TAG_VALUE_BYTES},
+                       "tag_path_format": "JSON Pointer; calibration dimensions use DM order X,Y,Z,..."})
+        if status == "not_found":
+            result["error"] = "tag path not found: %s" % canonical
+        elif status == "unavailable":
+            result["error"] = "tag path could not be resolved completely; inspect issues"
         return result
 
     # -- datasets ---------------------------------------------------------
@@ -1645,20 +1783,7 @@ class Dispatcher(object):
         return self.backend.list_datasets()
 
     def op_metadata(self, a):
-        res = self.backend.metadata(a.get("image_id"), a.get("max_depth", 8), None)
-        prefix = (a.get("prefix") or "").strip().strip("/")
-        if prefix:
-            node = res.get("tags")
-            for part in prefix.split("/"):
-                if isinstance(node, dict) and part in node:
-                    node = node[part]
-                else:
-                    res["tags"] = None
-                    res["error"] = "tag path not found: %s" % prefix
-                    return res
-            res["tags"] = node
-            res["prefix"] = prefix
-        return res
+        return self.backend.metadata(a.get("image_id"), a.get("max_depth", 8), a.get("prefix"))
 
     def op_stats(self, a):
         return self.backend.stats(a.get("image_id"), a.get("rect"))

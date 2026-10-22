@@ -126,6 +126,14 @@ disabled_tools = ["dm_run_script"]
 - 4D 核心要求显式 `[scan_y,scan_x]` 和 `[q_y,q_x]` 轴。虚拟圆盘/圆环按像素中心 `r_inner <= r < r_outer` 选择，使用匹配的倒易单位，默认拒绝被探测器 FOV 裁切的圆。不会由亮度或文件名猜 HAADF，也不擅自换算 mrad。
 - `dm_open` 拒绝超过 512 MiB 的整文档打开。大型 4D 数据应走独立 4D 接口：先 seek-only header 索引，再由 Gatan 原生只读流读取，不整块载入；内存预算先于分配和读取。
 
+## 元数据子树读取
+
+`dm_metadata(prefix=...)` 先定位标签，再以该子树为深度零点读取；不读取无关 sibling 的值。支持 `/Acquisition/Instrument` 及原有无首斜线写法，列表用零基索引；标签里的 `/`、`~` 分别写作 `~1`、`~0`。省略/空字符串表示根；`/` 表示空名称标签，不再把前后空白或斜线悄悄删去。
+
+检查 `path_status`：`found` 只说明路径存在，值是否完整仍看 `complete` 和 `issues`；`not_found` 表示已确认不存在；`unavailable` 表示查找预算不足、标签读取失败或路径不唯一，不能据此认定不存在。`complete` 仅描述所选子树。查找和子树遍历各有独立节点预算，路径最多 64 段；失败不会丢失诊断信息。类型描述或大小读取失败时停止，不猜测原生 getter。
+
+此改动有合成与 fake-DM 回归覆盖，修复后的真实 DM 元数据路径读取仍为 **NOT_TESTED**。后续开发及真机验收顺序见 [ROADMAP.md](ROADMAP.md)。
+
 ## 4D-STEM 调用示例与限制
 
 文件路径与 `image_id` 不等价。先通过 `dm_4dstem_open` 获得 `dataset_id`，此入口仅支持 NumPy 布局 `[scan_y,scan_x,q_y,q_x]`，必须传 `scan_axes=[0,1]`、`detector_axes=[2,3]`。文件必须含唯一 4D 标量数据集，当前 native 路径仅接受未压缩 uint8。

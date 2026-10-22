@@ -127,6 +127,14 @@ Other clients can use [mcp.json.example](mcp.json.example). Replace `__ABS_REPO_
 - The 4D core requires explicit `[scan_y,scan_x]` and `[q_y,q_x]` axes. Circular/annular windows select pixel centres with `r_inner <= r < r_outer` in matching reciprocal units. Clipped outer circles are rejected by default. Brightness and filenames do not establish HAADF; mrad conversion is never assumed.
 - `dm_open` rejects whole-document opens over 512 MiB. Use the separate 4D route for large files: seek-only header indexing followed by bounded native Gatan read-only streams, budgeting memory before allocation and reads.
 
+## Metadata subtree selection
+
+`dm_metadata(prefix=...)` resolves the path before traversing the selected subtree, whose root has depth zero. Unrelated sibling values are not read. Both `/Acquisition/Instrument` and the existing slashless shorthand are accepted. Lists use zero-based indices; escape literal `/` and `~` as `~1` and `~0`. Omitted/empty prefix selects the root; `/` selects an empty-name tag. Whitespace and trailing slashes are no longer silently removed.
+
+Check `path_status`: `found` establishes existence, not successful/complete value decoding; still check `complete` and `issues`. `not_found` means confirmed absence. `unavailable` means resolution was blocked by lookup limits, unreadable labels or ambiguity, not absence. Completeness applies only to the requested subtree. Lookup and subtree traversal have separate node budgets; paths have at most 64 segments. Type/size introspection failures stop before guessing a native getter.
+
+Synthetic/fake-DM regressions cover this change; repaired real-DM metadata path reading remains **NOT_TESTED**. See [ROADMAP.md](ROADMAP.md) for the next acceptance and development steps.
+
 ## 4D-STEM examples and limits
 
 A file `dataset_id` is separate from a native `image_id`. First call `dm_4dstem_open` to obtain the dataset ID. The native route requires NumPy order `[scan_y,scan_x,q_y,q_x]` and explicit `scan_axes=[0,1]`, `detector_axes=[2,3]`. The file must have exactly one 4D scalar dataset; only uncompressed uint8 is currently supported.
