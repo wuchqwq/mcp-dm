@@ -1,0 +1,32 @@
+# Experimental / proprietary source data and generated scientific results.
+*.dm3
+*.dm4
+*.npy
+*.npz
+*.tif
+*.tiff
+*.csv
+*.txt.metadata.json
+*.metadata.json
+*.ndjson
+*.log
+runtime/
+outputs/
+results/
+analysis/
+validation/
+release/
+private/
+# Local environments, caches, editor settings and credentials.
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.codex/
+.env
+.env.*
+!.env.example
+Thumbs.db
+.DS_Store

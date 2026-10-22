@@ -1,0 +1,4 @@
+# Independent synthetic tests only; use an external Python >= 3.10 venv.
+# Do not install this file into DigitalMicrograph's managed Python runtime.
+numpy>=1.23,<3
+tifffile>=2023.7.10

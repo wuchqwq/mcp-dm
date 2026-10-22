@@ -1,0 +1,14 @@
+{
+  "name": "digitalmicrograph-mcp",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Local post-acquisition DigitalMicrograph analysis through MCP; no hardware control",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "test:mock": "node selftest.mjs"
+  }
+}
