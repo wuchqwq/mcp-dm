@@ -1,20 +1,56 @@
-name: Synthetic contracts
+name: Isolated D0 client-readiness validation
 on:
+  push:
+    branches: [repair/validate-d0-client-20261022]
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   synthetic:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install -r requirements-dev.txt
-      - run: python -B -m unittest discover -s tests -p "test_*.py" -v
-      - run: npm test
-      - run: npm run test:mock
+      - name: Install external test dependencies only
+        run: python -m pip install -r requirements-dev.txt -r requirements-analysis.txt
+      - name: Demonstrate cancellation regression on baseline
+        run: |
+          set +e
+          node --test --test-name-pattern='cancelled local wait keeps' tests/client-readiness.test.mjs > baseline-d0.log 2>&1
+          status=$?
+          set -e
+          cat baseline-d0.log
+          if [ "$status" -eq 0 ]; then echo 'Expected old cancellation-deadline regression was not reproduced'; exit 1; fi
+      - name: Apply revision-guarded repair
+        run: python .github/apply_d0_patch.py
+      - name: Python synthetic and fake-DM checks
+        run: python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Node protocol and process lifecycle checks
+        run: node --test
+      - name: Mock MCP chain
+        run: node selftest.mjs
         env:
           DM_TEST_PYTHON: python
+      - name: Host syntax only
+        run: python -c "import ast,pathlib; [ast.parse(p.read_text(encoding='utf-8'),feature_version=(3,7)) for p in list(pathlib.Path('bridge').glob('*.py')) + list(pathlib.Path('examples').glob('*.py'))]; print('Python 3.7 syntax PASS; not GMS runtime acceptance')"
+      - name: Publish tested candidate without temporary workflow
+        run: |
+          git diff --check
+          git read-tree 4127953115936ec480fd55d1250d4337c850fd85
+          git add -- server.mjs tools/analysis_worker.py tests/client-readiness.test.mjs tests/test_client_readiness.py examples/create_2d_client_fixture.py docs/CLIENT_ACCEPTANCE.md docs/D0_HANDOFF.md mcp.preview.json.example README.md README.en.md .gitignore
+          tree=$(git write-tree)
+          commit=$(printf 'fix: harden client errors and prepare D0 acceptance candidate\n\nKeep worker lifetime bounded after cancelled waits, contain pipe and malformed-reply errors, and reject invalid IDs/selections before dispatch. Return captured calibration with previews. Add cross-client configuration and synthetic test fixtures. D0 synthetic validation only; local DM/WorkBuddy P0 is NOT_TESTED.\n' | git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit-tree "$tree" -p 4127953115936ec480fd55d1250d4337c850fd85)
+          git diff --stat 4127953115936ec480fd55d1250d4337c850fd85 "$commit"
+          git push origin "$commit:refs/heads/release/d0-client-candidate-20261022"
+          echo "D0 candidate: $commit"
