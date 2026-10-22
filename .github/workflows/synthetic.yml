@@ -1,5 +1,6 @@
 name: Synthetic contracts
-on: [push, pull_request]
+on:
+  workflow_dispatch:
 jobs:
   synthetic:
     runs-on: windows-latest

@@ -19,7 +19,7 @@ The Node server has no npm runtime dependencies. The DM bridge uses the standard
 | 4D-STEM | Bounded uint8 native-stream reading and virtual detector analysis verified within a limited scope. |
 | Hardware, acquisition, plugin quantification, phase reconstruction | Not provided or not validated. |
 
-Only synthetic tests are included. A new machine must validate its own DM version, data types, axis order and calibration. GitHub CI does not run real DM.
+Only synthetic tests are included. A new machine must validate its own DM version, data types, axis order and calibration. Tests run locally; Actions is manual only, and hosted CI is not included in validation claims.
 
 ## 1. Prerequisites
 
@@ -174,7 +174,7 @@ $env:DM_TEST_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 node selftest.mjs
 ```
 
-The mock self-test uses an ephemeral loopback port and synthetic arrays, without connecting to DM. `DM_TEST_PYTHON` can select an existing interpreter; otherwise `python` is resolved from `PATH`. Core code remains compatible with Python 3.7/NumPy 1.18. The independent TIFF test needs `tifffile`; do not upgrade GMS to install it. CI runs synthetic tests only and cannot prove real DM, real spectroscopy or a fresh machine's installation.
+The mock self-test uses an ephemeral loopback port and synthetic arrays, without connecting to DM. `DM_TEST_PYTHON` can select an existing interpreter; otherwise `python` is resolved from `PATH`. Core code remains compatible with Python 3.7/NumPy 1.18. The independent TIFF test needs `tifffile`; do not upgrade GMS to install it. The optional workflow contains synthetic checks only and cannot prove real DM, real spectroscopy or a fresh machine's installation.
 
 ## Contributing
 

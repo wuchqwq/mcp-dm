@@ -19,7 +19,7 @@ Node 服务无 npm 运行依赖；DM 桥仅用 Python 标准库和 NumPy。DM/GM
 | 4D-STEM | 有界 uint8 原生流读取与虚拟探测器分析验证通过，支持范围有限 |
 | 硬件、采集、插件定量、相位重建 | 未提供或未验证 |
 
-仓库只含合成测试。新机器需验证自己的 DM 版本、数据类型、轴序和标定；GitHub CI 不运行真实 DM。
+仓库只含合成测试。新机器需验证自己的 DM 版本、数据类型、轴序和标定；默认使用本地测试；Actions 仅手动触发，未将 CI 计入验证结论。
 
 ## 1. 准备环境
 
@@ -173,7 +173,7 @@ $env:DM_TEST_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 node selftest.mjs
 ```
 
-mock 自测使用临时 loopback 端口和合成数组，不连接正在运行的 DM。`DM_TEST_PYTHON` 可指定已有 Python；省略时使用 `PATH` 中的 `python`。核心 Python 代码保持 3.7/NumPy 1.18 兼容；独立 TIFF 测试需 `tifffile`，不要为此升级 GMS 环境。CI 仅跑合成测试，不能证明真实 DM、真实光谱或新机器安装通过。
+mock 自测使用临时 loopback 端口和合成数组，不连接正在运行的 DM。`DM_TEST_PYTHON` 可指定已有 Python；省略时使用 `PATH` 中的 `python`。核心 Python 代码保持 3.7/NumPy 1.18 兼容；独立 TIFF 测试需 `tifffile`，不要为此升级 GMS 环境。可选工作流只包含合成检查，不能证明真实 DM、真实光谱或新机器安装通过。
 
 ## 贡献
 
