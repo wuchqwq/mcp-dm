@@ -116,6 +116,8 @@ disabled_tools = ["dm_run_script"]
 | `dm_4dstem_virtual` | 分块 BF/ADF、总强度、总/平均衍射图，发布独立 DM 图像 |
 | `dm_run_script` | 自由脚本入口，Node 与桥两层默认禁用 |
 
+- **二维 ROI 契约变化**：统计、FFT 和裁剪严格拒绝越界、空区域及非整数坐标，不再舍入或自动裁夹。省略 `rect` 仅对统计/FFT 表示整幅；裁剪仍要求显式选区。`requested_rect` 保留请求（省略时为 null），`effective_rect` 给出实际区域；旧 `rect` 字段继续保留。
+- 裁剪继续使用原生 `ImageClone`，通过每次操作独有的内部令牌和新图像 ID 认领结果；不再按用户显示名称或“最新窗口”回退。缺失或重复令牌时明确失败，不修改无关图像标定。此修复有合成回归覆盖，**修复后的真实 DM 裁剪仍需重新验收（NOT_TESTED）**；它不构成并发像素快照或安全沙箱。
 - 二维矩形为零基 `[x0,y0,x1,y1]`，右下端排除；NumPy 图像 shape 为 `[y,x]`。DM 维度 0 变化最快，NumPy C-order 最末轴变化最快。
 - 标定采用 `coordinate[i] = calibrated_value_at_pixel_zero + i * scale`。原始 DM `Origin` 可能是物理零点的像素索引，不能直接当作物理起点；裁剪起点按 `old_zero + start * scale` 平移。
 - 统计使用有限值、float64、总体标准差 `ddof=0`；零值参与统计。未完成扫描的全零区域必须显式标记与处理。

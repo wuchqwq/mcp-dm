@@ -117,6 +117,8 @@ Other clients can use [mcp.json.example](mcp.json.example). Replace `__ABS_REPO_
 | `dm_4dstem_virtual` | Chunked BF/ADF, total intensity, summed/mean diffraction; separate native DM outputs |
 | `dm_run_script` | Arbitrary scripting, disabled by default in both Node and bridge |
 
+- **2D ROI contract change:** statistics, FFT and cropping reject out-of-bounds, empty and noninteger rectangles. No rounding or implicit clipping is performed. Omitted `rect` means the full image only for statistics/FFT; crop requires an explicit ROI. `requested_rect` preserves the request (null when omitted), `effective_rect` records the used bounds, and the legacy `rect` result remains available.
+- Crop keeps native `ImageClone` and identifies its result by a fresh per-operation internal token and a new image ID, never a user display name or newest-window fallback. Missing/duplicate tokens fail without recalibrating unrelated images. Synthetic regressions cover this repair; **real-DM acceptance of the repaired crop is NOT_TESTED**. This is not an atomic pixel snapshot or a security sandbox.
 - Rectangles are zero-based `[x0,y0,x1,y1]`, with exclusive upper bounds. NumPy image shape is `[y,x]`. DM dimension 0 changes fastest; C-order NumPy's final axis changes fastest.
 - Use `coordinate[i] = calibrated_value_at_pixel_zero + i * scale`. A raw DM `Origin` may be the pixel index of physical zero, not a physical offset. Cropping shifts the physical zero by `start * scale`.
 - Statistics use finite values, float64 and population standard deviation (`ddof=0`); zeros are included. Mark incomplete scans explicitly before interpreting whole-frame summaries.

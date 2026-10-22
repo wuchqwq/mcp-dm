@@ -22,6 +22,7 @@ import ipaddress
 import hashlib
 import importlib.util
 import math
+import numbers
 import os
 import shutil
 import socket
@@ -29,6 +30,7 @@ import sys
 import tempfile
 import time
 import traceback
+import uuid
 
 HOST = os.environ.get("DM_BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DM_BRIDGE_PORT", "8765"))
@@ -95,23 +97,37 @@ def _arr(img):
     return np.asarray(img.GetNumArray())
 
 
-def _rect(a, rect):
-    """rect = [x0, y0, x1, y1] in pixels; clamped. Returns (sub, rect_used)."""
-    if a.ndim != 2:
-        raise ValueError("rect 只支持二维图像；请先显式选取二维切片")
-    h, w = a.shape
-    if not rect:
-        return a, [0, 0, int(w), int(h)]
-    if len(rect) != 4:
-        raise ValueError("需要 rect = [x0, y0, x1, y1]，右/下边界不包含")
-    x0, y0, x1, y1 = [int(round(float(v))) for v in rect]
+def _rect_bounds(shape, rect):
+    """Validate a half-open 2D ROI without reading pixels or changing input.
+
+    Only None means the full frame. Explicit empty, noninteger, degenerate or
+    out-of-bounds rectangles fail; there is no rounding or clipping mode.
+    """
+    if len(shape) != 2:
+        raise ValueError("rect requires a two-dimensional image")
+    h, w = [int(v) for v in shape]
+    if h <= 0 or w <= 0:
+        raise ValueError("rect requires a nonempty image")
+    if rect is None:
+        return [0, 0, w, h]
+    if not isinstance(rect, (list, tuple)) or len(rect) != 4:
+        raise ValueError("rect must be [x0,y0,x1,y1] with exclusive upper bounds")
+    if any(isinstance(v, bool) or not isinstance(v, numbers.Integral) for v in rect):
+        raise ValueError("rect coordinates must be integers, not booleans or rounded values")
+    x0, y0, x1, y1 = [int(v) for v in rect]
     if x1 <= x0 or y1 <= y0:
-        raise ValueError("rect 必须满足 x1 > x0 且 y1 > y0")
-    x0 = max(0, min(x0, w - 1))
-    y0 = max(0, min(y0, h - 1))
-    x1 = max(x0 + 1, min(x1, w))
-    y1 = max(y0 + 1, min(y1, h))
-    return a[y0:y1, x0:x1], [x0, y0, x1, y1]
+        raise ValueError("rect must have positive width and height")
+    if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
+        raise ValueError("OUT_OF_BOUNDS: rect %r exceeds image [width=%d,height=%d]; no clipping"
+                         % ([x0, y0, x1, y1], w, h))
+    return [x0, y0, x1, y1]
+
+
+def _rect(a, rect):
+    """Return the strictly validated view and its effective source bounds."""
+    used = _rect_bounds(a.shape, rect)
+    x0, y0, x1, y1 = used
+    return a[y0:y1, x0:x1], used
 
 
 def _classify(shape, ndim):
@@ -393,6 +409,7 @@ class MockBackend(SpectroscopyMixin):
         sub, used = _rect(a, rect)
         return {
             "id": rec["id"], "rect": used, "shape": list(sub.shape),
+            "requested_rect": list(rect) if rect is not None else None, "effective_rect": list(used),
             "count": int(sub.size),
             "min": float(sub.min()), "max": float(sub.max()),
             "mean": float(sub.mean()), "stddev": float(sub.std()),
@@ -424,6 +441,7 @@ class MockBackend(SpectroscopyMixin):
             if len(peaks) >= int(top_n or 12):
                 break
         return {"id": rec["id"], "rect": used, "shape": list(sub.shape),
+            "requested_rect": list(rect) if rect is not None else None, "effective_rect": list(used),
                 "dc": float(f[cy, cx]), "peaks": peaks}
 
     def export(self, image_id, path, fmt):
@@ -438,13 +456,16 @@ class MockBackend(SpectroscopyMixin):
 
     def crop(self, image_id, rect, name):
         rec = self._images[int(image_id or 1000)]
-        x0, y0, x1, y1 = [int(round(float(v))) for v in rect]
+        if rect is None:
+            raise ValueError("crop requires an explicit rect")
+        x0, y0, x1, y1 = _rect_bounds((rec["height"], rec["width"]), rect)
         new_id = max(self._images.keys()) + 1
         self._images[new_id] = dict(
             rec, id=new_id, name=name or "crop_mock",
             width=x1 - x0, height=y1 - y0,
         )
-        return {"source_id": rec["id"], "requested_rect": [x0, y0, x1, y1],
+        return {"source_id": rec["id"], "requested_rect": list(rect),
+                "effective_rect": [x0, y0, x1, y1],
                 "new_image": {"id": new_id, "name": self._images[new_id]["name"],
                               "shape": [y1 - y0, x1 - x0]},
                 "note": "mock backend"}
@@ -1113,13 +1134,14 @@ class DmBackend(SpectroscopyMixin):
         pct = np_.percentile(finite, [0, 1, 50, 99, 100])
         return {
             "id": int(img.GetID()), "rect": used, "shape": list(sub.shape),
+            "requested_rect": list(rect) if rect is not None else None, "effective_rect": list(used),
             "count": int(finite.size),
             "total_count": int(flat.size), "finite_count": int(finite.size),
             "nan_count": int(np_.count_nonzero(np_.isnan(flat))),
             "inf_count": int(np_.count_nonzero(np_.isinf(flat))),
             "invalid_count": int(flat.size - finite.size),
             "calibration": self._calib(img, 2),
-            "rect_convention": "[x0,y0,x1,y1], right/bottom excluded; rounded then clamped",
+            "rect_convention": "[x0,y0,x1,y1], right/bottom excluded; strict bounds, no rounding or clipping",
             "min": float(pct[0]), "max": float(pct[4]),
             "mean": float(finite.mean()), "stddev": float(finite.std()),
             "percentiles": {"0": float(pct[0]), "1": float(pct[1]),
@@ -1230,6 +1252,7 @@ class DmBackend(SpectroscopyMixin):
             if len(peaks) >= top_n:
                 break
         return {"id": int(img.GetID()), "rect": used, "shape": list(sub.shape),
+            "requested_rect": list(rect) if rect is not None else None, "effective_rect": list(used),
                 "dc": float(f[cy, cx]), "peaks": peaks,
                 "calibration": calibration, "mean_removed": True,
                 "window": "rectangular (no apodization)",
@@ -1495,7 +1518,9 @@ class DmBackend(SpectroscopyMixin):
 
         DM-Script sub-image syntax is img[top,left,bottom,right], with
         NONinclusive bottom/right (Scripting manual, Image Subareas).
-        ImageClone is required to detach the result from its parent.
+        ImageClone is required to detach the result from its parent. A fresh
+        internal image label is a one-shot result handoff, not a user display
+        name; missing or duplicate handoffs fail without touching other images.
         """
         img = self._resolve(image_id)
         ndim, dims = self._dims(img)
@@ -1505,38 +1530,32 @@ class DmBackend(SpectroscopyMixin):
                 "再对切片调用 dm_crop 或其它分析工具。当前形状: %s"
                 % (ndim, "x".join(str(v) for v in dims))
             )
-        if not rect or len(rect) != 4:
-            raise ValueError("需要 rect = [x0, y0, x1, y1]")
-        w, h = dims[0], dims[1]
-        x0, y0, x1, y1 = [int(round(float(v))) for v in rect]
-        if x1 <= x0 or y1 <= y0:
-            raise ValueError("rect 必须满足 x1 > x0 且 y1 > y0")
-        x0 = max(0, min(x0, w - 1))
-        y0 = max(0, min(y0, h - 1))
-        x1 = max(x0 + 1, min(x1, w))
-        y1 = max(y0 + 1, min(y1, h))
+        if rect is None:
+            raise ValueError("crop requires an explicit rect")
+        x0, y0, x1, y1 = _rect_bounds((dims[1], dims[0]), rect)
         label = (name or ("crop_%dx%d" % (x1 - x0, y1 - y0)))
         label = label.replace('"', "'").replace("\\", "/").replace("\n", " ").replace("\r", " ")
         sid = int(img.GetID())
+        operation_token = "dm_mcp_crop_" + uuid.uuid4().hex
         script = (
             'image src := FindImageByID(%d)\n'
             'image dst := ImageClone( src[%d, %d, %d, %d] )\n'
             'SetName(dst, "%s")\n'
             'ShowImage(dst)\n'
-        ) % (sid, y0, x0, y1, x1, label)
+        ) % (sid, y0, x0, y1, x1, operation_token)
 
         before = set(int(i.GetID()) for _, _, _, i in self._iter_images())
         self.DM.ExecuteScriptString(script)
-        made = [i for _, _, _, i in self._iter_images() if int(i.GetID()) not in before]
-        if not made:
+        made = [i for _, _, _, i in self._iter_images()
+                if int(i.GetID()) not in before and int(i.GetID()) != sid
+                and self._safe(i.GetName) == operation_token]
+        if len(made) != 1:
             raise RuntimeError(
-                "裁剪脚本没有产生新图像。DM-Script 的错误只显示在 DM 的 Results 窗口，请查看那里。"
+                "CROP_RESULT_UNVERIFIED: expected exactly one new image carrying this "
+                "operation token, found %d. No existing/unrelated image was selected "
+                "or recalibrated; inspect DM Results. Do not automatically retry." % len(made)
             )
-        # prefer the one whose name matches, else the newest
-        target = made[-1]
-        for cand in made:
-            if (self._safe(cand.GetName) or "") == label:
-                target = cand
+        target = made[0]
         nw, nh = int(target.GetImgWidth()), int(target.GetImgHeight())
         expected = [y1 - y0, x1 - x0]
         if [nh, nw] != expected:
@@ -1548,6 +1567,8 @@ class DmBackend(SpectroscopyMixin):
             origin_at_zero, scale, units = img.GetDimensionCalibration(dimension, 0)
             target.SetDimensionCalibration(dimension, origin_at_zero + offset * scale,
                                            scale, units, 0)
+        # Apply the human-readable name only after ownership and shape checks.
+        target.SetName(label)
         source_file = self._source_files.get(sid)
         if source_file is not None:
             provenance = dict(source_file)
@@ -1557,11 +1578,14 @@ class DmBackend(SpectroscopyMixin):
             self._source_files[int(target.GetID())] = provenance
         return {
             "source_id": sid,
-            "requested_rect": [x0, y0, x1, y1],
+            "requested_rect": list(rect),
+            "effective_rect": [x0, y0, x1, y1],
+            "result_identity": {"method": "per-operation nonce and new image id",
+                                "operation_token": operation_token},
             "new_image": {"id": int(target.GetID()), "name": self._safe(target.GetName),
                           "shape": [nh, nw], "dm_dimensions": [nw, nh],
                           "calibration": self._calib(target, 2)},
-            "rect_convention": "[x0,y0,x1,y1], right/bottom excluded; rounded then clamped",
+            "rect_convention": "[x0,y0,x1,y1], right/bottom excluded; strict bounds, no rounding or clipping",
             "size_verified": True,
             "note": "裁剪后的图像已显示在 DM 中；后续 dm_stats/dm_fft 请用 new_image.id",
         }

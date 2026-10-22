@@ -232,6 +232,9 @@ class FakeImage(object):
     def GetName(self):
         return self.name
 
+    def SetName(self, name):
+        self.name = name
+
     def GetTagGroup(self):
         return self.tags
 
@@ -439,15 +442,16 @@ class CropTests(unittest.TestCase):
         self.assertEqual(image.origins, [2.0, 3.0])
         np.testing.assert_array_equal(image.array, original)
 
-    def test_single_pixel_and_clamped_crop(self):
+    def test_single_pixel_and_rejected_out_of_bounds_crop(self):
         image = FakeImage(np.arange(120).reshape(10, 12))
         backend = backend_for(image)
         result = backend.crop(1, [11, 9, 12, 10], "one_pixel")
         self.assertEqual(result["new_image"]["shape"], [1, 1])
         self.assertEqual(backend.DM.images[-1].array[0, 0], 119)
-        result = backend.crop(1, [-2, -3, 4, 5], "clamped")
-        self.assertEqual(result["requested_rect"], [0, 0, 4, 5])
-        self.assertEqual(result["new_image"]["shape"], [5, 4])
+        count = len(backend.DM.images)
+        with self.assertRaisesRegex(ValueError, "OUT_OF_BOUNDS"):
+            backend.crop(1, [-2, -3, 4, 5], "must_fail")
+        self.assertEqual(len(backend.DM.images), count)
 
 
 class FFTTests(unittest.TestCase):

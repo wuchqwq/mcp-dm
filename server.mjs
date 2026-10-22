@@ -172,7 +172,7 @@ const RECT = {
   items: { type: "integer", minimum: 0 },
   minItems: 4,
   maxItems: 4,
-  description: "像素矩形 [x0, y0, x1, y1]，右下边界不包含；省略则整幅",
+  description: "像素矩形 [x0, y0, x1, y1]，右下边界不包含；必须完整位于图内，不舍入或裁夹；省略则整幅",
 };
 
 const SPECTRUM_IMAGE_ID = {
@@ -291,7 +291,7 @@ const tools = [
     "在 DM 内原生裁出二维独立子图，返回新图像 id、标定与 NumPy 轴序 shape[y,x]；右下边界不包含。原图保持不变；不支持三维/四维直接裁剪。",
     {
       image_id: IMAGE_ID,
-      rect: { ...RECT, description: "像素矩形 [x0, y0, x1, y1]" },
+      rect: { ...RECT, description: "像素矩形 [x0, y0, x1, y1]，必须完整位于图内，不舍入或裁夹" },
       name: { type: "string", description: "新图像名称，省略则自动命名" },
     },
     ["rect"]
