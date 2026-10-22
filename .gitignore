@@ -30,3 +30,9 @@ __pycache__/
 !.env.example
 Thumbs.db
 .DS_Store
+
+.analysis-env/
+
+.preview-test-env/
+
+.workbuddy/

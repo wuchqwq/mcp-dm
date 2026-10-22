@@ -8,28 +8,37 @@
  * acquisition metadata and spatial calibration, and DM's own processing
  * (DM-Script, EELS/EDS/SI plugins) operates on that metadata.
  *
- * The process is a thin MCP facade; all work happens inside the running
- * DigitalMicrograph instance via dm_bridge.py over loopback TCP.
+ * DM operations go through dm_bridge.py over loopback TCP. Optional preview
+ * and report helpers run outside GMS; reports are not required for core tools.
  * Reason: DigitalMicrograph.pyd only loads inside the DM process, so an
  * external interpreter cannot import the host module directly.
  */
 
 import net from "node:net";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import process from "node:process";
 
 const BRIDGE_HOST = process.env.DM_BRIDGE_HOST || "127.0.0.1";
 const BRIDGE_PORT = Number(process.env.DM_BRIDGE_PORT || 8765);
 const TIMEOUT_MS = Number(process.env.DM_MCP_TIMEOUT_MS || 30000);
+const ANALYSIS_PYTHON = process.env.DM_ANALYSIS_PYTHON || "python";
+const ANALYSIS_WORKER_TIMEOUT_MS = Number(process.env.DM_ANALYSIS_TIMEOUT_MS || 1200000);
+const ANALYSIS_WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), "tools", "analysis_worker.py");
 const SERVER_NAME = "digitalmicrograph";
 const SERVER_VERSION = "0.6.0";
 const PROTOCOL_VERSION = "2024-11-05";
 if (!["127.0.0.1", "localhost"].includes(BRIDGE_HOST)) throw new Error("DM bridge must use IPv4 loopback");
 if (!Number.isInteger(BRIDGE_PORT) || BRIDGE_PORT < 1 || BRIDGE_PORT > 65535) throw new Error("Invalid bridge port");
 if (!Number.isFinite(TIMEOUT_MS) || TIMEOUT_MS < 100 || TIMEOUT_MS > 600000) throw new Error("Invalid timeout (100..600000 ms)");
+if (!Number.isFinite(ANALYSIS_WORKER_TIMEOUT_MS) || ANALYSIS_WORKER_TIMEOUT_MS < 1000 || ANALYSIS_WORKER_TIMEOUT_MS > 3600000) throw new Error("Invalid analysis timeout (1000..3600000 ms)");
 
 const INSTRUCTIONS = [
   "DigitalMicrograph 分析用 MCP（仅分析，不控制电镜）。",
-  "推荐顺序：dm_status 确认真实后端 → dm_open → dm_datasets 检查数据集、轴序与标定 → dm_metadata 检查 path_status/complete/issues → dm_stats / dm_profile / dm_fft → dm_export。",
+  "定位：可靠的 DM 工具接口，不是固定分析流水线。先用 dm_status/dm_datasets 识别数据，再按目标选择 metadata/stats/profile/fft/crop/export；简单操作无需捕获包或报告。多步调用应固定显式 image_id。",
+  "需要看图或固定多步输入时，可用 dm_2d_capture + dm_2d_preview；显示 PNG 不参与计算。dm_2d_analyze 是可选的完整报告示例，只在用户需要这种组合时调用。dm_2d_result 可独立查询状态。",
   "dm_run_script 调用返回不代表分析成功；必须检查输出和后置条件。超时或取消仅停止等待，已经发送的 DM 操作可能仍在运行，不要自动重试。导出禁止覆盖已有文件。",
   "实验性光谱工具只接受明确指定的 NumPy 能量轴（eV/keV 标定），不自动判断 EDS/EELS；真实 EDS/EELS/SI 为 NOT_TESTED，仅合成数据覆盖。四维衍射与 nm 空间轴不适用。",
   "离线参考手册：Scripting_DigitalMicrograph.pdf（DM-Script）、PythonReference.pdf（Python API），位于 C:\\ProgramData\\Gatan\\Documentation。",
@@ -223,7 +232,7 @@ function tool(name, description, properties, required = []) {
 const tools = [
   tool(
     "dm_status",
-    "链路自检：桥接后端（digitalmicrograph/mock）、DM 版本、宿主 Python 与 numpy 版本、官方离线手册路径。任何工具报错时先调它。",
+    "链路自检：桥接后端（digitalmicrograph/mock）、DM 版本、宿主 Python 与 numpy 版本、官方离线手册路径。DM 连接或原生操作出错时检查它；本地预览/报告依赖错误应检查 DM_ANALYSIS_PYTHON，不要因此重启 DM。",
     {}
   ),
   tool(
@@ -269,12 +278,51 @@ const tools = [
   ),
   tool(
     "dm_fft",
-    "二维 FFT：返回去均值前后的 DC、频谱格点坐标与按两个方向标定换算的空间频率/间距。d_pix 仅为频谱格点半径，不能当作 1/pixel 或晶格间距。",
+    "二维 FFT：返回去均值后的 DC、频谱格点坐标与按两个方向标定换算的空间频率/间距。d_pix 仅为频谱格点半径，不能当作 1/pixel 或晶格间距。",
     {
       image_id: IMAGE_ID,
       rect: RECT,
       top_n: { type: "integer", minimum: 1, maximum: 200, description: "返回最强频谱格点数，默认 12；不等同独立衍射斑点识别" },
     }
+  ),
+  tool(
+    "dm_2d_capture",
+    "一次解析图像（默认 front），在新目录保存有界二维像素副本与标定；后续二维预览和分析固定读取该包。捕获期间请勿编辑源图；DM API 不提供像素与标定的原子快照。",
+    { image_id: IMAGE_ID, rect: RECT,
+      output_dir: { type: "string", description: "必须是尚不存在的新 Windows 绝对目录；仅保存捕获的二维 ROI、标定与哈希" } },
+    ["output_dir"]
+  ),
+  tool(
+    "dm_2d_preview",
+    "从 dm_2d_capture 包生成线性显示 PNG 和准确源坐标映射；可叠加 ROI 与剖面条带。显示拉伸不用于计算，返回 MCP image block、本地 PNG 路径及捕获时的标定。只看图无需调用 dm_2d_analyze；不能显示图片时明确说明，不假装看见。",
+    { capture_dir: { type: "string", description: "dm_2d_capture 返回的目录" },
+      roi: { ...RECT, description: "原图 source pixel 的半开边界 [x0,y0,x1,y1]，须在捕获区域内" },
+      profile: { type: "object", properties: {
+        start: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" }, description: "原图 source pixel 中心 [x,y]" },
+        end: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" }, description: "原图 source pixel 中心 [x,y]" },
+        width: { type: "integer", minimum: 1, maximum: 1024, description: "剖面宽度（像素），默认 1" },
+      }, required: ["start", "end"], additionalProperties: false },
+      max_side: { type: "integer", minimum: 32, maximum: 4096, description: "最长预览边像素，默认 1024" } },
+    ["capture_dir"]
+  ),
+  tool(
+    "dm_2d_analyze",
+    "可选报告示例，不是使用 DM 的必经步骤。对捕获包组合统计、剖面和完整 FFT，在新目录保存数值、图、报告及复跑脚本。需要独立报告环境；简单测量优先用单独工具。operation_id + result_dir 用于查询，不自动重跑不确定任务。",
+    { capture_dir: { type: "string" }, result_dir: { type: "string", description: "必须是尚不存在的新 Windows 绝对目录" },
+      operation_id: { type: "string", minLength: 1, maxLength: 128 }, roi: { ...RECT, description: "原图 source pixel 半开边界；省略表示整个捕获区域" },
+      profile: { type: "object", properties: {
+        start: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" }, description: "原图 source pixel 中心 [x,y]" },
+        end: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" }, description: "原图 source pixel 中心 [x,y]" },
+        width: { type: "integer", minimum: 1, maximum: 1024 },
+      }, required: ["start", "end"], additionalProperties: false },
+      top_n: { type: "integer", minimum: 1, maximum: 200, description: "FFT 峰值摘要数量；完整频谱同时写入 NPY，默认 12" } },
+    ["capture_dir", "result_dir", "operation_id"]
+  ),
+  tool(
+    "dm_2d_result",
+    "只查询捕获或分析目录中的状态与输出哈希。running 返回 unknown，不判断计算已停止；不自动重发捕获或分析。两种目录参数恰选其一。",
+    { result_dir: { type: "string", description: "dm_2d_analyze 使用的结果目录" },
+      capture_dir: { type: "string", description: "dm_2d_capture 使用的捕获目录" } }
   ),
   tool(
     "dm_export",
@@ -374,6 +422,7 @@ const OPS = {
   dm_datasets: ["list_datasets", () => ({})],
   dm_metadata: ["metadata", (a) => ({ image_id: a.image_id, max_depth: a.max_depth, prefix: a.prefix })],
   dm_stats: ["stats", (a) => ({ image_id: a.image_id, rect: a.rect })],
+  dm_2d_capture: ["capture2d", (a) => ({ image_id: a.image_id, rect: a.rect, output_dir: a.output_dir })],
   dm_profile: ["profile", (a) => ({ ...a })],
   dm_fft: ["fft", (a) => ({ image_id: a.image_id, rect: a.rect, top_n: a.top_n })],
   dm_export: ["export", (a) => ({ image_id: a.image_id, path: a.path, format: a.format })],
@@ -384,6 +433,100 @@ const OPS = {
   dm_spectrum_export: ["spectrum_export", (a) => ({ ...a })],
   dm_run_script: ["run_script", (a) => ({ script: a.script, expect_new_image: a.expect_new_image })],
 };
+
+const LOCAL_ACTIONS = {
+  dm_2d_preview: "preview",
+  dm_2d_analyze: "analyze",
+  dm_2d_result: "result",
+};
+
+function runAnalysisWorker(payload, signal) {
+  if (signal?.aborted) return Promise.reject(new Error("请求已取消，尚未启动本地分析进程"));
+  const body = JSON.stringify(payload);
+  if (Buffer.byteLength(body, "utf8") > 1024 * 1024) {
+    return Promise.reject(new Error("分析请求超过 1 MiB；未启动进程"));
+  }
+  const child = spawn(ANALYSIS_PYTHON, [ANALYSIS_WORKER], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  return new Promise((resolve, reject) => {
+    let chunks = [], bytes = 0, stderr = "", settled = false, discardOutput = false;
+    const queryHint = "结果状态未知；使用 dm_2d_result 查询对应 capture_dir/result_dir，勿自动重试。";
+    // Settling a client wait is not the end of the child process lifetime.
+    const settle = (fn, value) => {
+      if (!settled) { settled = true; signal?.removeEventListener("abort", onAbort); fn(value); }
+    };
+    const killChild = () => { try { child.kill(); } catch {} };
+    const discard = () => { discardOutput = true; chunks = []; };
+    const onAbort = () => {
+      discard();
+      settle(reject, new Error("已停止等待；本地计算可能仍在执行。" + queryHint));
+    };
+    // This deadline survives cancellation. Termination is requested, never
+    // represented as proof that all side effects were rolled back.
+    const timer = setTimeout(() => {
+      discard(); killChild();
+      settle(reject, new Error("本地分析达到运行时限，已请求终止进程；" + queryHint));
+    }, ANALYSIS_WORKER_TIMEOUT_MS);
+    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    child.stdout.on("data", chunk => {
+      if (discardOutput) return;
+      bytes += chunk.length;
+      if (bytes > 4 * 1024 * 1024) {
+        discard(); killChild();
+        settle(reject, new Error("本地分析响应超过 4 MiB；" + queryHint));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    child.stderr.on("data", chunk => { if (stderr.length < 8192) stderr += chunk.toString("utf8").slice(0, 8192 - stderr.length); });
+    child.once("error", err => {
+      cleanup(); discard();
+      settle(reject, new Error("无法启动独立分析 Python（DM_ANALYSIS_PYTHON）: " + err.message));
+    });
+    const inputError = err => {
+      discard(); killChild();
+      settle(reject, new Error("本地分析输入管道失败: " + err.message + "；" + queryHint));
+    };
+    // EPIPE must be a tool error, not an unhandled EventEmitter error that
+    // terminates the MCP server and all of the client's other tool calls.
+    child.stdin.on("error", inputError);
+    child.once("close", code => {
+      cleanup();
+      if (settled) return;
+      try {
+        let reply;
+        try { reply = JSON.parse(Buffer.concat(chunks, bytes).toString("utf8")); }
+        catch { throw new Error("本地分析进程没有返回有效 JSON" + (stderr ? ": " + stderr : "")); }
+        if (!reply || typeof reply !== "object" || Array.isArray(reply)) throw new Error("本地分析返回无效响应对象");
+        if (code !== 0 || reply.ok !== true) throw new Error(reply.error || stderr || "本地分析进程失败");
+        const result = reply.result;
+        if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("本地分析返回无效 result 对象");
+        const content = [{ type: "text", text: JSON.stringify(result, null, 2) }];
+        if (payload.action === "preview") {
+          if (!Number.isSafeInteger(result.preview_bytes) || result.preview_bytes < 0 || typeof result.preview_path !== "string") {
+            throw new Error("本地预览缺少有效 PNG 路径或字节数");
+          }
+          if (result.preview_bytes <= 2 * 1024 * 1024) {
+            const image = requireFile(result.preview_path);
+            content.push({ type: "image", data: image.toString("base64"), mimeType: "image/png" });
+          } else {
+            result.inline_image = "omitted: PNG exceeds 2 MiB; open preview_path locally";
+            content[0].text = JSON.stringify(result, null, 2);
+          }
+        }
+        settle(resolve, { content });
+      } catch (err) { settle(reject, err); }
+    });
+    try { child.stdin.end(body); } catch (err) { inputError(err); }
+    if (signal?.aborted) onAbort();
+  });
+}
+
+function requireFile(file) {
+  const bytes = readFileSync(file);
+  if (bytes.length > 2 * 1024 * 1024) throw new Error("preview PNG exceeds inline image limit");
+  return bytes;
+}
 
 class RpcError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -415,7 +558,7 @@ function validate(value, schema, label = "arguments") {
 
 async function callTool(name, args, signal) {
   const entry = OPS[name];
-  if (!Object.hasOwn(OPS, name)) throw new RpcError(-32602, `未知工具: ${name}`);
+  if (!Object.hasOwn(OPS, name) && !Object.hasOwn(LOCAL_ACTIONS, name)) throw new RpcError(-32602, `未知工具: ${name}`);
   const catalog = tools.find(t => t.name === name);
   args = args === undefined ? {} : args;
   validate(args, catalog.inputSchema);
@@ -433,12 +576,31 @@ async function callTool(name, args, signal) {
     }
   }
   if (args.rect && (args.rect[2] <= args.rect[0] || args.rect[3] <= args.rect[1])) throw new RpcError(-32602, "rect 必须为正面积，右下边界不包含");
-  if (args.image_id !== undefined && !(Number.isSafeInteger(args.image_id) || /^(front|[0-9]+)$/.test(args.image_id))) throw new RpcError(-32602, 'image_id 必须是整数或 "front"');
+  if (args.image_id !== undefined && args.image_id !== "front") {
+    const numericId = typeof args.image_id === "string" && /^[0-9]+$/.test(args.image_id) ? Number(args.image_id) : args.image_id;
+    if (!Number.isSafeInteger(numericId) || numericId < 0) throw new RpcError(-32602, 'image_id 必须是非负安全整数或 "front"，请使用 dm_datasets 返回的 ID');
+  }
+  if (args.roi && (args.roi[2] <= args.roi[0] || args.roi[3] <= args.roi[1])) throw new RpcError(-32602, "roi 必须是正面积的原图坐标区域，右下边界不包含");
+  if (args.profile && args.profile.start.every((v, i) => v === args.profile.end[i])) throw new RpcError(-32602, "profile 两个端点不能重合；请使用原图像素中心坐标");
   if (args.spatial_bounds?.some(([start, stop]) => stop <= start)) throw new RpcError(-32602, "spatial_bounds 每对必须 start<stop，stop 不包含");
   if (args.energy_window_eV && args.energy_window_eV[1] <= args.energy_window_eV[0]) throw new RpcError(-32602, "energy_window_eV 必须 low<high，high 不包含");
   if (args.path !== undefined && (!/^(?:[A-Za-z]:[\\/]|\\\\)/.test(args.path) || args.path.includes("\0"))) throw new RpcError(-32602, "path 必须是 Windows 绝对路径");
+  for (const key of ["output_dir", "capture_dir", "result_dir"]) {
+    if (args[key] !== undefined && (!/^(?:[A-Za-z]:[\\/]|\\\\)/.test(args[key]) || args[key].includes("\0"))) {
+      throw new RpcError(-32602, `${key} 必须是 Windows 绝对路径`);
+    }
+  }
   if (name === "dm_spectrum_export" && !/\.csv$/i.test(args.path)) throw new RpcError(-32602, "dm_spectrum_export 只支持 .csv 文件");
   if (args.script !== undefined && (!args.script.trim() || Buffer.byteLength(args.script, "utf8") > 1024 * 1024)) throw new RpcError(-32602, "script 不能为空或超过 1 MiB");
+  if (name === "dm_2d_analyze" && (typeof args.operation_id !== "string" || !args.operation_id.trim() || args.operation_id.length > 128)) {
+    throw new RpcError(-32602, "operation_id 必须是 1 到 128 字符的非空字符串");
+  }
+  if (name === "dm_2d_result" && (Boolean(args.result_dir) === Boolean(args.capture_dir))) {
+    throw new RpcError(-32602, "dm_2d_result 需要且只接受 result_dir 或 capture_dir 其中一个");
+  }
+  if (Object.hasOwn(LOCAL_ACTIONS, name)) {
+    return runAnalysisWorker({ action: LOCAL_ACTIONS[name], ...args }, signal);
+  }
   const [op, mapArgs] = entry;
   if (name === "dm_run_script" && process.env.DM_MCP_ALLOW_DMSCRIPT !== "1") {
     throw new Error(

@@ -1,0 +1,4 @@
+# Optional combined report example; not required by core MCP or image preview.
+# Use an external Python environment, never GMS-managed Python.
+-r requirements-preview.txt
+matplotlib>=3.7,<4

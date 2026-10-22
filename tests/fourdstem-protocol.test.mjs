@@ -68,7 +68,7 @@ test('4D-STEM catalog, exact forwarding and invalid-input rejection before dispa
       clientInfo: {name: '4dstem-protocol-test', version: '1'}});
     assert.equal(init.result.serverInfo.version, '0.6.0');
     const catalog = (await rpc('tools/list', {})).result.tools;
-    assert.equal(catalog.length, 17);
+    assert.equal(catalog.length, 21);
     const names = ['dm_4dstem_open', 'dm_4dstem_read', 'dm_4dstem_virtual'];
     assert.deepEqual(catalog.filter(item => item.name.startsWith('dm_4dstem_')).map(item => item.name), names);
     for (const name of names) {

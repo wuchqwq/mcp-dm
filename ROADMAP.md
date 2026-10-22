@@ -1,46 +1,32 @@
-# mcp-dm 下一阶段路线
+# mcp-dm scope and roadmap
 
-目标：让通用 Agent 对明确的数据完成可核对、可复跑的采集后分析。不另建聊天产品，不以新增工具数量作为进展。
+## Goal
 
-## 已有修复及验证边界
+Let a general-purpose agent inspect DM data, view selected images, invoke common post-acquisition operations correctly and retrieve calibrated results for further work. This repository is a tool interface, not a scientific decision-maker or a new agent application.
 
-- 二维统计、FFT、裁剪严格拒绝越界；保留请求与实际区域。
-- 裁剪用每次操作独有标记和新图像 ID 识别结果，不回退认领无关窗口。
-- 元数据先定位子树再有界读取；分别报告路径存在、确认不存在和无法完整定位。类型信息读取失败时不猜测原生 getter。
+## Core acceptance
 
-以上有合成/fake-DM 回归覆盖；修复后的原生裁剪与元数据路径仍需真实 DM 验收。合成通过不等于宿主通过。本路线不承诺已有原子快照、长任务恢复或自动科研结论。
+- A new user can connect to the real DM backend and identify the intended data.
+- Each operation targets explicit data and preserves the documented coordinate, unit, dtype and no-overwrite contracts.
+- A preview corresponds to the referenced input and has an explicit coordinate mapping. Display pixels never replace numerical input.
+- Values, calibration, source references and failure/unknown states can be used by another tool or the user.
 
-## 下一步 1：本机小合成数据验收
+A complete report is an optional integration example, not the definition of a successful MCP. An agent's ability to choose a scientifically appropriate region is evaluated separately from tool correctness.
 
-先在用户确认的 Windows/DM 环境验证上述修复，不用私有实验数据作为起点。
+## Existing capabilities to retain
 
-验收：合法 ROI 的像素与 signed scale/物理原点正确；越界不执行裁剪；无关图不被重命名或重标定；元数据 prefix 在低深度下仍定位正确；列表、转义标签与失败状态正确。记录实际版本和代码身份，不在公开仓库发布私有环境日志。
+Core metadata, ROI, crop, profile, FFT and exports; bounded 2D capture and preview; existing limited spectroscopy/4D tools. Preserve documented limitations and backward-compatible tool names. Capturing fixed input is useful for multi-step tasks but unnecessary for simple queries. A live image ID is not a pixel snapshot.
 
-未通过则只修宿主适配，不开始大规模重构。
+The report/replay worker remains optional. Preview needs only NumPy/Pillow in an external environment. Report rendering adds Matplotlib; status/verification do not import plotting libraries. The user-facing Skill is optional and is not installed by MCP registration.
 
-## 下一步 2：打通二维分析任务 A
+## Next steps
 
-自然语言目标：检查当前二维图及标定，核对选区，计算统计/剖面/FFT，保存数据、图和步骤，不修改源图。
+1. Validate current scope/preview fixes with small synthetic inputs on the target Windows/DM/client combination. Historical host passes do not certify changed code.
+2. Try small independent tasks: identify an image and its calibration; view a selected capture; take a specified profile; export a calibrated crop or FFT summary. Fix concrete usability or correctness failures without expanding the platform.
+3. Gather feedback from a few research users when the core is usable. Add installation polish or another operator only when actual friction justifies it.
 
-拆为两个小交付：
+## Deferred, not silently completed
 
-1. 一次解析当前图，捕获预算内的二维工作数据及标定；预览与计算使用同一输入。预览返回源坐标映射、显示范围和 ROI/剖面叠加。内联图片不兼容时允许本地 PNG 回退。捕获期间的数据一致性必须实测，不能把图像 ID 当像素版本。
-2. 导出 NPY/CSV、参数与标定 JSON、真实 FFT 数值和图片，配一份分析 Skill 与复跑脚本。报告先使用 Markdown/HTML，不先造报告平台。FFT 图片与峰值应来自同一计算，不能用几个格点伪造频谱。
+4D-STEM development; automated crystallographic identification, strain, EDS/EELS quantification or reconstruction; complete job scheduling; atomic snapshots; generic object versioning; arbitrary-script enablement; a report platform; new chat UI or multi-agent framework.
 
-最低门槛：窗口切换不换输入；缩略图坐标不被当原图坐标；结果可由另一进程复跑。长操作先加最小操作 ID、完成记录及结果核对；超时状态不明时不自动重发。完整跨重启调度可后置。
-
-## 下一步 3：外部用户试用任务 A
-
-固定版本入口、小型合成首次任务、只诊断且默认不改环境的 doctor、简短兼容表和脱敏反馈模板。明确哪些内容会传给所选 Agent/模型服务。
-
-对实际部署补适度的连接鉴权与输入/输出路径范围；loopback 不是完整安全隔离。让少量未参与开发的研究者独立完成任务，按真实阻塞点改进，而不是先扩展安装器或搭建网站。
-
-## 下一步 4：复用基础完成 4D 任务 B
-
-数据体检、平均衍射图、虚拟 BF/ADF 和可核对的倒空间掩膜。复用已有有界 reader 与 kernel，由代码保证全扫描分块覆盖、拼接、总和及实际参与数，不让 Agent 临时手算批次。
-
-验收末块、重复/缺块、源变化、溢出、内存和部分完成状态；停止在安全块边界发生。抽样预览不能称为全局平均，零值和疑似饱和不自动排除，几何 ADF 不自动命名 HAADF。不要同时扩大 dtype/压缩/轴布局支持。
-
-## 暂缓
-
-专用 Agent 框架、多 Agent 调度、新聊天界面、默认开放任意 DM-Script、通用对象版本系统、全面 DM4 reader，以及未经独立验收的物相/应变/光谱定量/ptychography 承诺。
+Local loopback is not authentication. Existing filesystem permissions and data-sharing limits remain relevant; comprehensive access controls are separate work. Normal operation timeout does not prove that DM execution stopped. See docs/SCOPE_AUDIT.md for the bounded audit and remaining risks.
