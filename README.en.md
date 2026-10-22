@@ -14,7 +14,7 @@ The Node server has no npm runtime dependencies. The DM bridge uses the standard
 
 | Area | Evidence and limits |
 |---|---|
-| 2D STEM images | Real DM calibration, numerical and export validation passed within a limited scope. |
+| 2D STEM images | Small synthetic images passed real-host ROI, calibration, capture, preview, task-A numeric and replay checks; experimental-sample coverage remains limited. |
 | EDS/EELS basics | Synthetic arithmetic, fake DM APIs and a mock MCP chain were tested. **Real EDS, EELS and spectral SI remain `NOT_TESTED`.** |
 | 4D-STEM | Bounded uint8 native-stream reading and virtual detector analysis verified within a limited scope. |
 | Hardware, acquisition, plugin quantification, phase reconstruction | Not provided or not validated. |
@@ -30,6 +30,14 @@ git clone https://github.com/wuchqwq/mcp-dm.git
 Set-Location .\mcp-dm
 node --version
 # No npm runtime dependencies; npm install is unnecessary.
+```
+
+For 2D previews and result figures, install an external analysis environment. Do not change GMS-managed Python or NumPy:
+
+```powershell
+python -m venv .analysis-env
+.\.analysis-env\Scripts\python.exe -m pip install -r requirements-analysis.txt
+$analysisPython = (Resolve-Path .\.analysis-env\Scripts\python.exe).Path
 ```
 
 DM's embedded interpreter is separate from system Python. An external `import DigitalMicrograph` is not the supported route. Do not upgrade the GMS-managed NumPy to the latest version.
@@ -85,10 +93,10 @@ This script registers MCP; it does not start DM. Inspect an existing server with
 ```powershell
 $nodeExe = (Get-Command node).Source
 $serverFile = (Resolve-Path .\server.mjs).Path
-codex mcp add digitalmicrograph --env DM_BRIDGE_HOST=127.0.0.1 --env DM_BRIDGE_PORT=8765 --env DM_MCP_TIMEOUT_MS=600000 --env DM_MCP_ALLOW_DMSCRIPT=0 -- $nodeExe $serverFile
+codex mcp add digitalmicrograph --env DM_BRIDGE_HOST=127.0.0.1 --env DM_BRIDGE_PORT=8765 --env DM_MCP_TIMEOUT_MS=600000 --env DM_MCP_ALLOW_DMSCRIPT=0 --env "DM_ANALYSIS_PYTHON=$analysisPython" -- $nodeExe $serverFile
 ```
 
-For long 4D work, the MCP client's tool deadline must exceed the bridge deadline. Add these settings to the existing `[mcp_servers.digitalmicrograph]` table; do not create a duplicate TOML table. If `disabled_tools` already exists, merge `dm_run_script` into it and preserve other disabled tools:
+2D capture and analysis may exceed the client's default wait. Add these settings to the existing `[mcp_servers.digitalmicrograph]` table when needed; do not create a duplicate TOML table. If `disabled_tools` already exists, merge `dm_run_script` into it and preserve other disabled tools:
 
 ```toml
 startup_timeout_sec = 20
@@ -96,7 +104,7 @@ tool_timeout_sec = 660
 disabled_tools = ["dm_run_script"]
 ```
 
-The registration script refuses to replace an existing name and does not automatically edit these timeout/denylist settings. The catalog has 17 tools; Codex exposes 16 when that denylist is applied. Without client-side hiding, both execution gates still reject arbitrary scripts. Existing desktop conversations may need an MCP restart: Settings → MCP servers → Restart. [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
+The registration script refuses to replace an existing name and does not automatically edit these timeout/denylist settings. The catalog has 21 tools; Codex exposes 20 when that denylist is applied. Without client-side hiding, both execution gates still reject arbitrary scripts. Existing desktop conversations may need an MCP restart: Settings → MCP servers → Restart. [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
 
 Other clients can use [mcp.json.example](mcp.json.example). Replace `__ABS_REPO_PATH__` with the absolute repository path, such as `D:/code/mcp-dm`. The JSON example is not a Codex TOML configuration.
 
@@ -107,6 +115,8 @@ Other clients can use [mcp.json.example](mcp.json.example). Replace `__ABS_REPO_
 | Tools | Purpose |
 |---|---|
 | `dm_status`, `dm_datasets` | Backend identity and open dataset shape, dtype and per-axis calibration |
+| `dm_2d_capture`, `dm_2d_preview` | Freeze a bounded 2D working input; return an image block, local PNG path and source-coordinate map |
+| `dm_2d_analyze`, `dm_2d_result` | Compute/query statistics, profile and full FFT from the same capture package |
 | `dm_open`, `dm_metadata` | Open 2D data and read typed metadata; inspect `complete` and issues |
 | `dm_stats`, `dm_profile`, `dm_fft` | 2D statistics, calibrated profiles and Fourier frequencies |
 | `dm_crop`, `dm_export` | Independent cropped images and new-file exports with calibration/provenance |
@@ -118,7 +128,7 @@ Other clients can use [mcp.json.example](mcp.json.example). Replace `__ABS_REPO_
 | `dm_run_script` | Arbitrary scripting, disabled by default in both Node and bridge |
 
 - **2D ROI contract change:** statistics, FFT and cropping reject out-of-bounds, empty and noninteger rectangles. No rounding or implicit clipping is performed. Omitted `rect` means the full image only for statistics/FFT; crop requires an explicit ROI. `requested_rect` preserves the request (null when omitted), `effective_rect` records the used bounds, and the legacy `rect` result remains available.
-- Crop keeps native `ImageClone` and identifies its result by a fresh per-operation internal token and a new image ID, never a user display name or newest-window fallback. Missing/duplicate tokens fail without recalibrating unrelated images. Synthetic regressions cover this repair; **real-DM acceptance of the repaired crop is NOT_TESTED**. This is not an atomic pixel snapshot or a security sandbox.
+- Crop keeps native `ImageClone` and identifies its result by a fresh per-operation internal token and a new image ID, never a user display name or newest-window fallback. Missing/duplicate tokens fail without recalibrating unrelated images. The fixed synthetic path passed on the current DM host; this does not imply support for every version or sample, and is not an atomic pixel snapshot or security sandbox.
 - Rectangles are zero-based `[x0,y0,x1,y1]`, with exclusive upper bounds. NumPy image shape is `[y,x]`. DM dimension 0 changes fastest; C-order NumPy's final axis changes fastest.
 - Use `coordinate[i] = calibrated_value_at_pixel_zero + i * scale`. A raw DM `Origin` may be the pixel index of physical zero, not a physical offset. Cropping shifts the physical zero by `start * scale`.
 - Statistics use finite values, float64 and population standard deviation (`ddof=0`); zeros are included. Mark incomplete scans explicitly before interpreting whole-frame summaries.
@@ -133,7 +143,25 @@ Other clients can use [mcp.json.example](mcp.json.example). Replace `__ABS_REPO_
 
 Check `path_status`: `found` establishes existence, not successful/complete value decoding; still check `complete` and `issues`. `not_found` means confirmed absence. `unavailable` means resolution was blocked by lookup limits, unreadable labels or ambiguity, not absence. Completeness applies only to the requested subtree. Lookup and subtree traversal have separate node budgets; paths have at most 64 segments. Type/size introspection failures stop before guessing a native getter.
 
-Synthetic/fake-DM regressions cover this change; repaired real-DM metadata path reading remains **NOT_TESTED**. See [ROADMAP.md](ROADMAP.md) for the next acceptance and development steps.
+Synthetic/fake-DM regressions and a fixed synthetic tag-tree acceptance passed on the current DM host. Native getter failure/crash injection remains **NOT_TESTED**. See [ROADMAP.md](ROADMAP.md) for current scope.
+
+## 2D task A: capture, review, analyze and replay
+
+`dm_2d_capture` resolves the current front image once when `image_id` is omitted, or uses an explicit ID. Optional `rect` is a strict source-pixel ROI `[x0,y0,x1,y1)`; the output directory must be new. Shape, scalar dtype and memory budget are checked before reading. Preview and calculations use the saved NPY and calibration, so later front-window changes do not change the input. DM provides no atomic pixel-plus-calibration snapshot: do not edit the source while capture runs. Oversized captures fail instead of shrinking silently.
+
+`dm_2d_preview` returns an MCP PNG image block, a local PNG path, display range and preview-to-source pixel/edge mappings. It can overlay a source-coordinate ROI and profile strip. Display uses a linear min-max stretch over finite values; constant images are mid-gray and NaN/Inf are magenta. Preview PNGs are for visual review only, never scientific export or computational input. Confirm the client actually displays the image block; otherwise open the returned path. ROI edges are half-open; profile endpoints are pixel centers.
+
+Example arguments, in order:
+
+```json
+{"output_dir":"C:/analysis/capture-001","image_id":1234}
+{"capture_dir":"C:/analysis/capture-001","roi":[20,30,180,150],"profile":{"start":[20,90],"end":[179,90],"width":1}}
+{"capture_dir":"C:/analysis/capture-001","result_dir":"C:/analysis/result-001","operation_id":"analysis-001","roi":[20,30,180,150],"profile":{"start":[20,90],"end":[179,90],"width":1}}
+```
+
+Call `dm_2d_capture`, `dm_2d_preview`, then `dm_2d_analyze`. The analysis bundle contains captured NPY and calibration, statistics/profile JSON, profile CSV, full FFT magnitude NPY and peak/frequency JSON, figures, parameters, manifest, Markdown report and `replay.py`. Run `python replay.py --verify` to recompute and compare numeric results using the manifest tolerance, or `python replay.py --output NEW_EMPTY_DIRECTORY` to create another bundle. After a timeout, query `dm_2d_result` first; `unknown` does not mean the operation stopped, so do not retry automatically.
+
+FFT requires finite input and does not impute NaN/Inf. A frequency-grid peak is not an identified reflection, plane or phase. See the user workflow [Skill](skills/dm-2d-analysis/SKILL.md). The MCP does not upload captures; depending on the client and selected model service, previews, selections, calibration and values may be sent to that service.
 
 ## 4D-STEM examples and limits
 
@@ -167,7 +195,7 @@ The basic bounded native-read, axis-calibration and virtual-detector export chai
 
 Sources are read-only; in-place overwrites are forbidden. NPY preserves dtype/shape, with calibration in a sidecar. Scientific TIFF is uncompressed single-channel classic TIFF with dtype preservation and calibration in its description, Gatan axis tags and sidecar. Check numerical values and calibration after export. Reject files exceeding classic TIFF format limits, unknown types and incompatible units explicitly.
 
-DM3, other GMS/detector types and new format combinations need separate acceptance. CSV/TXT uses exact integer decimal values or 17 significant float digits. PNG display mapping is not defined. Exports and sidecars require new paths and record source, processing history, writer and SHA-256.
+DM3, other GMS/detector types and new format combinations need separate acceptance. CSV/TXT uses exact integer decimal values or 17 significant float digits. Scientific PNG intensity export is undefined; `dm_2d_preview` PNG is display-only. Scientific exports and sidecars require new paths and record source, processing history, writer and SHA-256.
 
 An arbitrary-script switch is not a hardware sandbox. Keep `DM_MCP_ALLOW_DMSCRIPT=0`. The project provides no remotely exposed bridge or acquisition tools.
 

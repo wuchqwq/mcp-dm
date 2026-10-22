@@ -10,11 +10,14 @@ This is a Windows DigitalMicrograph MCP bridge for post-acquisition scientific a
 - `bridge/fourdstem.py`: bounded geometric virtual detector arithmetic. Array/memmap and native-reader entrypoints share one kernel. The reader callback initially requires canonical axes and returns small `[n,q_y,q_x]` chunks.
 - `bridge/dm4_header.py`: narrow seek-only DM4 index with explicit byte/node/depth budgets; no full pixel loading and no general metadata-decoder claim.
 - `bridge/native_stream.py`: bounded read-only Gatan binary streams into small native images, only canonical uncompressed uint8 4D input. Shape/dtype/offset come from the validated header index.
+- `bridge/analysis2d_core.py`: shared Python 3.7 / NumPy 1.18-safe statistics, profile and FFT kernels for DM and the external 2D analysis worker.
+- `tools/analysis_worker.py`: preview, result-package and replay logic in a separate Python environment. It must never import Gatan APIs or mutate DM images. `requirements-analysis.txt` is not for the GMS runtime.
+- `skills/dm-2d-analysis/SKILL.md`: user-facing analysis workflow; numerical correctness and coordinate conversion remain enforced by code.
 - `bridge/lossless_tiff.py`: scientific TIFF with dtype/calibration preservation. Do not replace it with a display export or silently downcast.
 - `setup/`: target-GMS offline runtime installer, two-stage real-DM launcher, explicit Codex registration. These are user-run setup operations, not CI prerequisites.
 - `tests/`: synthetic arrays, fake DM API and isolated mock/echo bridges only. No test should require a DM license, private sample or fixed local drive.
 
-The public MCP catalog has 17 tools, including dm_4dstem_open/read/virtual. Codex exposes 16 only after dm_run_script is added to its disabled_tools list. The registration helper must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
+The public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
 ## Mandatory scientific contracts
 
@@ -29,6 +32,9 @@ The public MCP catalog has 17 tools, including dm_4dstem_open/read/virtual. Code
 9. Timeout/cancellation does not cancel a dispatched DM operation. Do not automatically retry operations with side effects. Busy/unknown is not proof that the bridge is stopped.
 
 10. Resolve metadata prefixes before subtree traversal. Keep lookup and value budgets separate, preserve JSON Pointer escapes/list indices, and distinguish confirmed absence from incomplete resolution. Never guess a native getter after failed or truncated type introspection. `complete` describes the requested subtree, not the whole image metadata.
+11. `dm_2d_capture` resolves the selected/front image once, validates 2D shape, supported scalar dtype, strict ROI and memory budget before copying, then records pixels plus calibration into a new capture directory. DM does not provide an atomic pixel/calibration snapshot: do not claim concurrent-edit protection. Downstream preview and analysis must use that captured NPY, never the live/front image or display PNG.
+12. Preview scaling and overlays are display-only. Keep preview-to-source edge and pixel-center transforms explicit; ROI uses source-coordinate half-open edges and profile endpoints use source pixel centers. No silent clipping, resampling for analysis, or data/dtype/calibration alteration is allowed.
+13. Task-A results go into a new result directory. Bind operation ID to capture hash, parameters and code hashes; preserve full FFT values and metadata from the same computation. Unknown after timeout is not success or cancellation; query the directory and do not auto-retry. Replay verifies numerical arrays/metadata within documented tolerance, not PNG byte identity.
 
 ## Validation and claims
 
@@ -51,7 +57,7 @@ $env:DM_TEST_PYTHON = (Get-Command python).Source
 node selftest.mjs
 ```
 
-Use an external development venv with `requirements-dev.txt` for tifffile. Never pip-upgrade the GMS-managed runtime just to run a test. Test the core with GMS Python separately when available. CI success alone is synthetic evidence.
+Use an external development venv with `requirements-dev.txt` for tifffile and `requirements-analysis.txt` for the preview/report worker. Never pip-upgrade the GMS-managed runtime just to run a test. Test the core with GMS Python separately when available. CI success alone is synthetic evidence.
 
 4. For an actual DM change, use a new output directory and small read-only representative data. Confirm DM backend, source hashes before/after, independent numerical oracle, calibration and reopened exports. Under a memory constraint, measure peak process working set in addition to explicit chunk sizes. Do not restart or close unrelated user documents casually.
 5. Update human and agent documentation for behavior and validation limits. Run `git diff --check`. Inspect staged files manually; `.gitignore` is a convenience, not a privacy guarantee. No experimental `.dm3/.dm4`, arrays/images, vendor manuals/binaries, third-party GPL reader, runtime traces, credentials or personal machine paths belong in the public repository.

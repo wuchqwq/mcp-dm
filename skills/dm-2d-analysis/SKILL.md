@@ -1,0 +1,21 @@
+# DigitalMicrograph 2D image analysis
+
+Use this workflow for a post-acquisition 2D STEM image when the user asks for statistics, a line profile, an FFT, or a reviewable report. It does not control microscope hardware or alter the source image.
+
+## Workflow
+
+1. Call `dm_status` and `dm_datasets`. Confirm `backend="digitalmicrograph"`, identify the intended 2D image, and inspect its shape, dtype, x/y scales, units, and physical values at pixel zero. Do not infer axis meaning or missing calibration. If a physical scale is needed but is absent, inconsistent, zero, or nonfinite, stop that interpretation and ask for the calibration; pixel-domain calculations may be labeled as such.
+2. Choose a new local capture directory. Call `dm_2d_capture` with the exact `image_id`; omit it only when the user explicitly means the image that is frontmost at that moment. Supply `rect` only when the requested working region is smaller than the image. The call resolves the image once and saves a bounded pixel/calibration copy. Do not edit the source while capture runs: DM does not provide an atomic pixel-plus-calibration snapshot.
+3. Check the capture result (`state`, `shape_yx`, `dtype`, `source_rect_xyxy`, calibration, and input hash). If capture fails, the identity is unclear, calibration changed, or the memory budget rejects the requested region, stop and explain the evidence. Do not silently shrink, clip, or repeat into the same directory.
+4. Call `dm_2d_preview` on that capture. Inspect the actual image block if the client displays it; otherwise open `preview_path` locally. Use the returned mapping to convert display edges to source edges and preview pixel centers to source pixel centers. Never pass preview coordinates as source coordinates without this conversion. ROI edges are half-open `[x0,y0,x1,y1)`; profile endpoints are pixel centers `[x,y]` with y increasing downward.
+5. Select the ROI and profile based on the visible feature and the scientific question. If the user already gave the coordinates and width, do not ask again. Call `dm_2d_preview` again with those source-coordinate selections to inspect the overlay. If the image is not visible or the overlay does not match the intended feature, stop before calculation and state what could not be reviewed.
+6. Call `dm_2d_analyze` with the same `capture_dir`, the reviewed source-coordinate ROI/profile, a new `result_dir`, and a stable unique `operation_id`. The worker uses the captured NPY, never the current DM window or display PNG. It rejects nonfinite FFT input; statistics exclude NaN/Inf and report counts; no values are imputed.
+7. Verify the returned state and inspect `report.md`, `stats.json`, `profile.csv`/`profile.json`, `fft.json`, and the full `fft_magnitude.npy`. Confirm the report ROI, units, profile coordinates and FFT shape match the reviewed inputs. The FFT plot is display-scaled; the saved FFT NPY is the numeric result. A peak is a frequency-grid sample, not an identified reflection, lattice plane, phase, or spacing.
+8. Run `python replay.py --verify` from the result directory using Python 3.10+ with NumPy, Matplotlib and Pillow. Report its numeric comparison result and tolerance. `python replay.py --output NEW_EMPTY_DIRECTORY` creates a separate replay package; never choose an existing directory.
+
+## Unknown states and data sharing
+
+- If a tool wait times out, call `dm_2d_result` for the exact `capture_dir` or `result_dir`. `unknown` means status is unresolved; it does not mean the work stopped. Do not automatically resubmit a capture or analysis with side effects.
+- The capture and result directories contain local data. The MCP does not upload them, but a client may send image blocks, metadata, coordinates, calibration and numeric results to its selected model service. Follow the user's data-sharing constraint and do not include source paths or unrelated metadata in the report.
+- The capture records a copy and its hashes, not an atomic snapshot of concurrent DM edits. Results are fixed to that captured copy; if the source was edited during capture, the run cannot establish which instant the pixels represent.
+- Keep computed facts, interpretations and items requiring human review separate. Do not claim hardware acquisition, EDS/EELS, 4D-STEM, crystallographic identification or phase reconstruction from this workflow.
