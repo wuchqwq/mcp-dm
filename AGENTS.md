@@ -48,6 +48,13 @@ The public MCP catalog has 21 tools, including the four fixed-input 2D capture/p
 
 ## Validation and claims
 
+Dataset enumeration may map only known native real scalar type codes to dtype,
+reusing the bounded 2D capture mapping; unknown types stay null. Do not touch
+pixel buffers to obtain a dtype. Optional synthetic fixtures must run before
+the persistent Python Bridge, or after disconnecting clients and cleanly
+stopping it; never force-restart DM for script-slot conflicts. Check both
+JSON-RPC `error` and MCP tool `isError` before claiming tool success.
+
 Use PASS / FAIL / NOT_TESTED for each scope. Distinguish arithmetic unit tests, protocol tests, mock-chain checks, actual DM API execution, real-data numerical comparison, export reopening and visual review. A successful mock response does not prove real DM. `dm_status.backend` must be `digitalmicrograph` for actual host claims. Record actual version/source identity.
 
 Run tests locally. The optional Actions workflow is manual only; hosted runs cover synthetic behavior only and have no real DM or experimental data. Bounded canonical uint8 4D reads and virtual detectors have limited real-host validation. Whole-file native OpenImage and built-in BF/ADF plugins remain unverified. Real EDS/EELS/spectral SI remain NOT_TESTED. New types/layouts/versions need independent bounded-read, axis/calibration, numerical, source-invariance and memory evidence. Do not mark a failed first run as passed merely because a corrected rerun passed.

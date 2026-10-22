@@ -265,7 +265,7 @@ const tools = [
   ),
   tool(
     "dm_profile",
-    "沿任意两点取线条剖面，支持剖面宽度平均。横轴按图像标定自动换算成物理距离。",
+    "沿两点取强度剖面：直接传 x0/y0/x1/y1 原图像素中心坐标（不是 start/end；只有 dm_2d_preview 的 profile 对象用 start/end）。可指定 width，按标定返回距离。",
     {
       image_id: IMAGE_ID,
       x0: { type: "number" },

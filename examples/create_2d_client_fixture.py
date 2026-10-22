@@ -3,6 +3,9 @@
 
 No file access, existing-image edits, bridge injection or instrument commands.
 Names include a run token. Copy the printed IDs/names into the local test sheet.
+Run before the persistent Bridge starts. Otherwise disconnect MCP clients
+and cleanly stop the Bridge first, waiting for DM's Python slot to be free.
+Never inject a second /ef script or terminate DM just to make a fixture.
 Keep this workspace open while testing; do not upload private session logs.
 """
 import uuid

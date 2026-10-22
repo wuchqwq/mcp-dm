@@ -49,6 +49,20 @@ IDLE_TIMEOUT = float(os.environ.get("DM_BRIDGE_IDLE_TIMEOUT", "3600"))
 CLIENT_IDLE_TIMEOUT = float(os.environ.get("DM_BRIDGE_CLIENT_IDLE_TIMEOUT", "15"))
 MAX_2D_CAPTURE_WORKING_BYTES = 256 * 1024 * 1024
 
+# Conservative known real-scalar Gatan image types. Do not inspect pixels to
+# infer unknown/complex/RGB types. Shared by listing and bounded 2D capture.
+_DM_REAL_SCALAR_DTYPES = {
+    1: "int16", 2: "float32", 6: "uint8", 7: "int32",
+    9: "int8", 10: "uint16", 11: "uint32", 12: "float64",
+}
+
+
+def _native_scalar_dtype_name(code):
+    if isinstance(code, bool) or not isinstance(code, numbers.Integral):
+        return None
+    return _DM_REAL_SCALAR_DTYPES.get(int(code))
+
+
 try:
     import numpy as np
 except Exception:  # pragma: no cover
@@ -1096,8 +1110,9 @@ class DmBackend(SpectroscopyMixin):
             try:
                 ndim, dims = self._dims(img)
                 n = self._npixels(dims)
-                # Listing does not touch pixel memory or retain array references.
-                dtype = None
+                # Native type introspection does not map the pixel buffer.
+                data_type_code = self._safe(img.GetDataType)
+                dtype = _native_scalar_dtype_name(data_type_code)
                 out.append({
                     "id": int(img.GetID()),
                     "name": self._safe(img.GetName),
@@ -1110,7 +1125,7 @@ class DmBackend(SpectroscopyMixin):
                     "shape_order": "numpy (last axis is X)",
                     "ndim": ndim,
                     "dtype": dtype,
-                    "data_type_code": self._safe(img.GetDataType),
+                    "data_type_code": data_type_code,
                     "pixels": n,
                     "transfer_ok": bool(n <= MAX_TRANSFER_PIXELS),
                     "kind": _classify(dims, ndim),
@@ -1377,12 +1392,10 @@ class DmBackend(SpectroscopyMixin):
             raise ValueError("只支持显式二维实数图像；请先在 DM 中选择二维数据集")
         source_shape = [int(dims[1]), int(dims[0])]
         data_type_code = self._safe(img.GetDataType)
-        dtype_by_code = {1: "int16", 2: "float32", 6: "uint8", 7: "int32",
-                         9: "int8", 10: "uint16", 11: "uint32", 12: "float64"}
-        try:
-            expected_dtype = np_.dtype(dtype_by_code[int(data_type_code)])
-        except (KeyError, TypeError, ValueError):
+        dtype_name = _native_scalar_dtype_name(data_type_code)
+        if dtype_name is None:
             raise ValueError("拒绝未知或非实数 DM 数据类型；不猜测 NumPy dtype")
+        expected_dtype = np_.dtype(dtype_name)
         used = _rect_bounds(source_shape, rect)
         x0, y0, x1, y1 = used
         selected_shape = [y1 - y0, x1 - x0]
