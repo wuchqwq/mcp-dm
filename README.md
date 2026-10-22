@@ -2,7 +2,25 @@
 
 [English](README.en.md) · [给编程代理的说明](AGENTS.md)
 
-让 Codex 等 MCP 客户端调用本机 Gatan DigitalMicrograph（DM），读取已采集数据的标定与元数据，进行图像、基础光谱和虚拟探测器计算。只处理**采集后分析**，没有相机、束流、样品台或光路控制工具。
+**让通用 Agent 能够了解 DigitalMicrograph 中的数据、查看指定图像、正确调用常用的采集后分析操作，并取得带标定、可继续处理的结果。**
+
+`mcp-dm` 是本机 Gatan DigitalMicrograph（DM）的工具接口，不是新的聊天产品或自动科研分析平台。Agent 负责理解目标、组合工具、选择方法和组织解释；本项目负责正确的数据对象、坐标、单位、操作结果和失败状态。只处理**采集后分析**，不控制相机、束流、样品台或光路。
+
+## 项目边界
+
+| 层次 | 本项目提供 | 不强制做的事 |
+|---|---|---|
+| 核心 MCP | 连接与状态、数据集、元数据、常用数值操作、裁剪和保标定导出 | 不要求捕获包、报告、Skill 或外部绘图库 |
+| 图像与数据交接 | 有界二维副本、显示预览、源坐标映射 | 预览不参与数值计算；当前预览使用 `capture → preview` 两步 |
+| 可选工作流示例 | 既有二维报告、结果查询与复跑脚本 | 不替用户决定科学方法，不是使用核心工具的前置条件 |
+
+不追求封装所有 DM API，不承诺自动物相识别、应变、光谱定量或重构。4D-STEM 既有接口按已声明范围保留，近期不扩展。新功能先判断是否为可靠访问 DM 所必需，优先复用通用 Agent 与外部科学计算工具。
+
+## 从一个具体操作开始
+
+可以让 Agent：“列出已打开图像并读取这张图的标定”“对我指定的区域取剖面”“计算该区域 FFT 并返回频率”“导出一个不覆盖原图的新文件”。它应先确认真实后端与明确的 `image_id`，然后只调用需要的工具。显式 ID 固定对象，不冻结内容；多步分析需要固定像素时再捕获独立副本。
+
+**不需要每次执行“捕获 → 统计 → 剖面 → FFT → 报告”。** 成功标准是连接可用、操作正确、结果可继续使用，而不是能否生成一篇报告。
 
 ```text
 MCP 客户端 → Node stdio server.mjs → 127.0.0.1 TCP → DM 内嵌 Python
@@ -19,7 +37,7 @@ Node 服务无 npm 运行依赖；DM 桥仅用 Python 标准库和 NumPy。DM/GM
 | 4D-STEM | 有界 uint8 原生流读取与虚拟探测器分析验证通过，支持范围有限 |
 | 硬件、采集、插件定量、相位重建 | 未提供或未验证 |
 
-仓库只含合成测试。新机器需验证自己的 DM 版本、数据类型、轴序和标定；默认使用本地测试；Actions 仅手动触发，未将 CI 计入验证结论。
+仓库分发的是合成数据测试与显式运行的宿主验收脚本，不含实验数据。上述真实宿主记录属于既有版本；本次范围/预览修改不继承其实机通过结论。新机器需验证自己的 DM 版本、数据类型、轴序和标定；默认使用本地测试；常规 Actions 保持手动触发；隔离验证只证明合成行为，不证明真实 DM 可用。
 
 ## 1. 准备环境
 
@@ -32,13 +50,15 @@ node --version
 # 无 npm 运行依赖，不需要 npm install
 ```
 
-若要使用二维预览和结果图，另建外部分析环境；不要改 GMS 管理的 Python/NumPy：
+核心连接、元数据、统计、剖面、FFT、裁剪、导出和捕获不需要以下外部环境。**仅在需要图像预览时**，另建 Python 3.10+ 环境；不要改 GMS 管理的 Python/NumPy：
 
 ```powershell
 python -m venv .analysis-env
-.\.analysis-env\Scripts\python.exe -m pip install -r requirements-analysis.txt
+.\.analysis-env\Scripts\python.exe -m pip install -r requirements-preview.txt
 $analysisPython = (Resolve-Path .\.analysis-env\Scripts\python.exe).Path
 ```
+预览环境只需 NumPy 和 Pillow。可选报告的 Matplotlib 在调用报告时才加载；状态查询与数值验证不依赖 Pillow/Matplotlib。预览用有界分块统计显示范围，只在目标分辨率上分配显示缓冲；缩略图可能遗漏细节，需要时显式提高分辨率或缩小捕获区域。
+
 
 DM 内嵌 Python 不是普通系统 Python。不要在外部 Python 中尝试 `import DigitalMicrograph`，也不要用较新的 NumPy 替换 GMS 管理的 NumPy。
 
@@ -92,7 +112,7 @@ codex mcp get digitalmicrograph --json
 ```powershell
 $nodeExe = (Get-Command node).Source
 $serverFile = (Resolve-Path .\server.mjs).Path
-codex mcp add digitalmicrograph --env DM_BRIDGE_HOST=127.0.0.1 --env DM_BRIDGE_PORT=8765 --env DM_MCP_TIMEOUT_MS=600000 --env DM_MCP_ALLOW_DMSCRIPT=0 --env "DM_ANALYSIS_PYTHON=$analysisPython" -- $nodeExe $serverFile
+codex mcp add digitalmicrograph --env DM_BRIDGE_HOST=127.0.0.1 --env DM_BRIDGE_PORT=8765 --env DM_MCP_TIMEOUT_MS=600000 --env DM_MCP_ALLOW_DMSCRIPT=0 -- $nodeExe $serverFile
 ```
 
 二维捕获和分析可能超过客户端默认等待时间。在 Codex 的现有 `[mcp_servers.digitalmicrograph]` 表内按需增加以下设置，不要重复建立同名 TOML 表；已有 `disabled_tools` 时把 `dm_run_script` 合并进去，保留其它禁用项：
@@ -115,7 +135,7 @@ disabled_tools = ["dm_run_script"]
 |---|---|
 | `dm_status`、`dm_datasets` | 查看后端和已打开数据集的 shape、dtype、每轴标定 |
 | `dm_2d_capture`、`dm_2d_preview` | 固定捕获二维工作输入；预览并返回 image block、PNG 路径和源坐标映射 |
-| `dm_2d_analyze`、`dm_2d_result` | 对同一捕获数据计算并查询统计、剖面、完整 FFT 与分析包 |
+| `dm_2d_analyze`、`dm_2d_result` | 可选组合报告／独立状态查询；不作为其他工具的前置条件 |
 | `dm_open`、`dm_metadata` | 打开二维数据副本/视图、读取 typed metadata；检查 `complete` 和错误列表 |
 | `dm_stats`、`dm_profile`、`dm_fft` | 二维统计、物理距离剖面、标定频率 FFT |
 | `dm_crop`、`dm_export` | 独立裁剪与新路径导出，保留标定和 provenance |
@@ -144,7 +164,13 @@ disabled_tools = ["dm_run_script"]
 
 此改动有合成、fake-DM 与当前 DM 主机固定标签验收覆盖；原生 getter 故障/崩溃注入仍为 **NOT_TESTED**。后续范围见 [ROADMAP.md](ROADMAP.md)。
 
-## 二维任务 A：捕获、核对、分析与复跑
+## 可选示例：二维分析报告与复跑
+
+以下是已有组合示例，不是核心 MCP 的默认工作流。只想看图时，到 `dm_2d_preview` 即可；只想取剖面或 FFT，也可直接使用单独工具。生成完整报告才需要额外安装：
+
+```powershell
+.\.analysis-env\Scripts\python.exe -m pip install -r requirements-analysis.txt
+```
 
 新注册 MCP 时可将外部分析解释器交给注册脚本：
 
@@ -154,7 +180,7 @@ disabled_tools = ["dm_run_script"]
 
 `dm_2d_capture` 省略 `image_id` 时只在调用开始解析一次 DM 前台图像，也可明确传图像 ID；可选 `rect` 使用原图坐标 `[x0,y0,x1,y1)`。输出目录必须是新目录。捕获前检查二维 shape、dtype 和内存预算；复制像素与标定后，后续工具都固定使用该 NPY，不再跟随前台窗口。DM API 不能保证像素与标定的原子快照，**捕获期间不要编辑源图**。预算不够时明确失败，不自动缩小 ROI。
 
-`dm_2d_preview` 可显示捕获图并叠加候选 ROI、剖面线/条带。返回内容包含 PNG image block、本地 PNG 路径、显示范围，以及 preview↔source 像素/边界坐标映射。显示采用有限值线性 min-max；常数图显示中灰，NaN/Inf 显示洋红。PNG 只用于核对，**不参与统计、剖面或 FFT，也不是科学数据导出**。需确认客户端实际显示了 image block；否则用本地路径打开图片。选择坐标仍须用原图 source pixel，矩形右/下边界不包含，剖面端点是像素中心。
+`dm_2d_preview` 可显示捕获图并叠加候选 ROI、剖面线/条带。返回内容包含 PNG image block、本地 PNG 路径、显示范围，以及 preview↔source 像素/边界坐标映射。显示采用有限值线性 min-max；常数图显示中灰，NaN/Inf 显示洋红。缩略图按最近源像素中心采样，仅供查看，可能遗漏细节。PNG 只用于核对，**不参与统计、剖面或 FFT，也不是科学数据导出**。需确认客户端实际显示了 image block；否则用本地路径打开图片。选择坐标仍须用原图 source pixel，矩形右/下边界不包含，剖面端点是像素中心。
 
 最小调用示例（路径需替换为新建目录）：
 
@@ -222,3 +248,9 @@ mock 自测使用临时 loopback 端口和合成数组，不连接正在运行�
 ## 贡献
 
 阅读 [AGENTS.md](AGENTS.md)，给修改增加独立数值 oracle 或必要的协议测试。区分 `PASS`、`FAIL`、`NOT_TESTED`，不要以 mock 结果扩大真实仪器支持范围。提交前检查 `git diff --check`、运行相关测试，并检查暂存区未包含实验数据、图像输出、绝对个人路径、日志或凭据。不要上传 Gatan 手册、二进制或其它许可不兼容的 reader。
+
+## 可选 Skill 与兼容性
+
+`skills/dm-2d-analysis/SKILL.md` 是可选使用指南。注册 MCP 不会自动安装它；可直接要求 Agent 阅读该文件。Codex 本地发现时，可将整个 `dm-2d-analysis` 目录复制到工作目录的 `.agents/skills/`，已有同名目录先检查，不覆盖。[官方 Skill 文档](https://developers.openai.com/codex/skills/)
+
+工具名称与 21 项目录保持兼容，没有新增模式开关。可选报告的剖面 `sampled_coordinates` 现为原图坐标，副本坐标在 `sampled_coordinates_local`；强度明确为原始像素值，强度标定只保留为元数据；`replay.py --verify` 失败或状态未知时非零退出。旧结果包保留自己的复跑代码，不原位改写。新变更的真实 DM/客户端验收仍须分别执行。范围决策与剩余限制见 [ROADMAP.md](ROADMAP.md) 和 [审计记录](docs/SCOPE_AUDIT.md)。

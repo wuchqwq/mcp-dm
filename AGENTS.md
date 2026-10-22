@@ -2,6 +2,16 @@
 
 This is a Windows DigitalMicrograph MCP bridge for post-acquisition scientific analysis. Read README.md or README.en.md before changing it. Preserve scientific meaning and report evidence honestly. Do not use private experimental data in commits.
 
+## Product boundary
+
+The core product is a reliable DM tool interface: inspect data, view images,
+execute explicit post-acquisition operations and return calibrated results.
+Do not require every task to capture, compute every operator or produce a report.
+Reports/replay are optional examples retained for compatibility, not the core
+acceptance gate. Keep native APIs, coordinate contracts, source protection and
+honest errors. Do not add an agent framework, scheduler, report platform or
+4D features as part of scope cleanup. Scope decisions are in docs/SCOPE_AUDIT.md.
+
 ## Architecture and ownership
 
 - `server.mjs`: zero-dependency Node >=18 stdio MCP facade, strict tool schemas, serialized loopback requests, timeouts/cancellation. Stdout is MCP JSON only; diagnostics belong on stderr.
@@ -11,8 +21,8 @@ This is a Windows DigitalMicrograph MCP bridge for post-acquisition scientific a
 - `bridge/dm4_header.py`: narrow seek-only DM4 index with explicit byte/node/depth budgets; no full pixel loading and no general metadata-decoder claim.
 - `bridge/native_stream.py`: bounded read-only Gatan binary streams into small native images, only canonical uncompressed uint8 4D input. Shape/dtype/offset come from the validated header index.
 - `bridge/analysis2d_core.py`: shared Python 3.7 / NumPy 1.18-safe statistics, profile and FFT kernels for DM and the external 2D analysis worker.
-- `tools/analysis_worker.py`: preview, result-package and replay logic in a separate Python environment. It must never import Gatan APIs or mutate DM images. `requirements-analysis.txt` is not for the GMS runtime.
-- `skills/dm-2d-analysis/SKILL.md`: user-facing analysis workflow; numerical correctness and coordinate conversion remain enforced by code.
+- `tools/analysis_worker.py`: lightweight preview/status plus optional report/replay helpers in a separate Python environment. It must never import Gatan APIs or mutate DM images. `requirements-preview.txt` adds NumPy/Pillow outside GMS; `requirements-analysis.txt` adds optional report rendering. Load plotting only for rendering. Neither belongs in GMS.
+- `skills/dm-2d-analysis/SKILL.md`: optional tool-use guide, not a mandatory workflow; numerical correctness and coordinate conversion remain enforced by code.
 - `bridge/lossless_tiff.py`: scientific TIFF with dtype/calibration preservation. Do not replace it with a display export or silently downcast.
 - `setup/`: target-GMS offline runtime installer, two-stage real-DM launcher, explicit Codex registration. These are user-run setup operations, not CI prerequisites.
 - `tests/`: synthetic arrays, fake DM API and isolated mock/echo bridges only. No test should require a DM license, private sample or fixed local drive.
@@ -40,7 +50,7 @@ The public MCP catalog has 21 tools, including the four fixed-input 2D capture/p
 
 Use PASS / FAIL / NOT_TESTED for each scope. Distinguish arithmetic unit tests, protocol tests, mock-chain checks, actual DM API execution, real-data numerical comparison, export reopening and visual review. A successful mock response does not prove real DM. `dm_status.backend` must be `digitalmicrograph` for actual host claims. Record actual version/source identity.
 
-Run tests locally. The optional Actions workflow is manual only; hosted CI has not been verified and has no real DM or experimental data. Bounded canonical uint8 4D reads and virtual detectors have limited real-host validation. Whole-file native OpenImage and built-in BF/ADF plugins remain unverified. Real EDS/EELS/spectral SI remain NOT_TESTED. New types/layouts/versions need independent bounded-read, axis/calibration, numerical, source-invariance and memory evidence. Do not mark a failed first run as passed merely because a corrected rerun passed.
+Run tests locally. The optional Actions workflow is manual only; hosted runs cover synthetic behavior only and have no real DM or experimental data. Bounded canonical uint8 4D reads and virtual detectors have limited real-host validation. Whole-file native OpenImage and built-in BF/ADF plugins remain unverified. Real EDS/EELS/spectral SI remain NOT_TESTED. New types/layouts/versions need independent bounded-read, axis/calibration, numerical, source-invariance and memory evidence. Do not mark a failed first run as passed merely because a corrected rerun passed.
 
 Keep detailed acceptance reports local. Public documentation should explain installation, features and concise support limits. Do not publish experimental sample counts, dataset dimensions or file sizes, measured results, source identifiers, exact maintainer machine configuration, or private run history without explicit user approval.
 
@@ -62,3 +72,5 @@ Use an external development venv with `requirements-dev.txt` for tifffile and `r
 4. For an actual DM change, use a new output directory and small read-only representative data. Confirm DM backend, source hashes before/after, independent numerical oracle, calibration and reopened exports. Under a memory constraint, measure peak process working set in addition to explicit chunk sizes. Do not restart or close unrelated user documents casually.
 5. Update human and agent documentation for behavior and validation limits. Run `git diff --check`. Inspect staged files manually; `.gitignore` is a convenience, not a privacy guarantee. No experimental `.dm3/.dm4`, arrays/images, vendor manuals/binaries, third-party GPL reader, runtime traces, credentials or personal machine paths belong in the public repository.
 6. Do not publish, push, send messages or change external services unless the user has authorized that action. When preparing a release, make a reviewable artifact first and report the exact tests actually run.
+
+Optional worker contracts: profile sampled_coordinates are source coordinates; sampled_coordinates_local and its calibration are capture-relative. Report intensity is raw, not calibrated by a unit label alone. Verification failure/unresolved state must exit nonzero. Preview allocations must be bounded before source scans/display allocation; full-frame floating/RGB intermediates are prohibited. No automatic Skill installation or overwriting user settings.

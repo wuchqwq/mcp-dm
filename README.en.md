@@ -2,7 +2,25 @@
 
 [中文](README.md) · [Coding-agent instructions](AGENTS.md)
 
-Connect Codex and other MCP clients to a local Gatan DigitalMicrograph (DM) instance for **post-acquisition analysis**: calibrated images and metadata, basic spectral arithmetic, and virtual detector calculations. There are no camera, beam, stage, or microscope optical controls.
+**Let general-purpose agents inspect data in DigitalMicrograph, view selected images, correctly invoke common post-acquisition operations, and retrieve calibrated results they can use in further work.**
+
+`mcp-dm` is a tool interface to a local Gatan DigitalMicrograph (DM) instance, not another chat application or an autonomous research platform. The agent chooses methods, composes tools and explains results. This project owns data targeting, coordinates, units, operation results and honest failure states. It is **post-acquisition only**, with no camera, beam, stage or microscope-optics controls.
+
+## Project boundary
+
+| Layer | What is provided | What is not required |
+|---|---|---|
+| Core MCP | Connection/status, datasets, metadata, common numerical operations, cropping and calibrated exports | No capture package, report, Skill or external plotting stack |
+| Images and data handoff | Bounded 2D copies, display previews and source-coordinate mappings | Display pixels never become numerical inputs; viewing currently uses two calls: capture then preview |
+| Optional workflow example | Existing 2D report, result inspection and replay helpers | Not a mandatory analysis pipeline or a scientific decision-maker |
+
+The goal is not to wrap every DM API or promise crystallographic identification, strain, spectral quantification or reconstruction. Existing 4D-STEM interfaces retain their documented limits; expansion is deferred. Add capabilities needed for reliable access to DM, and reuse general-purpose agents and external scientific tools for the rest.
+
+## Start with one useful operation
+
+Ask an agent to list open images and inspect a selected calibration, take a profile through a specified region, compute an ROI FFT, or export a new calibrated file without overwriting the source. It should first verify the real backend and an explicit `image_id`, then invoke only the needed tools. An ID binds an object, not immutable pixels; capture a separate bounded copy when a multi-step task needs fixed data.
+
+**Do not force every request through capture, statistics, profile, FFT and a report.** Success means a usable connection, correct operations and reusable results, not automatic report generation.
 
 ```text
 MCP client → Node stdio server.mjs → 127.0.0.1 TCP → Python inside DM
@@ -19,7 +37,7 @@ The Node server has no npm runtime dependencies. The DM bridge uses the standard
 | 4D-STEM | Bounded uint8 native-stream reading and virtual detector analysis verified within a limited scope. |
 | Hardware, acquisition, plugin quantification, phase reconstruction | Not provided or not validated. |
 
-Only synthetic tests are included. A new machine must validate its own DM version, data types, axis order and calibration. Tests run locally; Actions is manual only, and hosted CI is not included in validation claims.
+The repository distributes synthetic tests and explicitly invoked host-acceptance scripts, not experimental data. Real-host records above describe earlier behavior; they do not certify the current scope/preview changes. A new machine must validate its own DM version, data types, axis order and calibration. Tests run locally; the normal Actions workflow remains manual. Isolated hosted checks provide synthetic evidence only, not real-DM acceptance.
 
 ## 1. Prerequisites
 
@@ -32,13 +50,15 @@ node --version
 # No npm runtime dependencies; npm install is unnecessary.
 ```
 
-For 2D previews and result figures, install an external analysis environment. Do not change GMS-managed Python or NumPy:
+Core connection, metadata, statistics, profiles, FFT, cropping, export and capture do not need the following environment. **Only for image previews**, create a separate Python 3.10+ environment. Do not change GMS-managed Python or NumPy:
 
 ```powershell
 python -m venv .analysis-env
-.\.analysis-env\Scripts\python.exe -m pip install -r requirements-analysis.txt
+.\.analysis-env\Scripts\python.exe -m pip install -r requirements-preview.txt
 $analysisPython = (Resolve-Path .\.analysis-env\Scripts\python.exe).Path
 ```
+Preview needs only NumPy and Pillow. Matplotlib loads only for optional report rendering; status inspection and numerical verification do not require Pillow/Matplotlib. Preview range calculation scans bounded tiles and display buffers use the requested output resolution, not the full source size. Thumbnails may miss small features; explicitly increase resolution or capture a smaller region when needed.
+
 
 DM's embedded interpreter is separate from system Python. An external `import DigitalMicrograph` is not the supported route. Do not upgrade the GMS-managed NumPy to the latest version.
 
@@ -93,7 +113,7 @@ This script registers MCP; it does not start DM. Inspect an existing server with
 ```powershell
 $nodeExe = (Get-Command node).Source
 $serverFile = (Resolve-Path .\server.mjs).Path
-codex mcp add digitalmicrograph --env DM_BRIDGE_HOST=127.0.0.1 --env DM_BRIDGE_PORT=8765 --env DM_MCP_TIMEOUT_MS=600000 --env DM_MCP_ALLOW_DMSCRIPT=0 --env "DM_ANALYSIS_PYTHON=$analysisPython" -- $nodeExe $serverFile
+codex mcp add digitalmicrograph --env DM_BRIDGE_HOST=127.0.0.1 --env DM_BRIDGE_PORT=8765 --env DM_MCP_TIMEOUT_MS=600000 --env DM_MCP_ALLOW_DMSCRIPT=0 -- $nodeExe $serverFile
 ```
 
 2D capture and analysis may exceed the client's default wait. Add these settings to the existing `[mcp_servers.digitalmicrograph]` table when needed; do not create a duplicate TOML table. If `disabled_tools` already exists, merge `dm_run_script` into it and preserve other disabled tools:
@@ -116,7 +136,7 @@ Other clients can use [mcp.json.example](mcp.json.example). Replace `__ABS_REPO_
 |---|---|
 | `dm_status`, `dm_datasets` | Backend identity and open dataset shape, dtype and per-axis calibration |
 | `dm_2d_capture`, `dm_2d_preview` | Freeze a bounded 2D working input; return an image block, local PNG path and source-coordinate map |
-| `dm_2d_analyze`, `dm_2d_result` | Compute/query statistics, profile and full FFT from the same capture package |
+| `dm_2d_analyze`, `dm_2d_result` | Optional combined report / independent status query; not prerequisites for other tools |
 | `dm_open`, `dm_metadata` | Open 2D data and read typed metadata; inspect `complete` and issues |
 | `dm_stats`, `dm_profile`, `dm_fft` | 2D statistics, calibrated profiles and Fourier frequencies |
 | `dm_crop`, `dm_export` | Independent cropped images and new-file exports with calibration/provenance |
@@ -145,7 +165,13 @@ Check `path_status`: `found` establishes existence, not successful/complete valu
 
 Synthetic/fake-DM regressions and a fixed synthetic tag-tree acceptance passed on the current DM host. Native getter failure/crash injection remains **NOT_TESTED**. See [ROADMAP.md](ROADMAP.md) for current scope.
 
-## 2D task A: capture, review, analyze and replay
+## Optional example: 2D report and replay
+
+This is an existing composition example, not the default MCP workflow. Stop after preview when viewing is enough; use individual measurement tools for simple tasks. Only report generation needs the additional plotting dependency:
+
+```powershell
+.\.analysis-env\Scripts\python.exe -m pip install -r requirements-analysis.txt
+```
 
 `dm_2d_capture` resolves the current front image once when `image_id` is omitted, or uses an explicit ID. Optional `rect` is a strict source-pixel ROI `[x0,y0,x1,y1)`; the output directory must be new. Shape, scalar dtype and memory budget are checked before reading. Preview and calculations use the saved NPY and calibration, so later front-window changes do not change the input. DM provides no atomic pixel-plus-calibration snapshot: do not edit the source while capture runs. Oversized captures fail instead of shrinking silently.
 
@@ -217,3 +243,9 @@ The mock self-test uses an ephemeral loopback port and synthetic arrays, without
 ## Contributing
 
 Read [AGENTS.md](AGENTS.md). Add independent numerical oracles or appropriate protocol tests. Separate `PASS`, `FAIL` and `NOT_TESTED`; mock success must not expand claims about instrument support. Before submitting, run relevant tests and `git diff --check`, then inspect the staged files for data, generated images, personal absolute paths, logs and credentials. Do not upload Gatan manuals/binaries or readers with incompatible licensing.
+
+## Optional Skill and compatibility
+
+`skills/dm-2d-analysis/SKILL.md` is optional guidance, not installed by MCP registration. Ask an agent to read it directly, or copy the whole `dm-2d-analysis` directory into the working project's `.agents/skills/` for Codex local discovery. Inspect any existing same-name directory first; do not overwrite it. [Official Skill documentation](https://developers.openai.com/codex/skills/)
+
+Tool names and the 21-entry catalog are retained; no new mode flag is required. In optional reports, `sampled_coordinates` now uses original-image coordinates and `sampled_coordinates_local` retains capture-relative coordinates. Intensities are explicitly raw pixel values; intensity calibration is retained as metadata, not applied. `replay.py --verify` exits nonzero for failed or unresolved verification. Existing bundles keep their own replay code and are not rewritten. New real-DM/client behavior still needs separate acceptance. See [ROADMAP.md](ROADMAP.md) and the [scope audit](docs/SCOPE_AUDIT.md).

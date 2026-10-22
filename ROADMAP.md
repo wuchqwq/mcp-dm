@@ -1,22 +1,32 @@
-# mcp-dm roadmap
+# mcp-dm scope and roadmap
 
-The goal is a reliable post-acquisition analysis interface for general-purpose agents. The project remains an MCP bridge, not a separate chat product or agent framework.
+## Goal
 
-## Current state
+Let a general-purpose agent inspect DM data, view selected images, invoke common post-acquisition operations correctly and retrieve calibrated results for further work. This repository is a tool interface, not a scientific decision-maker or a new agent application.
 
-- Strict 2D ROI validation, crop-result ownership, and bounded metadata-subtree lookup are included from the current mainline baseline.
-- The 2D task-A path now captures one bounded image/ROI and calibration into a new local package, previews it with source-coordinate mappings, and computes statistics, a profile, and a full FFT from that same capture. Reports and replay inputs are stored with hashes in a new result directory.
-- The current DM host passed fixed synthetic ROI, calibration, metadata, capture, preview transport, front-window-switch, numeric-output and replay checks. This is limited synthetic-host evidence; it does not establish support for every DM version, image type, or experimental dataset.
-- Real EDS/EELS and spectral SI remain `NOT_TESTED`. Native getter fault/crash injection and the live Codex UI's image display/agent visual-selection loop remain `NOT_TESTED`.
-- 4D-STEM implementation was not changed by this task. Existing 4D evidence is bounded to its documented format/layout; no new 4D support is promised here.
+## Core acceptance
 
-## Next work
+- A new user can connect to the real DM backend and identify the intended data.
+- Each operation targets explicit data and preserves the documented coordinate, unit, dtype and no-overwrite contracts.
+- A preview corresponds to the referenced input and has an explicit coordinate mapping. Display pixels never replace numerical input.
+- Values, calibration, source references and failure/unknown states can be used by another tool or the user.
 
-1. Review and use task A on a representative user-owned 2D image, with no source edits during capture. Check calibration, the displayed selection overlay, output package, and replay on the target Codex client. Do not publish the data or report without consent.
-2. Address only compatibility or workflow failures found in that review. Keep failure records and rerun the same numerical/source-invariance checks after fixes.
-3. After the 2D workflow is independently usable, decide whether to prepare a small external-user trial. Installation polish, a doctor command, compatibility matrix, and broader security work remain separate decisions.
-4. Revisit 4D task B later: data-quality checks, mean diffraction, virtual BF/ADF and mask review require independent end-to-end acceptance. Preserve bounded reads and do not expand dtype/layout support without evidence.
+A complete report is an optional integration example, not the definition of a successful MCP. An agent's ability to choose a scientifically appropriate region is evaluated separately from tool correctness.
 
-## Deferred
+## Existing capabilities to retain
 
-A dedicated agent framework, multi-agent orchestration, new chat UI, default arbitrary DM-Script access, full DM4 reader, general object-version database, and unverified EDS/EELS quantification, crystallographic identification, strain, ptychography or phase-reconstruction claims.
+Core metadata, ROI, crop, profile, FFT and exports; bounded 2D capture and preview; existing limited spectroscopy/4D tools. Preserve documented limitations and backward-compatible tool names. Capturing fixed input is useful for multi-step tasks but unnecessary for simple queries. A live image ID is not a pixel snapshot.
+
+The report/replay worker remains optional. Preview needs only NumPy/Pillow in an external environment. Report rendering adds Matplotlib; status/verification do not import plotting libraries. The user-facing Skill is optional and is not installed by MCP registration.
+
+## Next steps
+
+1. Validate current scope/preview fixes with small synthetic inputs on the target Windows/DM/client combination. Historical host passes do not certify changed code.
+2. Try small independent tasks: identify an image and its calibration; view a selected capture; take a specified profile; export a calibrated crop or FFT summary. Fix concrete usability or correctness failures without expanding the platform.
+3. Gather feedback from a few research users when the core is usable. Add installation polish or another operator only when actual friction justifies it.
+
+## Deferred, not silently completed
+
+4D-STEM development; automated crystallographic identification, strain, EDS/EELS quantification or reconstruction; complete job scheduling; atomic snapshots; generic object versioning; arbitrary-script enablement; a report platform; new chat UI or multi-agent framework.
+
+Local loopback is not authentication. Existing filesystem permissions and data-sharing limits remain relevant; comprehensive access controls are separate work. Normal operation timeout does not prove that DM execution stopped. See docs/SCOPE_AUDIT.md for the bounded audit and remaining risks.

@@ -8,8 +8,8 @@
  * acquisition metadata and spatial calibration, and DM's own processing
  * (DM-Script, EELS/EDS/SI plugins) operates on that metadata.
  *
- * The process is a thin MCP facade; all work happens inside the running
- * DigitalMicrograph instance via dm_bridge.py over loopback TCP.
+ * DM operations go through dm_bridge.py over loopback TCP. Optional preview
+ * and report helpers run outside GMS; reports are not required for core tools.
  * Reason: DigitalMicrograph.pyd only loads inside the DM process, so an
  * external interpreter cannot import the host module directly.
  */
@@ -37,7 +37,8 @@ if (!Number.isFinite(ANALYSIS_WORKER_TIMEOUT_MS) || ANALYSIS_WORKER_TIMEOUT_MS <
 
 const INSTRUCTIONS = [
   "DigitalMicrograph 分析用 MCP（仅分析，不控制电镜）。",
-  "二维任务 A：dm_datasets 检查图像 → dm_2d_capture 一次捕获明确图像/当前 front → dm_2d_preview 核对预览与 source-coordinate 选区 → dm_2d_analyze 生成结果包 → dm_2d_result 查询状态。分析只读捕获副本。",
+  "定位：可靠的 DM 工具接口，不是固定分析流水线。先用 dm_status/dm_datasets 识别数据，再按目标选择 metadata/stats/profile/fft/crop/export；简单操作无需捕获包或报告。多步调用应固定显式 image_id。",
+  "需要看图或固定多步输入时，可用 dm_2d_capture + dm_2d_preview；显示 PNG 不参与计算。dm_2d_analyze 是可选的完整报告示例，只在用户需要这种组合时调用。dm_2d_result 可独立查询状态。",
   "dm_run_script 调用返回不代表分析成功；必须检查输出和后置条件。超时或取消仅停止等待，已经发送的 DM 操作可能仍在运行，不要自动重试。导出禁止覆盖已有文件。",
   "实验性光谱工具只接受明确指定的 NumPy 能量轴（eV/keV 标定），不自动判断 EDS/EELS；真实 EDS/EELS/SI 为 NOT_TESTED，仅合成数据覆盖。四维衍射与 nm 空间轴不适用。",
   "离线参考手册：Scripting_DigitalMicrograph.pdf（DM-Script）、PythonReference.pdf（Python API），位于 C:\\ProgramData\\Gatan\\Documentation。",
@@ -306,7 +307,7 @@ const tools = [
   ),
   tool(
     "dm_2d_analyze",
-    "对捕获包执行有限值统计、双线性剖面与完整二维 FFT，并在全新目录保存原始副本、真实数值、图、参数、哈希、Markdown 报告与 replay.py。operation_id + result_dir 用于超时后查询，绝不自动重跑不确定任务。",
+    "可选报告示例，不是使用 DM 的必经步骤。对捕获包组合统计、剖面和完整 FFT，在新目录保存数值、图、报告及复跑脚本。需要独立报告环境；简单测量优先用单独工具。operation_id + result_dir 用于查询，不自动重跑不确定任务。",
     { capture_dir: { type: "string" }, result_dir: { type: "string", description: "必须是尚不存在的新 Windows 绝对目录" },
       operation_id: { type: "string", minLength: 1, maxLength: 128 }, roi: { ...RECT, description: "原图 source pixel 半开边界；省略表示整个捕获区域" },
       profile: { type: "object", properties: {

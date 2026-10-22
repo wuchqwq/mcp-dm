@@ -19,14 +19,32 @@ import uuid
 sys.dont_write_bytecode = True
 
 import numpy as np
-from PIL import Image, ImageDraw
+# Only the requested capability loads its optional display dependencies.
+# State inspection and numerical verification need NumPy, not a plotting stack.
+Image = ImageDraw = matplotlib = plt = None
 
-try:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-except Exception as exc:
-    raise RuntimeError("analysis environment requires matplotlib: %s" % exc)
+
+def _require_preview():
+    global Image, ImageDraw
+    if Image is None:
+        try:
+            from PIL import Image as image_module, ImageDraw as draw_module
+        except ImportError as exc:
+            raise RuntimeError("Preview requires requirements-preview.txt in the external Python environment; do not change GMS: %s" % exc)
+        Image, ImageDraw = image_module, draw_module
+
+
+def _require_report():
+    global matplotlib, plt
+    _require_preview()
+    if plt is None:
+        try:
+            import matplotlib as plotting_module
+            plotting_module.use("Agg")
+            import matplotlib.pyplot as pyplot_module
+        except ImportError as exc:
+            raise RuntimeError("Optional report rendering requires requirements-analysis.txt in the external Python environment: %s" % exc)
+        matplotlib, plt = plotting_module, pyplot_module
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,6 +59,8 @@ _spec.loader.exec_module(core)
 
 ANALYSIS_MEMORY_BUDGET = 512 * 1024 * 1024
 PNG_INLINE_LIMIT = 2 * 1024 * 1024
+PREVIEW_MEMORY_BUDGET = 256 * 1024 * 1024
+PREVIEW_TILE_SIDE = 512
 
 
 def _canonical(value):
@@ -108,27 +128,41 @@ def _capture(capture_dir):
 
 
 def _finite_range(array):
-    finite = np.asarray(array)[np.isfinite(array)]
-    if finite.size:
-        return float(finite.min()), float(finite.max()), int(finite.size)
-    return None, None, 0
+    """Scan bounded tiles, never make a full-frame finite mask or value copy."""
+    low = high = None
+    count = 0
+    h, w = array.shape
+    for y in range(0, h, PREVIEW_TILE_SIDE):
+        for x in range(0, w, PREVIEW_TILE_SIDE):
+            tile = np.asarray(array[y:y + PREVIEW_TILE_SIDE, x:x + PREVIEW_TILE_SIDE])
+            finite = tile[np.isfinite(tile)]
+            if finite.size:
+                lo, hi = float(finite.min()), float(finite.max())
+                low = lo if low is None else min(low, lo)
+                high = hi if high is None else max(high, hi)
+                count += int(finite.size)
+    return low, high, count
 
 
-def _gray_image(array):
+def _gray_image(array, display_range=None):
+    _require_preview()
     a = np.asarray(array)
     finite = np.isfinite(a)
-    low, high, count = _finite_range(a)
+    low, high, count = _finite_range(a) if display_range is None else display_range
     out = np.zeros(a.shape, dtype=np.uint8)
     if count:
         if high == low:
             out[finite] = 128
         else:
             scaled = np.zeros(a.shape, dtype=np.float64)
-            scaled[finite] = np.clip((a[finite].astype(np.float64) - low) / (high - low), 0, 1)
+            # Normalize first to avoid overflow for opposite-sign finite extrema.
+            norm = max(abs(low), abs(high))
+            scaled[finite] = np.clip((a[finite].astype(np.float64) / norm - low / norm) /
+                                     (high / norm - low / norm), 0, 1)
             out[finite] = np.rint(scaled[finite] * 255).astype(np.uint8)
     rgb = np.repeat(out[:, :, None], 3, axis=2)
     rgb[~finite] = (255, 0, 255)
-    return Image.fromarray(rgb, "RGB"), {"display_mode": "linear min-max stretch over finite values",
+    return Image.fromarray(rgb), {"display_mode": "linear min-max stretch over finite values",
         "display_min": low, "display_max": high, "finite_pixels": count,
         "nonfinite_display": "magenta", "constant_finite_display": "mid-gray (128)"}
 
@@ -201,12 +235,27 @@ def _relative_roi(roi, src):
 def _preview_image(array, info, max_side, roi=None, profile=None, output_path=None):
     if isinstance(max_side, bool) or not isinstance(max_side, int) or max_side < 32 or max_side > 4096:
         raise ValueError("max_side must be an integer from 32 to 4096")
-    base, display = _gray_image(array)
     h, w = array.shape
     ratio = min(1.0, max_side / float(max(h, w)))
     pw, ph = max(1, int(round(w * ratio))), max(1, int(round(h * ratio)))
-    if (pw, ph) != (w, h):
-        base = base.resize((pw, ph), Image.Resampling.BOX)
+    # Allocate display buffers only at the requested output resolution. The
+    # source remains a read-only memmap; small tiles determine its finite range.
+    estimated = (pw * ph * (array.dtype.itemsize + 64) +
+                 PREVIEW_TILE_SIDE ** 2 * (array.dtype.itemsize + 2) + 65536)
+    if estimated > PREVIEW_MEMORY_BUDGET:
+        raise RuntimeError("preview workspace exceeds budget; explicitly reduce max_side")
+    display_range = _finite_range(array)
+    if (pw, ph) == (w, h):
+        shown = array
+    else:
+        columns = ((2 * np.arange(pw, dtype=np.int64) + 1) * w) // (2 * pw)
+        rows = ((2 * np.arange(ph, dtype=np.int64) + 1) * h) // (2 * ph)
+        shown = array[np.ix_(rows, columns)]
+    base, display = _gray_image(shown, display_range)
+    display.update({"resampling": "nearest source pixel to each preview pixel center; display only; small features may be missed",
+                    "range_scope": "all finite pixels of the capture, scanned in bounded tiles",
+                    "workspace_estimate_bytes": estimated,
+                    "workspace_budget_bytes": PREVIEW_MEMORY_BUDGET})
     draw = ImageDraw.Draw(base)
     src = _source_rect(info)
     sx0, sy0 = src[0], src[1]
@@ -317,6 +366,7 @@ def _calibrated_fft_metadata(calibration, shape):
 
 
 def _save_analysis_figures(folder, array, info, roi, profile_result, fft_array, fft_meta):
+    _require_report()
     src = _source_rect(info)
     full = os.path.join(folder, "input_preview.png")
     overlay = os.path.join(folder, "selection_overlay.png")
@@ -327,7 +377,7 @@ def _save_analysis_figures(folder, array, info, roi, profile_result, fft_array, 
         fig, ax = plt.subplots(figsize=(7, 4), constrained_layout=True)
         ax.plot(profile_result["distance"], values, linewidth=1.2)
         ax.set_xlabel("Distance (%s)" % profile_result["unit"])
-        ax.set_ylabel("Intensity (%s)" % (info.get("intensity_calibration", {}).get("unit") or "a.u."))
+        ax.set_ylabel("Raw pixel value (intensity calibration not applied)")
         ax.set_title("Bilinear line profile; width=%d px" % profile_result["width"])
         ax.grid(True, alpha=0.25)
         fig.savefig(os.path.join(folder, "profile.png"), dpi=150)
@@ -387,6 +437,23 @@ def _recursive_numeric_equal(left, right, rtol=1e-10, atol=1e-12, path="root"):
     return left == right, path
 
 
+def _profile_result(array, info, request):
+    sx0, sy0 = _source_rect(info)[:2]
+    (px0, py0), (px1, py1) = request["start"], request["end"]
+    result = core.profile(array, _local_calibration(info, 0, 0),
+                          px0 - sx0, py0 - sy0, px1 - sx0, py1 - sy0, request["width"])
+    local = result["sampled_coordinates"]
+    result.update({"sampled_coordinates_local": local,
+                   "sampled_coordinates": [[x + sx0, y + sy0] for x, y in local],
+                   "coordinate_frame": "original source pixel centers",
+                   "local_coordinate_frame": "captured array pixel centers",
+                   "calibration_coordinate_frame": "captured array pixel centers",
+                   "request": request,
+                   "intensity_value_mode": "raw pixel values; intensity calibration retained but not applied",
+                   "intensity_calibration": info.get("intensity_calibration")})
+    return result
+
+
 def _compute(capture_dir, params, result_dir, operation_id):
     folder, capture_manifest, info, array = _capture(capture_dir)
     roi = _checked_roi(params.get("roi"), info)
@@ -407,6 +474,7 @@ def _compute(capture_dir, params, result_dir, operation_id):
     params_normal = {"roi_source_xyxy": roi, "profile_source": profile_request, "top_n": top_n,
                     "method": "finite-population-stats; bilinear profile; mean-subtracted rectangular unnormalized absolute DFT"}
     request_identity = {"capture_id": info["capture_id"], "input_sha256": info["input_sha256"],
+                        "input_metadata_sha256": capture_manifest["input_metadata_sha256"],
                         "params": params_normal, "analysis_core_sha256": core_hash,
                         "analysis_worker_sha256": worker_hash}
     request_hash = hashlib.sha256(_canonical(request_identity)).hexdigest()
@@ -419,6 +487,7 @@ def _compute(capture_dir, params, result_dir, operation_id):
         if existing.get("operation_id") != operation_id or existing.get("request_sha256") != request_hash:
             raise ValueError("operation_id/result_dir is already bound to different input or parameters")
         return inspect_result({"result_dir": result_dir}, expected_operation_id=operation_id)
+    _require_report()  # Fail before reserving a result directory when deps are absent.
     os.makedirs(result_dir)
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     manifest = {"schema_version": 1, "operation_id": operation_id,
@@ -448,22 +517,15 @@ def _compute(capture_dir, params, result_dir, operation_id):
         stats.update({"roi_source_xyxy": roi, "roi_local_xyxy": rel_roi,
                       "shape_yx": list(selected.shape), "calibration_xy": _local_calibration(info, rel_roi[0], rel_roi[1]),
                       "intensity_calibration": info.get("intensity_calibration"),
+                      "intensity_value_mode": "raw pixel values; intensity calibration retained but not applied",
                       "finite_policy": "finite pixels only; NaN/Inf excluded and separately counted; population stddev ddof=0; zero values retained"})
         _write_json(os.path.join(result_dir, "stats.json"), stats)
         profile_result = None
         if profile_request is not None:
-            source_x0, source_y0 = _source_rect(info)[:2]
-            (px0, py0), (px1, py1) = profile_request["start"], profile_request["end"]
-            local_cal = _local_calibration(info, 0, 0)
-            profile_result = core.profile(array, local_cal,
-                px0 - source_x0, py0 - source_y0, px1 - source_x0, py1 - source_y0,
-                profile_request["width"])
-            profile_result["request"] = profile_request
-            profile_result["coordinate_frame"] = "original source pixel centers"
-            profile_result["intensity_calibration"] = info.get("intensity_calibration")
+            profile_result = _profile_result(array, info, profile_request)
             with open(os.path.join(result_dir, "profile.csv"), "x", newline="", encoding="utf-8") as stream:
                 writer = csv.writer(stream)
-                writer.writerow(["distance_" + profile_result["unit"], "intensity", "finite_samples"])
+                writer.writerow(["distance_" + profile_result["unit"], "raw_intensity", "finite_samples"])
                 for distance, value, count in zip(profile_result["distance"], profile_result["values"], profile_result["finite_samples_per_point"]):
                     writer.writerow(["%.17g" % distance, "" if value is None else "%.17g" % value, count])
             _write_json(os.path.join(result_dir, "profile.json"), profile_result)
@@ -490,7 +552,7 @@ def _compute(capture_dir, params, result_dir, operation_id):
             facts.append("Profile: source pixel centers %s to %s, width %d px, %d points; x-axis unit %s." %
                          (profile_request["start"], profile_request["end"], profile_request["width"],
                           profile_result["n"], profile_result["unit"]))
-        report = "# 2D STEM analysis\n\n"
+        report = "# Optional 2D analysis example\n\n"
         report += "## Input and calibration\n\n"
         report += "- Captured selection shape: %s (y,x); source rectangle: %s [x0,y0,x1,y1), half-open.\n" % (info["shape_yx"], _source_rect(info))
         for axis in stats["calibration_xy"]:
@@ -508,7 +570,7 @@ def _compute(capture_dir, params, result_dir, operation_id):
         if profile_result:
             report += "- Profile samples: `profile.csv` and `profile.json`.\n"
         report += "\n\n## Interpretation\n\n"
-        report += "The statistics and profile describe the captured pixel values. FFT peaks are frequency-grid samples from the complete computed spectrum; this report does not identify reflections, lattice planes, phases, or atomic spacings.\n"
+        report += "The statistics and profile describe raw captured pixel values. Intensity scale/origin/unit are retained as metadata, not applied; these values are not labeled as calibrated counts or another physical intensity unit. FFT peaks are frequency-grid samples from the complete computed spectrum; this report does not identify reflections, lattice planes, phases, or atomic spacings.\n"
         report += "\n## Human review\n\n"
         report += "Check the selection overlay against the input preview and confirm the physical calibration and feature assignment before drawing scientific conclusions. Capture descriptors were stable, but the DM API does not provide an atomic pixel-plus-calibration snapshot; the source image must not be edited during capture.\n"
         report += "\n## Reproduction\n\n"
@@ -564,6 +626,7 @@ def _verify_bundle(bundle_dir):
                   "shape_yx": list(selected.shape),
                   "calibration_xy": _local_calibration(info, rel[0], rel[1]),
                   "intensity_calibration": info.get("intensity_calibration"),
+                      "intensity_value_mode": "raw pixel values; intensity calibration retained but not applied",
                   "finite_policy": "finite pixels only; NaN/Inf excluded and separately counted; population stddev ddof=0; zero values retained"})
     saved_stats = _read_json(os.path.join(bundle, "stats.json"))
     good, why = _recursive_numeric_equal(stats, saved_stats)
@@ -571,12 +634,7 @@ def _verify_bundle(bundle_dir):
         return {"state": "failed", "error": "statistics replay mismatch at " + why}
     profile_request = request["params"].get("profile_source")
     if profile_request:
-        sx0, sy0, _, _ = info["source_rect_xyxy"]
-        (px0, py0), (px1, py1) = profile_request["start"], profile_request["end"]
-        profile = core.profile(array, _local_calibration(info, 0, 0),
-            px0 - sx0, py0 - sy0, px1 - sx0, py1 - sy0, profile_request["width"])
-        profile.update({"request": profile_request, "coordinate_frame": "original source pixel centers",
-                        "intensity_calibration": info.get("intensity_calibration")})
+        profile = _profile_result(array, info, profile_request)
         good, why = _recursive_numeric_equal(profile, _read_json(os.path.join(bundle, "profile.json")))
         if not good:
             return {"state": "failed", "error": "profile replay mismatch at " + why}
@@ -666,13 +724,17 @@ def main():
         result = replay_bundle(request)
     else:
         raise ValueError("unknown worker action")
-    sys.stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False,
-                                allow_nan=False) + "\n")
+    successful = action != "verify" or result.get("state") == "verified"
+    reply = {"ok": successful, "result": result}
+    if not successful:
+        reply["error"] = result.get("error") or "verification did not complete: %s" % result.get("state")
+    sys.stdout.write(json.dumps(reply, ensure_ascii=False, allow_nan=False) + "\n")
+    return 0 if successful else 1
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except Exception as exc:
         sys.stdout.write(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False) + "\n")
         sys.exit(2)
