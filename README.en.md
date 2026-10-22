@@ -22,6 +22,23 @@ Ask an agent to list open images and inspect a selected calibration, take a prof
 
 **Do not force every request through capture, statistics, profile, FFT and a report.** Success means a usable connection, correct operations and reusable results, not automatic report generation.
 
+### Eight things you can ask an agent to do
+
+These prompts work with general-purpose MCP clients such as Codex or WorkBuddy. Replace “this image” or “the specified ROI” with your actual dataset and coordinates. If the image is ambiguous, first use `dm_datasets` to confirm an explicit ID rather than guessing from window names.
+
+| Task | Example prompt to an agent | MCP tools |
+|---|---|---|
+| Inspect open data | “List the images open in DM and show their types, dimensions, and calibrations.” | `dm_status`, `dm_datasets` |
+| Read acquisition metadata | “Inspect the acquisition metadata for this image. Show which fields are available, and mark anything unreadable.” | `dm_metadata` |
+| Compare two regions | “Compare the mean intensity, standard deviation, and distribution summaries of two specified ROIs. Include their coordinates.” | `dm_stats` (once per ROI) |
+| Take a line profile | “Extract an intensity profile between my specified endpoints. Use nm instead of pixels for distance only if both spatial axes have valid, compatible nm calibration.” | `dm_profile` |
+| Inspect FFT frequencies | “Calculate the FFT of this region and report the main spatial-frequency samples and corresponding periods, including the calibration used.” | `dm_fft` |
+| Crop and export | “Make a separate crop of this ROI, preserve its physical calibration, and export new NPY and TIFF files without modifying the source.” | `dm_crop`, `dm_export` |
+| Preview an image | “Show me a preview of this image and overlay the region to measure in original-image coordinates. If you cannot actually view it, say so.” | `dm_2d_capture`, `dm_2d_preview` |
+| Save reproducible outputs (optional) | “Use one fixed 2D input and save its numeric values, analysis settings, figures, and replayable results for later verification.” | `dm_2d_capture`, `dm_2d_analyze`, `dm_2d_result` |
+
+**Limits:** `dm_stats` returns summaries such as mean, standard deviation, and percentiles, not a complete histogram; for histograms or custom fits, export the numerical data for external Python. `dm_fft` returns frequency-grid samples, not confirmed lattice planes or phase identification; physical periods require suitable calibration. A preview PNG is display-only, and whether the model actually sees it depends on the MCP client. The final example is an **optional** full result package with additional report dependencies, not a required step for routine measurements (see [2D report and replay](#optional-example-2d-report-and-replay)).
+
 ```text
 MCP client → Node stdio server.mjs → 127.0.0.1 TCP → Python inside DM
 ```
