@@ -24,7 +24,9 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install -r requirements-dev.txt
       - name: Apply revision-guarded metadata repair
-        run: python .github/apply_metadata_patch.py
+        run: |
+          python .github/apply_metadata_patch.py
+          python .github/refine_metadata_patch.py
       - name: Python synthetic and fake-DM regression tests
         run: python -B -m unittest discover -s tests -p 'test_*.py' -v
       - name: Node protocol tests
