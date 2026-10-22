@@ -47,6 +47,7 @@ MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_TAG_VALUE_BYTES = 65536
 IDLE_TIMEOUT = float(os.environ.get("DM_BRIDGE_IDLE_TIMEOUT", "3600"))
 CLIENT_IDLE_TIMEOUT = float(os.environ.get("DM_BRIDGE_CLIENT_IDLE_TIMEOUT", "15"))
+MAX_2D_CAPTURE_WORKING_BYTES = 256 * 1024 * 1024
 
 try:
     import numpy as np
@@ -165,6 +166,7 @@ def _classify(shape, ndim):
 _SPECTROSCOPY_HELPER = None
 _SPECTROSCOPY_CODE_SHA256 = None
 _FOURDSTEM_HELPERS = {}
+_ANALYSIS2D_HELPER = None
 
 
 def _fourdstem_helper(name):
@@ -192,6 +194,17 @@ def _spectroscopy_helper():
             _SPECTROSCOPY_CODE_SHA256 = hashlib.sha256(stream.read()).hexdigest()
         _SPECTROSCOPY_HELPER = helper
     return _SPECTROSCOPY_HELPER
+
+
+def _analysis2d_helper():
+    global _ANALYSIS2D_HELPER
+    if _ANALYSIS2D_HELPER is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "analysis2d_core.py")
+        spec = importlib.util.spec_from_file_location("dm_mcp_analysis2d_core", path)
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        _ANALYSIS2D_HELPER = helper
+    return _ANALYSIS2D_HELPER
 
 
 class SpectroscopyMixin(object):
@@ -489,6 +502,65 @@ class MockBackend(SpectroscopyMixin):
             "percentiles": {"0": float(np.percentile(sub, 0)), "50": float(np.percentile(sub, 50)),
                             "99": float(np.percentile(sub, 99)), "100": float(np.percentile(sub, 100))},
         }
+
+    def capture2d(self, image_id, rect, output_dir):
+        if np is None:
+            raise RuntimeError("mock capture requires numpy")
+        rec, array = self._mk(image_id, None)
+        array = array.astype("float32")
+        used = _rect_bounds(array.shape, rect)
+        x0, y0, x1, y1 = used
+        captured = np.array(array[y0:y1, x0:x1], copy=True, order="C")
+        output_dir = os.path.abspath(output_dir)
+        os.makedirs(output_dir)
+        capture_id = uuid.uuid4().hex
+        calibration = [
+            {"dm_dimension": 0, "numpy_axis": 1, "axis": "x", "scale": rec["scale"],
+             "unit": rec["unit"], "origin": 0.0, "calibrated_value_at_pixel_zero": 0.0,
+             "size": rec["width"]},
+            {"dm_dimension": 1, "numpy_axis": 0, "axis": "y", "scale": rec["scale"],
+             "unit": rec["unit"], "origin": 0.0, "calibrated_value_at_pixel_zero": 0.0,
+             "size": rec["height"]},
+        ]
+        work_calibration = [
+            {"axis": "x", "scale": rec["scale"], "unit": rec["unit"],
+             "calibrated_value_at_pixel_zero": x0 * rec["scale"], "size": x1 - x0},
+            {"axis": "y", "scale": rec["scale"], "unit": rec["unit"],
+             "calibrated_value_at_pixel_zero": y0 * rec["scale"], "size": y1 - y0},
+        ]
+        with open(os.path.join(output_dir, "input.npy"), "xb") as stream:
+            np.save(stream, captured, allow_pickle=False)
+        digest = hashlib.sha256()
+        with open(os.path.join(output_dir, "input.npy"), "rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        info = {"schema_version": 1, "capture_id": capture_id,
+                "shape_yx": list(captured.shape), "dtype": captured.dtype.name,
+                "source_image_id": int(image_id or rec["id"]),
+                "source_shape_yx": [rec["height"], rec["width"]],
+                "source_rect_xyxy": used, "source_rect_convention": "zero-based half-open [x0,y0,x1,y1]",
+                "source_calibration_dm": calibration, "working_calibration_xy": work_calibration,
+                "pixel_coordinate_model": "pixel centers at integer x,y; physical value = calibrated_value_at_pixel_zero + index*scale",
+                "intensity_calibration": {"origin": 0.0, "scale": 1.0, "unit": "counts"},
+                "input_file": "input.npy", "input_sha256": digest.hexdigest(),
+                "source_path_included": False, "synthetic": True}
+        with open(os.path.join(output_dir, "input.json"), "x", encoding="utf-8") as stream:
+            json.dump(info, stream, sort_keys=True, indent=2)
+        info_digest = hashlib.sha256(json.dumps(info, ensure_ascii=False, sort_keys=True,
+                                                separators=(",", ":")).encode("utf-8")).hexdigest()
+        manifest = {"schema_version": 1, "capture_id": capture_id, "state": "captured",
+                    "source_image_id": int(image_id or rec["id"]),
+                    "source_shape_yx": [rec["height"], rec["width"]],
+                    "source_rect_xyxy": used, "source_dtype": "float32",
+                    "input_sha256": digest.hexdigest(), "input_metadata_sha256": info_digest,
+                    "pixel_capture_atomic": False,
+                    "capture_consistency": "synthetic mock only"}
+        with open(os.path.join(output_dir, "capture.json"), "x", encoding="utf-8") as stream:
+            json.dump(manifest, stream, sort_keys=True, indent=2)
+        return {"capture_id": capture_id, "state": "captured", "capture_dir": output_dir,
+                "shape_yx": list(captured.shape), "dtype": "float32",
+                "source_rect_xyxy": used, "input_sha256": digest.hexdigest(),
+                "synthetic": True, "pixel_capture_atomic": False}
 
     def profile(self, image_id, x0, y0, x1, y1, width):
         n = max(2, min(int(((float(x1) - float(x0)) ** 2 + (float(y1) - float(y0)) ** 2) ** 0.5) + 1, 4096))
@@ -1262,140 +1334,168 @@ class DmBackend(SpectroscopyMixin):
         return sub, used
 
     def stats(self, image_id, rect):
-        np_ = self._need_numpy()
         img = self._resolve(image_id)
         sub, used = self._roi(img, rect)
-        flat = np_.asarray(sub, dtype="float64").ravel()
-        finite = flat[np_.isfinite(flat)]
-        if finite.size == 0:
-            raise RuntimeError("所选区域没有有效数值（全为 NaN/Inf）")
-        pct = np_.percentile(finite, [0, 1, 50, 99, 100])
-        return {
+        result = _analysis2d_helper().statistics(sub)
+        result.update({
             "id": int(img.GetID()), "rect": used, "shape": list(sub.shape),
             "requested_rect": list(rect) if rect is not None else None, "effective_rect": list(used),
-            "count": int(finite.size),
-            "total_count": int(flat.size), "finite_count": int(finite.size),
-            "nan_count": int(np_.count_nonzero(np_.isnan(flat))),
-            "inf_count": int(np_.count_nonzero(np_.isinf(flat))),
-            "invalid_count": int(flat.size - finite.size),
             "calibration": self._calib(img, 2),
             "rect_convention": "[x0,y0,x1,y1], right/bottom excluded; strict bounds, no rounding or clipping",
-            "min": float(pct[0]), "max": float(pct[4]),
-            "mean": float(finite.mean()), "stddev": float(finite.std()),
-            "percentiles": {"0": float(pct[0]), "1": float(pct[1]),
-                            "50": float(pct[2]), "99": float(pct[3]), "100": float(pct[4])},
-        }
+        })
+        return result
 
     def profile(self, image_id, x0, y0, x1, y1, width):
-        np_ = self._need_numpy()
         img = self._resolve(image_id)
         a = self._array_2d(img)
-        h, w = a.shape
-        x0, y0, x1, y1 = float(x0), float(y0), float(x1), float(y1)
-        if not all(math.isfinite(v) for v in (x0, y0, x1, y1)):
-            raise ValueError("剖面端点必须是有限数值")
-        if not (0 <= x0 <= w - 1 and 0 <= x1 <= w - 1 and
-                0 <= y0 <= h - 1 and 0 <= y1 <= h - 1):
-            raise ValueError("剖面端点超出图像；坐标必须落在像素中心 [0,width-1] × [0,height-1]")
-        length = float(np_.hypot(x1 - x0, y1 - y0))
-        if length == 0:
-            raise ValueError("剖面的两个端点不能重合")
-        n = max(2, min(int(math.ceil(length)) + 1, 4096))
-        ts = np_.linspace(0.0, 1.0, n)
-        xs = x0 + (x1 - x0) * ts
-        ys = y0 + (y1 - y0) * ts
-        width = int(width or 1)
-        if not 1 <= width <= 1024:
-            raise ValueError("width 必须介于 1 和 1024（像素）")
-        offsets = np_.arange(width, dtype="float64") - (width - 1) / 2.0
-        normal_x, normal_y = -(y1 - y0) / length, (x1 - x0) / length
-        vals = []
-        sample_counts = []
-        for k in range(n):
-            px, py = xs[k] + normal_x * offsets, ys[k] + normal_y * offsets
-            inside = (px >= 0) & (px <= w - 1) & (py >= 0) & (py <= h - 1)
-            px, py = px[inside], py[inside]
-            ix, iy = np_.floor(px).astype(int), np_.floor(py).astype(int)
-            jx, jy = np_.minimum(ix + 1, w - 1), np_.minimum(iy + 1, h - 1)
-            ax, ay = px - ix, py - iy
-            # Accumulate only nonzero interpolation weights: 0 * NaN must
-            # not invalidate an otherwise exact integer-coordinate sample.
-            samples = np_.zeros(px.shape, dtype="float64")
-            for rows, cols, weights in ((iy, ix, (1 - ax) * (1 - ay)),
-                                        (iy, jx, ax * (1 - ay)),
-                                        (jy, ix, (1 - ax) * ay),
-                                        (jy, jx, ax * ay)):
-                use = weights > 0
-                samples[use] += a[rows[use], cols[use]] * weights[use]
-            samples = samples[np_.isfinite(samples)]
-            sample_counts.append(int(samples.size))
-            vals.append(float(samples.mean()) if samples.size else None)
         calibration = self._calib(img, 2)
-        sx, sy = calibration[0]["scale"], calibration[1]["scale"]
-        ux, uy = calibration[0]["unit"], calibration[1]["unit"]
-        calibrated = (sx is not None and sy is not None and sx != 0 and sy != 0 and
-                      math.isfinite(sx) and math.isfinite(sy) and ux == uy and bool(ux))
-        distance_length = math.hypot((x1 - x0) * sx, (y1 - y0) * sy) if calibrated else length
-        unit = ux if calibrated else "pixel"
-        dist = (ts * distance_length).tolist()
-        return {"id": int(img.GetID()), "n": int(n), "width": width,
-                "distance": [float(v) for v in dist], "unit": unit, "values": vals,
-                "calibrated_distance": bool(calibrated), "calibration": calibration,
-                "sampled_coordinates": [[float(x), float(y)] for x, y in zip(xs, ys)],
-                "width_offsets": offsets.tolist(), "finite_samples_per_point": sample_counts,
-                "sampling": "bilinear at evenly spaced pixel-coordinate centers; mean across pixel-plane perpendicular strip",
-                "boundary_policy": "reject out-of-image endpoints; omit out-of-image strip samples and nonfinite interpolated samples",
-                "note": "width is exact sample count; even widths use half-pixel symmetric offsets; mixed/missing axis units return pixel distance"}
+        result = _analysis2d_helper().profile(a, calibration, x0, y0, x1, y1, width)
+        result["id"] = int(img.GetID())
+        return result
 
     def fft(self, image_id, rect, top_n):
-        np_ = self._need_numpy()
         img = self._resolve(image_id)
         selected, used = self._roi(img, rect)
-        sub = np_.asarray(selected, dtype="float64")
-        if not np_.all(np_.isfinite(sub)):
-            raise ValueError("FFT 区域含 NaN/Inf；请先明确选择缺失值处理方法")
-        f = np_.fft.fftshift(np_.abs(np_.fft.fft2(sub - float(np_.mean(sub)))))
-        cy, cx = f.shape[0] // 2, f.shape[1] // 2
-        top_n = max(1, min(int(top_n or 12), 200))
-        peaks = []
-        # Partial selection avoids sorting every FFT bin on large images.
-        take = min(int(f.size), top_n + 1)
-        flat = f.ravel()
-        candidates = np_.argpartition(flat, flat.size - take)[-take:]
-        candidates = candidates[np_.argsort(flat[candidates])[::-1]]
         calibration = self._calib(img, 2)
-        sx, sy = calibration[0]["scale"], calibration[1]["scale"]
-        ux, uy = calibration[0]["unit"], calibration[1]["unit"]
-        use_x = sx is not None and sx != 0 and math.isfinite(sx) and bool(ux)
-        use_y = sy is not None and sy != 0 and math.isfinite(sy) and bool(uy)
-        for k in candidates:
-            y, x = divmod(int(k), f.shape[1])
-            if y == cy and x == cx:
-                continue
-            dx, dy = int(x - cx), int(y - cy)
-            fxp, fyp = dx / float(f.shape[1]), dy / float(f.shape[0])
-            fx, fy = (fxp / sx if use_x else None), (fyp / sy if use_y else None)
-            same_unit = use_x and use_y and ux == uy
-            frequency = math.hypot(fx, fy) if same_unit else None
-            peaks.append({"dy": dy, "dx": dx, "magnitude": float(f[y, x]),
-                          "d_pix": float(np_.hypot(dy, dx)),
-                          "fx_cycles_per_pixel": fxp, "fy_cycles_per_pixel": fyp,
-                          "frequency_cycles_per_pixel": math.hypot(fxp, fyp),
-                          "fx": fx, "fy": fy,
-                          "fx_unit": "1/(%s)" % ux if use_x else None,
-                          "fy_unit": "1/(%s)" % uy if use_y else None,
-                          "frequency": frequency,
-                          "spacing": 1.0 / frequency if frequency else None,
-                          "spacing_unit": ux if same_unit else None})
-            if len(peaks) >= top_n:
-                break
-        return {"id": int(img.GetID()), "rect": used, "shape": list(sub.shape),
+        result, _ = _analysis2d_helper().fft(selected, calibration, top_n)
+        result.update({"id": int(img.GetID()), "rect": used, "shape": list(selected.shape),
             "requested_rect": list(rect) if rect is not None else None, "effective_rect": list(used),
-                "dc": float(f[cy, cx]), "peaks": peaks,
-                "calibration": calibration, "mean_removed": True,
-                "window": "rectangular (no apodization)",
-                "normalization": "unnormalized absolute DFT; no intensity normalization",
-                "note": "dx/dy are signed FFT-bin indices; legacy d_pix is bin-index radius, NOT cycles/pixel; fx/fy include axis calibration; spacing requires matching nonempty axis units"}
+        })
+        return result
+
+    def capture2d(self, image_id, rect, output_dir):
+        """Capture one bounded 2D selection into a new, immutable NPY bundle."""
+        np_ = self._need_numpy()
+        if not isinstance(output_dir, str) or not output_dir or "\x00" in output_dir:
+            raise ValueError("output_dir must be an absolute new directory")
+        output_dir = os.path.abspath(output_dir)
+        if not os.path.isabs(output_dir) or os.path.exists(output_dir):
+            raise FileExistsError("capture output_dir must not already exist")
+        img = self._resolve(image_id)  # Resolve 'front' exactly once.
+        ndim, dims = self._dims(img)
+        if ndim != 2 or len(dims) != 2:
+            raise ValueError("只支持显式二维实数图像；请先在 DM 中选择二维数据集")
+        source_shape = [int(dims[1]), int(dims[0])]
+        data_type_code = self._safe(img.GetDataType)
+        dtype_by_code = {1: "int16", 2: "float32", 6: "uint8", 7: "int32",
+                         9: "int8", 10: "uint16", 11: "uint32", 12: "float64"}
+        try:
+            expected_dtype = np_.dtype(dtype_by_code[int(data_type_code)])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("拒绝未知或非实数 DM 数据类型；不猜测 NumPy dtype")
+        used = _rect_bounds(source_shape, rect)
+        x0, y0, x1, y1 = used
+        selected_shape = [y1 - y0, x1 - x0]
+        pixel_count = selected_shape[0] * selected_shape[1]
+        selected_bytes = pixel_count * expected_dtype.itemsize
+        estimated_peak = selected_bytes * 2 + 65536
+        if pixel_count > MAX_TRANSFER_PIXELS:
+            raise RuntimeError("捕获区域超过 DM 像素预算；请显式缩小 rect")
+        if estimated_peak > MAX_2D_CAPTURE_WORKING_BYTES:
+            raise RuntimeError("捕获区域预计工作内存 %d bytes，超过 %d bytes；未自动缩小区域"
+                               % (estimated_peak, MAX_2D_CAPTURE_WORKING_BYTES))
+        calibration_before = self._calib(img, 2)
+        before = {"shape": source_shape, "data_type_code": int(data_type_code),
+                  "calibration": calibration_before}
+        os.makedirs(output_dir)  # Exclusive: refuses an existing directory.
+        capture_id = uuid.uuid4().hex
+        manifest = {"schema_version": 1, "capture_id": capture_id,
+                    "state": "capturing", "operation": "bounded 2D capture",
+                    "source_image_id": int(img.GetID()),
+                    "source_shape_yx": source_shape,
+                    "source_rect_xyxy": used,
+                    "source_rect_convention": "zero-based half-open [x0,y0,x1,y1]",
+                    "source_dtype": expected_dtype.name,
+                    "source_data_type_code": int(data_type_code),
+                    "calibration_before": calibration_before,
+                    "memory_estimate_bytes": estimated_peak,
+                    "memory_budget_bytes": MAX_2D_CAPTURE_WORKING_BYTES,
+                    "pixel_capture_atomic": False,
+                    "capture_consistency": "copy is independent after completion; capture requires no concurrent edits; matching descriptors do not prove pixels were unchanged during copy",
+                    "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        manifest_path = os.path.join(output_dir, "capture.json")
+        try:
+            with open(manifest_path, "x", encoding="utf-8") as stream:
+                json.dump(manifest, stream, ensure_ascii=False, sort_keys=True, indent=2)
+            array = self._array_2d(img)
+            if list(array.shape) != source_shape or array.dtype != expected_dtype:
+                raise RuntimeError("DM image descriptor and pixel array shape/dtype disagree; capture refused")
+            working = np_.array(array[y0:y1, x0:x1], copy=True, order="C")
+            if working.shape != tuple(selected_shape) or working.dtype != expected_dtype:
+                raise RuntimeError("captured working array has unexpected shape or dtype")
+            calibration_after = self._calib(img, 2)
+            after_ndim, after_dims = self._dims(img)
+            after = {"shape": list(reversed(after_dims)),
+                     "data_type_code": self._safe(img.GetDataType),
+                     "calibration": calibration_after}
+            if after_ndim != 2 or after != before:
+                raise RuntimeError("DM image descriptor changed during capture; package marked failed")
+            source_calibration = calibration_before
+            work_calibration = []
+            for rec, start, size in zip(source_calibration, (x0, y0), selected_shape[::-1]):
+                value0, scale = rec.get("calibrated_value_at_pixel_zero"), rec.get("scale")
+                if value0 is None or scale is None:
+                    work_zero = None
+                else:
+                    work_zero = float(value0) + float(start) * float(scale)
+                work_calibration.append({"axis": rec.get("axis"), "scale": rec.get("scale"),
+                                         "unit": rec.get("unit"),
+                                         "calibrated_value_at_pixel_zero": work_zero,
+                                         "size": int(size)})
+            input_path = os.path.join(output_dir, "input.npy")
+            with open(input_path, "xb") as stream:
+                np_.save(stream, working, allow_pickle=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            digest = hashlib.sha256()
+            with open(input_path, "rb") as stream:
+                while True:
+                    block = stream.read(1024 * 1024)
+                    if not block:
+                        break
+                    digest.update(block)
+            input_info = {"schema_version": 1, "capture_id": capture_id,
+                          "shape_yx": list(working.shape), "dtype": working.dtype.name,
+                          "source_image_id": int(img.GetID()),
+                          "source_shape_yx": source_shape,
+                          "source_rect_xyxy": used,
+                          "source_rect_convention": "zero-based half-open [x0,y0,x1,y1]",
+                          "source_calibration_dm": source_calibration,
+                          "working_calibration_xy": work_calibration,
+                          "pixel_coordinate_model": "pixel centers at integer x,y; physical value = calibrated_value_at_pixel_zero + index*scale",
+                          "intensity_calibration": {
+                              "origin": self._safe(img.GetIntensityOrigin),
+                              "scale": self._safe(img.GetIntensityScale),
+                              "unit": self._safe(img.GetIntensityUnitString)},
+                          "input_file": "input.npy", "input_sha256": digest.hexdigest(),
+                          "source_path_included": False}
+            with open(os.path.join(output_dir, "input.json"), "x", encoding="utf-8") as stream:
+                json.dump(input_info, stream, ensure_ascii=False, sort_keys=True, indent=2)
+            info_digest = hashlib.sha256(json.dumps(input_info, ensure_ascii=False, sort_keys=True,
+                                                    separators=(",", ":")).encode("utf-8")).hexdigest()
+            manifest.update({"state": "captured", "calibration_after": calibration_after,
+                             "input_sha256": digest.hexdigest(),
+                             "input_metadata_sha256": info_digest,
+                             "descriptor_unchanged": True,
+                             "completed_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            with open(manifest_path, "w", encoding="utf-8") as stream:
+                json.dump(manifest, stream, ensure_ascii=False, sort_keys=True, indent=2)
+            del working, array
+            return {"capture_id": capture_id, "state": "captured",
+                    "capture_dir": output_dir, "shape_yx": selected_shape,
+                    "dtype": expected_dtype.name, "source_rect_xyxy": used,
+                    "input_sha256": digest.hexdigest(), "memory_estimate_bytes": estimated_peak,
+                    "pixel_capture_atomic": False,
+                    "note": "所有后续分析只读取此独立副本；捕获期间必须避免编辑源图。"}
+        except Exception as exc:
+            manifest["state"] = "failed"
+            manifest["error"] = str(exc)
+            try:
+                with open(manifest_path, "w", encoding="utf-8") as stream:
+                    json.dump(manifest, stream, ensure_ascii=False, sort_keys=True, indent=2)
+            except Exception:
+                pass
+            raise
 
     # -- io ---------------------------------------------------------------
     @staticmethod
@@ -1787,6 +1887,9 @@ class Dispatcher(object):
 
     def op_stats(self, a):
         return self.backend.stats(a.get("image_id"), a.get("rect"))
+
+    def op_capture2d(self, a):
+        return self.backend.capture2d(a.get("image_id"), a.get("rect"), a.get("output_dir"))
 
     def op_spectrum_info(self, a):
         return self.backend.spectrum_info(a.get("image_id"), a.get("energy_axis"), a.get("spatial_bounds"))

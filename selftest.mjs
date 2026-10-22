@@ -123,7 +123,9 @@ try {
 
   const list = await rpc("tools/list", {});
   const names = (list.result?.tools || []).map((t) => t.name);
-  check("tools/list 返回 17 个工具", names.length === 17, names.join(","));
+  check("tools/list 返回 21 个工具", names.length === 21, names.join(","));
+  check("task A 固定捕获、预览、分析和结果查询工具存在",
+    ["dm_2d_capture", "dm_2d_preview", "dm_2d_analyze", "dm_2d_result"].every(name => names.includes(name)), names.join(","));
   console.log("      " + names.join(", "));
 
   const status = await call("dm_status");

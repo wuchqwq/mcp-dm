@@ -188,6 +188,56 @@ def run(output_directory):
                 bridge.MAX_TAG_NODES = old
         check('metadata:separate lookup and subtree budgets', budgets)
 
+        def fixed_capture():
+            capture_dir = destination / 'capture-region'
+            result = backend.capture2d(sid, [2, 1, 7, 5], str(capture_dir))
+            captured = np.load(str(capture_dir / 'input.npy'), allow_pickle=False)
+            input_info = json.loads((capture_dir / 'input.json').read_text(encoding='utf-8'))
+            capture_manifest = json.loads((capture_dir / 'capture.json').read_text(encoding='utf-8'))
+            np.testing.assert_array_equal(captured, expected[1:5, 2:7])
+            assert result['shape_yx'] == [4, 5] and captured.dtype == np.dtype('float32')
+            assert input_info['source_rect_xyxy'] == [2, 1, 7, 5]
+            assert input_info['input_sha256'] == result['input_sha256'] == capture_manifest['input_sha256']
+            metadata_hash = hashlib.sha256(json.dumps(input_info, ensure_ascii=False, sort_keys=True,
+                                                      separators=(',', ':')).encode('utf-8')).hexdigest()
+            assert capture_manifest['input_metadata_sha256'] == metadata_hash
+            assert capture_manifest['state'] == 'captured'
+            assert capture_manifest['pixel_capture_atomic'] is False
+            source_cal = source.GetDimensionCalibration(0, 0)
+            y_cal = source.GetDimensionCalibration(1, 0)
+            expected_x_zero = float(source_cal[0] + 2 * source_cal[1])
+            expected_y_zero = float(y_cal[0] + 1 * y_cal[1])
+            assert abs(input_info['working_calibration_xy'][0]['calibrated_value_at_pixel_zero'] - expected_x_zero) <= 1e-9
+            assert abs(input_info['working_calibration_xy'][1]['calibrated_value_at_pixel_zero'] - expected_y_zero) <= 1e-9
+            original_capture = captured.copy()
+            shared = source.GetNumArray()
+            old_value = float(shared[1, 2])
+            shared[1, 2] = old_value + 1000.0
+            try:
+                after_edit = np.load(str(capture_dir / 'input.npy'), allow_pickle=False)
+                np.testing.assert_array_equal(after_edit, original_capture)
+            finally:
+                shared[1, 2] = old_value
+            too_small = destination / 'capture-over-budget'
+            old_budget = bridge.MAX_2D_CAPTURE_WORKING_BYTES
+            try:
+                bridge.MAX_2D_CAPTURE_WORKING_BYTES = 1
+                try:
+                    backend.capture2d(sid, [2, 1, 7, 5], str(too_small))
+                except RuntimeError as error:
+                    assert '超过' in str(error)
+                else:
+                    raise AssertionError('capture budget was not enforced')
+                assert not too_small.exists(), 'budget rejection must happen before creating output'
+            finally:
+                bridge.MAX_2D_CAPTURE_WORKING_BYTES = old_budget
+            return {'capture_id': result['capture_id'], 'shape_yx': result['shape_yx'],
+                    'dtype': result['dtype'], 'input_sha256': result['input_sha256'],
+                    'shifted_xy_zero': [expected_x_zero, expected_y_zero],
+                    'captured_pixels_survive_later_source_edit': True,
+                    'budget_rejected_before_output_creation': True}
+        check('bounded immutable 2D capture and signed calibration', fixed_capture)
+
         def unchanged():
             np.testing.assert_array_equal(array(source), source_pixels)
             np.testing.assert_array_equal(array(other), other_pixels)

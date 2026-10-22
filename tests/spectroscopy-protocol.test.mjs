@@ -65,7 +65,7 @@ test('experimental spectrum MCP catalog, exact bridge mapping and rejection befo
     assert.match(init.result.instructions, /NOT_TESTED/);
     const catalog = (await rpc('tools/list', {})).result.tools;
     const names = ['dm_spectrum_info', 'dm_spectrum', 'dm_spectrum_integrate', 'dm_spectrum_export'];
-    assert.equal(catalog.length, 17, 'retain image and spectrum tools alongside the three 4D-STEM tools');
+    assert.equal(catalog.length, 21, 'retain image and spectrum tools alongside the task-A tools and three 4D-STEM tools');
     assert.deepEqual(catalog.filter(tool => tool.name.startsWith('dm_spectrum')).map(tool => tool.name), names);
     for (const name of names) {
       const entry = catalog.find(tool => tool.name === name);
