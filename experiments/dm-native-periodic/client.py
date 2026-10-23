@@ -41,6 +41,50 @@ def atomic_publish(temporary, destination):
     Path(temporary).unlink()
 
 
+def ordinary_script(root, filename="02_ordinary_python.py"):
+    root = Path(root).resolve()
+    session = read(root / "session.json")
+    token = identifier(session["token"])
+    path = root.as_posix()
+    if any(ord(c) < 32 or ord(c) > 126 or c == '"' for c in path):
+        raise ValueError("Unsafe DM-Script path")
+    if filename not in ("02_ordinary_python.py", "02b_host_checked_python.py", "02c_verified_host_python.py"):
+        raise ValueError("Only fixed experiment script names")
+    native = ('object task = GetScriptObjectFromID(OBJECT_ID)\n'
+              'if (!task.ScriptObjectIsValid()) Throw("Native task not present in this host")\n'
+              'number major, minor, build\nGetApplicationVersion(major,minor,build)\n'
+              'string p = "%s/ordinary_native_proof.json"\n'
+              'if (DoesFileExist(p)) Throw("Host proof already exists")\n'
+              'number f=CreateFileForWriting(p)\n'
+              'WriteFile(f,"{\\"token\\":\\"%s\\",\\"object_id\\":OBJECT_ID,\\"version\\":["+major+","+minor+","+build+"],\\"object_valid\\":1}")\n'
+              'CloseFile(f)\n') % (path, token)
+    code = ("import json, os, threading, time\nfrom pathlib import Path\n"
+            "import DigitalMicrograph as DM\n"
+            "if not DM.IsScriptOnMainThread(): raise RuntimeError('Run on DM foreground')\n"
+            "root=Path(%r)\n"
+            "binding=json.loads((root/'host_binding.json').read_text())\n"
+            "if os.getpid()!=binding['expected_host_pid']: raise RuntimeError('Not the bound DM process')\n"
+            "registration=json.loads((root/'registered.json').read_text())\n"
+            "if registration['token'] != %r: raise RuntimeError('Wrong session')\n"
+            "identity=registration['object_id']\n"
+            "if isinstance(identity,bool) or not isinstance(identity,int) or identity<0: raise RuntimeError('Bad native object ID')\n"
+            "DM.ExecuteScriptString(%r.replace('OBJECT_ID',str(identity)))\n"
+            "with (root/'ordinary_host_checked.json').open('x') as f:\n"
+            "    json.dump(dict(token=%r,pid=os.getpid(),thread=threading.get_ident(),"
+            "sum_0_to_10=sum(range(11)),time=time.time(),host_checked=True),f)\n") % (
+                str(root), token, native, token)
+    with (root / filename).open("x", encoding="utf-8") as stream:
+        stream.write(code)
+    return {"state": "prepared_not_executed", "script": str(root / filename)}
+
+
+def bind_host(root, expected_host_pid):
+    if isinstance(expected_host_pid, bool) or not isinstance(expected_host_pid, int) or expected_host_pid <= 0:
+        raise ValueError("Expected an observed, existing DM PID")
+    session = read(Path(root) / "session.json")
+    save(Path(root) / "host_binding.json", dict(token=session["token"], expected_host_pid=expected_host_pid))
+
+
 def prepare(root, ttl=600):
     root = Path(root).resolve()
     path = root.as_posix()
@@ -63,13 +107,7 @@ def prepare(root, ttl=600):
          template_sha256=template_sha,
          register_sha256=hashlib.sha256(script.encode("utf-8")).hexdigest(),
          created_at=time.time()))
-    # A separate, finite ordinary Python script, never a resident worker.
-    coexist = ("import json, os, threading, time\nfrom pathlib import Path\n"
-               "root=Path(%r)\n"
-               "with (root/'ordinary_python.json').open('x') as f:\n"
-               "    json.dump(dict(token=%r, pid=os.getpid(), thread=threading.get_ident(), "
-               "sum_0_to_10=sum(range(11)), time=time.time()), f)\n") % (str(root), token)
-    (root / "02_ordinary_python.py").write_text(coexist, encoding="utf-8")
+    ordinary_script(root)
     return {"state": "prepared_not_registered", "directory": str(root), "token": token}
 
 
@@ -196,11 +234,19 @@ def verify(root):
                     mean=29, min=12, max=46)
     checks["independent_stats_oracle"] = bool(stats) and all(
         all(r.get(k) == v for k, v in expected.items()) for r in stats)
-    ordinary = read(root / "ordinary_python.json") if (root / "ordinary_python.json").exists() else {}
-    checks["ordinary_python_completed"] = ordinary.get("token") == session["token"] and ordinary.get("sum_0_to_10") == 55
+    ordinary_path = root / "ordinary_host_checked.json"
+    ordinary = read(ordinary_path) if ordinary_path.exists() else {}
+    proof = read(root / "ordinary_native_proof.json") if (root / "ordinary_native_proof.json").exists() else {}
+    binding = read(root / "host_binding.json") if (root / "host_binding.json").exists() else {}
+    checks["ordinary_python_completed"] = (ordinary.get("token") == session["token"] and
+        ordinary.get("sum_0_to_10") == 55 and ordinary.get("host_checked") is True and
+        proof.get("token") == session["token"] and proof.get("object_id") == registration.get("object_id") and
+        proof.get("object_valid") == 1 and proof.get("version") == registration.get("version") and
+        binding.get("token") == session["token"] and ordinary.get("pid") == binding.get("expected_host_pid") and
+        isinstance(ordinary.get("pid"), int))
     pong_paths = [root / ("reply_%d.json" % r["slot"]) for r in replies if r.get("code") == "pong"]
     checks["native_roundtrips_around_python"] = bool(ordinary and len(pong_paths) >= 2 and
-        min(p.stat().st_mtime for p in pong_paths) <= (root / "ordinary_python.json").stat().st_mtime <=
+        min(p.stat().st_mtime for p in pong_paths) <= ordinary_path.stat().st_mtime <=
         max(p.stat().st_mtime for p in pong_paths))
     stopped = read(root / "stopped.json") if (root / "stopped.json").exists() else {}
     checks["stop_received"] = stopped.get("token") == session["token"]
@@ -216,14 +262,17 @@ def verify(root):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "submit", "reserve", "publish", "query", "stop", "cleanup-check", "verify"))
+    parser.add_argument("action", choices=("prepare", "submit", "reserve", "publish", "query", "stop", "cleanup-check", "repair-coexist", "bind-host", "verify"))
     parser.add_argument("directory")
     parser.add_argument("--operation", choices=OPS, default="ping")
     parser.add_argument("--slot", type=int, default=0)
     parser.add_argument("--request-id")
     parser.add_argument("--ttl", type=int, default=600)
+    parser.add_argument("--host-pid", type=int)
     args = parser.parse_args()
-    if args.action == "prepare": result = prepare(args.directory, args.ttl)
+    if args.action == "prepare":
+        result = prepare(args.directory, args.ttl)
+        if args.host_pid is not None: bind_host(args.directory, args.host_pid)
     elif args.action in ("reserve", "submit"):
         result = reserve(args.directory, args.operation, args.request_id)
         if args.action == "submit": result = publish(args.directory, result["slot"])
@@ -231,6 +280,10 @@ if __name__ == "__main__":
     elif args.action == "query": result = query(args.directory, args.slot)
     elif args.action == "stop": result = stop(args.directory)
     elif args.action == "cleanup-check": result = cleanup_check(args.directory)
+    elif args.action == "repair-coexist": result = ordinary_script(args.directory, "02b_host_checked_python.py")
+    elif args.action == "bind-host":
+        bind_host(args.directory, args.host_pid)
+        result = {"state": "bound_to_observed_existing_host_not_liveness_proof"}
     else: result = verify(args.directory)
     print(json.dumps(result, indent=2, sort_keys=True))
     if args.action == "verify" and result["status"] != "PASS": raise SystemExit(1)

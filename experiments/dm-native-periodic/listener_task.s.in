@@ -1,0 +1,95 @@
+// Separate busy experiment. Only the newly owned C1 trigger is mutable.
+class MCPC1Periodic_@CLASS@
+{
+    string root, token, seen
+    number taskID, started, nextSlot, ticks, active, holdUsed
+    void WriteOnce(object self, string name, string text)
+    {
+        string p=root+"/"+name
+        if(DoesFileExist(p)||DoesFileExist(p+".partial")) Throw("Output exists")
+        number f=CreateFileForWriting(p+".partial")
+        WriteFile(f,text)
+        CloseFile(f)
+        MoveFile(p+".partial",p)
+    }
+    void Stop(object self, string reason)
+    {
+        if(!active) return
+        active=0
+        RemoveMainThreadTask(taskID)
+        self.WriteOnce("stopped.json","{\"token\":\""+token+"\",\"reason\":\""+reason+"\",\"processed_slots\":"+nextSlot+"}")
+    }
+    void HandleTick(object self)
+    {
+        ticks++
+        if(DoesFileExist(root+"/stop.ready")) {self.Stop("requested");return;}
+        if(CalcOSSecondsBetween(started,GetOSTickCount())>=600||ticks>3010) {self.Stop("expired");return;}
+        if(nextSlot>=8) return
+        string slot=""+nextSlot, path=root+"/request_"+slot+".ready"
+        if(!DoesFileExist(path)) return
+        string id="invalid", state="unknown", code="native_call_unconfirmed"
+        number f=-1, t=GetHighResTickCount(), validID=0
+        try
+        {
+            f=OpenFileForReading(path)
+            string req=ReadFile(f,128)
+            CloseFile(f)
+            f=-1
+            if(req.len()!=128||req.left(32)!=token||req.mid(32,1)!="|"||req.mid(65,1)!="|") Throw("Bad request")
+            id=req.mid(33,32)
+            string hex="0123456789abcdef", op=req.mid(66,8)
+            number k
+            for(k=0;k<32;k++) if(hex.find(id.mid(k,1))<0) Throw("Bad ID")
+            validID=1
+            if(seen.find("|"+id+"|")>=0) {state="failed";code="duplicate_request_id";}
+            else
+            {
+                seen+=id+"|"
+                if(op=="wake    ")
+                {
+                    // Cooperative guard only, NOT a global Python busy query.
+                    if(DoesFileExist(root+"/busy_started.json")&&!DoesFileExist(root+"/busy_finished.json"))
+                        Throw("Own busy probe still active; do not enter Python")
+                    image trigger:=FindImageByID(@TRIGGER_ID@)
+                    if(!trigger.ImageIsValid()) Throw("C1 trigger missing")
+                    string owner
+                    if(!trigger.ImageGetTagGroup().TagGroupGetTagAsString("MCP_C1:session",owner)) Throw("Ownership missing")
+                    if(owner!="@C1_TOKEN@") Throw("Wrong C1 session")
+                    SetName(trigger,"MCP_C1_@C1_TOKEN@_"+id)
+                    code="trigger_returned_check_python_receipt"
+                }
+                else if(op=="hold    "&&!holdUsed)
+                {
+                    holdUsed=1
+                    state="failed"
+                    code="known_crash_busy_probe_disabled"
+                }
+                else {state="failed";code="unsupported_or_repeated_hold";}
+            }
+        }
+        catch {if(f>=0) CloseFile(f);code="native_error_outcome_unknown";break;}
+        if(!validID) id="invalid"
+        number ms=1000*CalcHighResSecondsBetween(t,GetHighResTickCount())
+        self.WriteOnce("reply_"+slot+".json","{\"token\":\""+token+"\",\"request_id\":\""+id+"\",\"slot\":"+slot+",\"state\":\""+state+"\",\"code\":\""+code+"\",\"native_duration_ms\":"+ms+"}")
+        nextSlot++
+    }
+    void Tick(object self)
+    {
+        if(!active) return
+        try {self.HandleTick();}
+        catch {self.Stop("callback_failure");break;}
+    }
+    object Init(object self)
+    {
+        root="@ROOT@";token="@TOKEN@";seen="|"
+        nextSlot=0;ticks=0;holdUsed=0;active=0
+        if(DoesFileExist(root+"/registration_attempted.marker")) Throw("Already attempted")
+        self.WriteOnce("registration_attempted.marker",token)
+        started=GetOSTickCount()
+        taskID=AddMainThreadPeriodicTask(self,"Tick",0.2)
+        active=1
+        self.WriteOnce("registered.json","{\"token\":\""+token+"\",\"task_id\":"+taskID+",\"object_id\":"+self.ScriptObjectGetID()+",\"source_template_sha256\":\"@SHA@\"}")
+        return self
+    }
+}
+Alloc(MCPC1Periodic_@CLASS@).Init()

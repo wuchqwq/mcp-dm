@@ -82,7 +82,7 @@ class ClientTests(unittest.TestCase):
     def complete_receipts(self):
         session = client.read(self.root / "session.json")
         client.save(self.root / "registered.json", dict(token=session["token"],
-                    source_template_sha256=session["template_sha256"], object_id=12))
+                    source_template_sha256=session["template_sha256"], object_id=12, version=[3,53,1]))
         stats = dict(image_id=10, shape_yx=[8,12], dtype="float32", zero_xy=[1.25,-2.5],
                      scale_xy=[-0.25,0.5], units_xy=["nm","nm"], rect_xyxy=[2,1,7,5],
                      count=20, sum=580, mean=29, min=12, max=46)
@@ -94,8 +94,11 @@ class ClientTests(unittest.TestCase):
             path = self.root / ("reply_%d.json" % slot)
             client.save(path, reply)
             os.utime(str(path), (slot*10+1, slot*10+1))
-        ordinary = self.root / "ordinary_python.json"
-        client.save(ordinary, dict(token=session["token"], sum_0_to_10=55))
+        ordinary = self.root / "ordinary_host_checked.json"
+        client.bind_host(self.root, 123)
+        client.save(ordinary, dict(token=session["token"], sum_0_to_10=55, host_checked=True, pid=123))
+        client.save(self.root / "ordinary_native_proof.json", dict(token=session["token"], object_id=12,
+                    version=[3,53,1], object_valid=1))
         os.utime(str(ordinary), (15,15))
         client.save(self.root / "stopped.json", dict(token=session["token"], executions=3,
                     processed_slots=3, source_unchanged=1, owned_image_closed=1))
@@ -126,6 +129,19 @@ class ClientTests(unittest.TestCase):
         data["object_valid"] = 1
         path.write_text(json.dumps(data))
         self.assertFalse(client.verify(self.root)["checks"]["native_task_object_released"])
+
+    def test_foreign_python_process_cannot_pass_host_check(self):
+        self.complete_receipts()
+        path = self.root / "ordinary_host_checked.json"
+        data = client.read(path)
+        data["pid"] = 456
+        path.write_text(json.dumps(data))
+        self.assertFalse(client.verify(self.root)["checks"]["ordinary_python_completed"])
+
+    def test_plain_python_receipt_cannot_pass_host_check(self):
+        self.complete_receipts()
+        (self.root / "ordinary_native_proof.json").unlink()
+        self.assertFalse(client.verify(self.root)["checks"]["ordinary_python_completed"])
 
     def test_no_overwrite_and_finite_generated_python(self):
         with self.assertRaises(FileExistsError): client.prepare(self.root)

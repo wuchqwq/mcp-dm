@@ -5,6 +5,8 @@ class MCPNativePeriodic_@CLASS@
     number taskID, started, ticks, nextSlot, executions, active, sourceID
     image source
 
+    string SessionToken(object self) { return token; }
+
     void WriteOnce(object self, string name, string body)
     {
         string destination = root + "/" + name
@@ -55,11 +57,11 @@ class MCPNativePeriodic_@CLASS@
         if (sourceID == 0)
         {
             source := RealImage("MCP_NATIVE_"+token, 4, 12, 8)
+            sourceID = source.ImageGetID()
             source = icol + 10*irow
             source.ImageGetTagGroup().TagGroupSetTagAsString("MCP_NATIVE:session", token)
             source.ImageSetDimensionCalibration(0, 1.25, -0.25, "nm", 0)
             source.ImageSetDimensionCalibration(1, -2.5, 0.5, "nm", 0)
-            sourceID = source.ImageGetID()
             ShowImage(source)
         }
         if (!self.SourceOK()) Throw("Owned synthetic image changed")

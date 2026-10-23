@@ -1,5 +1,10 @@
 # C1: a short-lived registration script and a retained Python listener
 
+**Follow-up warning:** the [native periodic experiment](../dm-native-periodic/FINDINGS.md)
+demonstrated idle automatic wake but a real host crash when waking a listener
+during another Python script. These sequential lifecycle scripts do not prove
+concurrent safety. Do not use this experiment as a general busy-aware Bridge.
+
 This is an isolated feasibility experiment, **not a replacement Bridge**.
 Production MCP tools, TCP protocol, launcher and configuration are unchanged.
 No microscope hardware, real experimental data, resident Python worker,

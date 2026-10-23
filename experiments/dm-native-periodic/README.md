@@ -15,7 +15,10 @@ file, timer, image and calibration API signatures.
 Use a new private ASCII directory; never reuse a run directory:
 
 ```powershell
-python -B experiments/dm-native-periodic/client.py prepare D:\dm-native-private\run01
+Get-Process DigitalMicrograph | Select-Object Id, MainWindowHandle, Responding
+# Replace 1234 with the observed, already-open DM main process PID.
+$dmHostPid = 1234
+python -B experiments/dm-native-periodic/client.py prepare D:\dm-native-private\run01 --host-pid $dmHostPid
 ```
 
 With the existing DM open and the ordinary Bridge normally stopped, open and
@@ -36,6 +39,12 @@ second ping and verify its new ID reply. Only after native entry and ordinary
 Python coexistence pass, submit `--operation stats`. That fixed action creates
 one owned float32 ramp, reads its dimensions/calibration and a fixed half-open
 ROI, and returns actual native statistics. It never targets a front/real image.
+
+The ordinary Python proof must import the actual DM API, run on the foreground,
+match the bound host PID, and use built-in native APIs to check the retained
+object and host version before writing its receipt. A plain Python arithmetic
+file written outside DM is not host acceptance. For an already prepared run,
+`bind-host --host-pid N` adds an exclusive host binding without starting DM.
 
 `--operation fail` is an intentional fixed failure with no scientific action.
 Duplicate IDs in separate slots are rejected, including changed operations.
@@ -109,3 +118,25 @@ python -B -m unittest discover -s experiments/dm-native-periodic -p "test_*.py" 
 Run the same tests with the installed GMS Python outside DM without upgrading
 dependencies. Client tests are not native-host scheduling or image acceptance.
 Results and current limitations are recorded in `FINDINGS.md`.
+
+## Python-listener busy experiment: QUARANTINED
+
+The separate `listener_probe.py` / `listener_task.s.in` experiment reused the
+existing C1 listener and synthetic source. Idle native-to-Python wake completed
+with a verified nonce, source, calibration and values. A subsequent wake during
+a fixed background Python sleep was followed by a real DM crash; Windows
+recorded a `python37.dll` access violation. The interrupted operation has no
+completion receipt and remains unknown. It must not be retried.
+
+**Do not run this listener/busy experiment in a normal DM session.** Newly
+generated starters now refuse before any host import or allocation, and the
+public request function always refuses. The native hold operation is disabled;
+a cooperative own-busy guard was added, but that guard is NOT_TESTED in DM and
+does not detect arbitrary user scripts or make Python reentry safe. There is
+no automatic restart or permission flag to bypass this quarantine.
+
+Original executed source, initial observations and crash events are retained
+privately without rewriting. The current listener files are review artifacts,
+not the exact ungated host-run source and not a repaired production transport.
+Its private protocol helper is used only by synthetic tests. Do not use it to
+bypass quarantine. The direct native-only prototype remains separate.
