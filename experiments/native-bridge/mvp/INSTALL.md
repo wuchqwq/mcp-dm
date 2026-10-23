@@ -66,7 +66,7 @@ edit the default v0.6 entry. The installer does not change client configuration.
 
 Check `dm_status` and its actual host `backend`, build identity, process/thread
 receipts and session before numerical work. `mock-native` is synthetic evidence
-only. This native MCP catalog exposes status, datasets, native mean, result query,
+only. This native MCP catalog exposes status, datasets, native mean and SUMMARY, result query,
 experimental explicit-ID half-open `dm_crop` and `dm_native_show`. The crop creates a separate
 native image retained by the plugin until normal native STOP/cleanup; it does
 not create a visible DM document. The mean tool is not a replacement for the
@@ -80,7 +80,7 @@ native UTF-16/UTF-8 path has no heuristic encoding repair.
 
 Crop requires an explicit `request_id` saved before submitting; newly added
 side-effect tools follow the same rule. Save its session, tool and arguments
-too. Existing read-only status/datasets/mean calls keep generated-ID
+too. Read-only status/datasets/mean/SUMMARY calls permit generated-ID
 compatibility, but the operator trial supplies IDs for all calls.
 After a timeout, cancellation or disconnect, query that ID with
 `dm_native_result`; never automatically resubmit the original operation.
@@ -124,21 +124,20 @@ fixture, `accept_trial_mcp.py`, independent oracle and saved-STOP sequence.
 Its answers and evidence remain private. No existing client entry is edited
 by these instructions or scripts.
 
-The P1 `dm_native_show` candidate completed actual MCP/native receipt and
-same-image correlation checks. Independent desktop acceptance is still
-NOT_TESTED, and the current trial is HOLD. It targets only an
-already retained crop by exact ID and a new saved show request ID, without a
-path or file save. It must not be advertised as completed delivery until its
-own acceptance. STOP must not close a shown document; continued document
-ownership after STOP needs separate testing from hidden-output release.
-The current trial acknowledged STOP and removed the pipe/window, but its host
-remains open with the DLL loaded and manifest installed. Complete its private
-post-STOP oracle, then normally close only the delivered crop document and run
-[verify_trial_closed.py](verify_trial_closed.py) while DM still runs. That
-prepared check verifies final output release and unchanged other sources;
-whole-host exit is not a substitute. These checks remain NOT_TESTED. Finally
-complete normal exit and owned removal; do not force termination
-or remove a loaded DLL. Earlier accepted cleanup is not this trial's cleanup.
+The limited new synthetic session passed `dm_native_show` receipt/identity,
+independent visibility, unique-document and post-STOP ownership checks. It
+targets only an already retained crop by exact ID and a saved show request ID,
+without a path or file save. Closing only the delivered document made its image
+ID invalid while preserving other sources. The host then exited normally and
+its manifest-owned DLL was removed. Older observations remain UNVERIFIED when
+their original STOP request is missing; do not backfill that record.
+
+Repeat the full sequence for changed implementations: before-STOP oracle,
+saved original STOP request, after-STOP oracle, normal closure of only the
+delivered document, then [verify_trial_closed.py](verify_trial_closed.py) while
+DM still runs. Whole-host exit cannot substitute for the last-reference check.
+SUMMARY has a separate [acceptance procedure](SUMMARY_ACCEPTANCE.md). Never
+force termination or remove a loaded DLL.
 
 ## Stop IPC, close the test host and remove
 

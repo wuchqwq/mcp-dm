@@ -286,8 +286,10 @@ SHOW can have UI effects before a later failure or timeout. Save its original
 session/ID before dispatch, QUERY that ID and do not automatically call SHOW
 again. The result explicitly denies file saving and model visual verification.
 The candidate's native completed receipt and explicit-image correlation
-passed a limited actual-host MCP check. Independent visibility, document count
-and post-STOP ownership remain **NOT_TESTED**; the current trial is HOLD.
+passed a limited actual-host MCP check. A later new strict session independently
+passed actual visibility, unique-document count, ownership after STOP and final
+image release after normal document closure. This qualifies only the explicit
+plugin-crop document path on the pinned build, not saving or model vision.
 See [RESULTS.md](RESULTS.md) for the distinct runtime evidence boundaries.
 
 ## Legacy Python and native Unicode paths
@@ -322,6 +324,27 @@ RECORDED or FAIL, with qualification always NOT_QUALIFIED. Offline fake-getter
 tests qualify this retention behavior, not the stored host characters. No real
 Unicode probe was executed in this offline continuation, and the independent
 UI/native/MCP comparison remains pending.
+
+## Native SUMMARY reductions
+
+SUMMARY binds the same pinned processing module's exact decorated GetMinimum,
+GetMaximum and GetSum exports, each taking `const NativeRef*` and returning a
+native double, together with the existing GetMean binding. The static wrapper
+review follows vendor image-data/layout reduction paths; no bridge pixel kernel
+or value derived from another returned scalar is used. A strong image reference,
+explicit numeric ID, bounded 2D float32 shape and the existing readiness/ABI gates
+remain required. Each call's finite result and readiness are checked before the
+next call; a failure yields no partial successful summary.
+
+The raw-intensity contract was separately checked in a new real host with
+nontrivial intensity origin/negative scale/unit, plus default and missing spatial
+unit controls. Strict MCP and an independent same-PID oracle matched the raw
+values and verified full source pixels, spatial/intensity calibration and
+document invariance. This is a limited synthetic qualification, not a proof for
+other dtypes, versions or concurrent source edits. The four native calls are
+sequential with `snapshot_atomic:false`. Generic NB1 QUERY carries no original
+operation; independent acceptance continues semantic checks using its original
+tool/ID/parameter ledger. See [SUMMARY acceptance](mvp/SUMMARY_ACCEPTANCE.md).
 
 ## Minimum runtime verification order
 

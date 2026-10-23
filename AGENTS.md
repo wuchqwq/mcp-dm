@@ -49,8 +49,13 @@ before per-operator ABI, scientific and ownership qualification.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has status, datasets, native mean,
-result query, crop and the P1 show candidate. Its target is Windows x64 GMS 3.53.4137.0 with exact
+The separate experimental native catalog has seven tools: status, datasets,
+native mean, dm_native_summary, result query, crop and experimental native show.
+SUMMARY calls DM's built-in GetMinimum/GetMaximum/GetSum/GetMean directly;
+it is not full dm_stats and adds no backend, preview or save feature. Its
+scope is float32 2D up to 4,194,304 pixels, raw intensity without intensity
+calibration, serialized idle-host execution with snapshot_atomic:false.
+Its target is Windows x64 GMS 3.53.4137.0 with exact
 binary gates. Earlier core idle-host metadata/mean/MCP acceptance and separate native
 crop pixel/copy/calibration acceptance passed using ASCII-named synthetic
 inputs. Crop output release after STOP was independently checked along with
@@ -65,30 +70,46 @@ unknown or timeout, query it and never replay automatically. Native STOP only
 ends this experiment's IPC/owned resources, not DM. Close DM normally before
 manifest-based installation/removal; do not alter existing client entries.
 
-Current native P0: raw intensity mean does not require usable spatial
+Current native P0: raw intensity mean and SUMMARY do not require usable spatial
 calibration when known missing/invalid calibration can be reported explicitly.
 Keep calibration_complete:false and specific per-axis issues; never invent
 units, apply intensity calibration or swallow native/ABI exceptions. Crop
 continues to require valid spatial calibration. Crop and newly added
-side-effect tools require a caller-saved request_id before dispatch; the old
-read-only status/datasets/mean tools retain optional-ID compatibility. Save
+side-effect tools require a caller-saved request_id before dispatch; read-only
+status/datasets/mean/SUMMARY tools allow an omitted ID to generate a UUID. Save
 session/arguments too and recover only with same-session QUERY. Records are
 volatile; STOP, host exit/restart or a new session does not promise recovery.
 
-The current strict actual-host trial passed calibrated/empty-unit raw mean
+An earlier strict actual-host trial passed calibrated/empty-unit raw mean
 metadata and safe errors, crop ID recovery/conflicts, and SHOW native receipt
 and image correlation. Other invalid spatial-number cases are offline-only.
-The trial is HOLD pending independent desktop/document and full-pixel/source
-checks, post-STOP document ownership, normal exit and owned removal. IPC STOP
-and pipe/window cleanup passed, but the test host remains open with DLL loaded
-and manifest installed. Preserve that continuation state; do not force-close
-or remove a loaded plugin. Earlier crop/oracle/cleanup passes are not inherited.
+That previously retained host has now completed independent legacy observations,
+normal exit and manifest-owned removal. Its missing original STOP request is
+still UNVERIFIED, never repaired by later observations or cleanup. A new strict
+session passed SUMMARY's real host/build gate, strict MCP and independent source
+oracle, including nontrivial intensity calibration, missing spatial units,
+safe errors and unchanged full pixels, both calibrations and document count.
+See experiments/native-bridge/mvp/SUMMARY_ACCEPTANCE.md. The new strict session
+also independently passed SHOW MCP, before/after-STOP oracles with the original
+STOP request verified, actual crop-document visibility and after-close final
+release: exact output ID invalid, document count restored, other sources unchanged.
+Normal host exit and manifest-owned DLL removal then completed. Keep that limited
+PASS separate from the older session's historical UNVERIFIED STOP identity.
+Never force-close a host or remove a loaded plugin. The standalone candidate_calls
+module remains synthetic-only and absent from the shipping DLL; SUMMARY's real
+adapter integration does not qualify its remaining operation catalog.
 
-P1 candidate dm_native_show requires its own saved ID and accepts only an
+Generic NB1 QUERY does not carry its original operation. An independent
+acceptance client must continue validating against its pre-submission saved
+tool/ID/arguments. Recognition of some SUMMARY result fields is not proof that
+every malformed recovery result can be identified after all operation markers
+are removed. Do not add computation or a backend fallback to fill this gap.
+
+Experimental dm_native_show requires its own saved ID and accepts only an
 existing plugin-retained crop, with no path or data-copy/file-save interface.
-Its independent visual/document scope remains NOT_TESTED despite its native
-completed receipt. A shown document may hold an
-output after plugin STOP; do not confuse document ownership with a plugin
+Its limited visible-document/lifetime acceptance is recorded independently of
+its native completed receipt. A shown document can hold the output after plugin
+STOP until the user closes it or the host exits; do not confuse that with a plugin
 leak, or close unrelated documents. No model-viewing or permanent-save claim.
 The SaveAsGatan string/exclusive-write contracts remain unqualified. Keep
 independent trial answers private; see MVP TRIAL_ACCEPTANCE.md for the strict

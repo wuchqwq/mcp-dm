@@ -11,6 +11,22 @@ import {NativeBridge} from "../lib/native_bridge.mjs";
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// Contract emulation only: no DM process/vendor computation is used here.
+function summaryFixture(imageId = 77) {
+  return {backend: "digitalmicrograph-native", image_id: imageId,
+    image: {id: imageId, name: "synthetic", ndim: 2, data_type_code: 2, dtype: "float32", shape: [3, 4], dm_dimensions: [4, 3],
+      shape_order: "numpy (last axis is X)", pixels: 12,
+      calibration: [
+        {dm_dimension: 0, numpy_axis: 1, size: 4, origin: 2, calibrated_value_at_pixel_zero: 0.5, scale: -0.25, unit: "nm", usable: true, issue: null},
+        {dm_dimension: 1, numpy_axis: 0, size: 3, origin: -1, calibrated_value_at_pixel_zero: 0.5, scale: 0.5, unit: "nm", usable: true, issue: null},
+      ], calibration_complete: true, native_mean_supported: true, native_summary_supported: true,
+      coordinate_rule: "physical(i)=calibrated_value_at_pixel_zero+i*scale"},
+    minimum: -3.25, maximum: 8.5, sum: -0.75, mean: -0.0625,
+    operators: ["GMSImageProcessing::GetMinimum", "GMSImageProcessing::GetMaximum", "GMSImageProcessing::GetSum", "GMSImageProcessing::GetMean"],
+    computation: "DM native", intensity_calibration_applied: false, intensity_semantics: "raw pixel intensity",
+    source_write_requested: false, snapshot_atomic: false};
+}
+
 function mcpClient(extraEnv = {}, defaultBackend = false) {
   const env = {...process.env, DM_MCP_TIMEOUT_MS: "150", ...extraEnv};
   if (defaultBackend) delete env.DM_MCP_BACKEND;
@@ -83,6 +99,7 @@ test("default backend retains v0.6 and all original 21 tool schemas", async () =
     assert.deepEqual(catalog.map(entry => entry.name), ["dm_status", "dm_open", "dm_datasets", "dm_metadata", "dm_stats", "dm_profile", "dm_fft", "dm_2d_capture", "dm_2d_preview", "dm_2d_analyze", "dm_2d_result", "dm_export", "dm_crop", "dm_spectrum_info", "dm_spectrum", "dm_spectrum_integrate", "dm_spectrum_export", "dm_4dstem_open", "dm_4dstem_read", "dm_4dstem_virtual", "dm_run_script"]);
     assert.deepEqual(catalog[0].inputSchema.properties, {});
     assert.equal((await client.tool("dm_native_mean", {image_id: 1})).error.code, -32602);
+    assert.equal((await client.tool("dm_native_summary", {image_id: 1})).error.code, -32602);
   } finally {await client.close();}
 });
 
@@ -106,7 +123,7 @@ test("native MCP exposes only implemented tools, strict IDs and real host fields
   try {
     const init = await client.init(); assert.match(init.instructions, /空闲/); assert.match(init.instructions, /不回退/);
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.deepEqual(catalog.map(entry => entry.name), ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_result", "dm_crop", "dm_native_show"]);
+    assert.deepEqual(catalog.map(entry => entry.name), ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show"]);
     for (const name of ["dm_stats", "dm_run_script", "dm_2d_preview", "dm_open", "no_such_tool"]) {
       const response = await client.tool(name); assert.equal(response.error.code, -32602); assert.match(response.error.message, /不支持工具/);
     }
@@ -512,5 +529,118 @@ test("native SHOW failures and unknown do not succeed or fall back; timeout reco
     assert.equal(recovered.image_id, 88); assert.equal(recovered.delivery, "visible_dm_document");
     assert.equal(recovered.native_receipt.request_id, savedId); assert.equal(displays, 1);
     assert.deepEqual(host.requests.filter(request => request.id === savedId).map(request => request.operation), ["SHOW", "QUERY"]);
+  } finally {await client.close(); await host.close();}
+});
+
+test("native SUMMARY exposes only four raw reductions with explicit image ID and optional read-only request ID", async () => {
+  const expected = summaryFixture();
+  const host = await nativeHost(({socket, request, reply}) => {
+    assert.equal(request.operation, "SUMMARY"); assert.deepEqual(request.args, ["77"]);
+    socket.end(JSON.stringify(reply("completed", expected)) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    const init = await client.init(); assert.match(init.instructions, /dm_native_summary/); assert.match(init.instructions, /四个原生摘要/);
+    const catalog = (await client.rpc("tools/list")).result.tools;
+    assert.equal(catalog.length, 7);
+    const summary = catalog.find(tool => tool.name === "dm_native_summary");
+    assert.deepEqual(summary.inputSchema.required, ["image_id"]);
+    assert.equal(summary.inputSchema.properties.image_id.type, "integer");
+    assert.match(summary.description, /minimum.*maximum.*sum.*mean/);
+    assert.match(summary.description, /不提供完整 stats/); assert.match(summary.description, /不应用强度标定/);
+    for (const args of [{}, {image_id: "front"}, {image_id: "77"}, {image_id: true}, {image_id: -1}, {image_id: 1.5},
+      {image_id: 4294967296}, {image_id: 77, rect: [0, 0, 1, 1]}, {image_id: 77, request_id: "bad id"}]) {
+      assert.equal((await client.tool("dm_native_summary", args)).error.code, -32602, JSON.stringify(args));
+    }
+    assert.equal(host.requests.length, 0);
+    for (const request_id of [undefined, "summary-saved"]) {
+      const output = toolOutput(await client.tool("dm_native_summary", {image_id: 77, ...(request_id ? {request_id} : {})}));
+      const {native_receipt, ...actual} = output;
+      assert.deepEqual(actual, expected, "metadata and raw signed fractions remain as returned by host");
+      assert.equal(native_receipt.state, "completed"); assert.equal(native_receipt.session, host.session);
+      assert.equal(native_receipt.host_pid, 301); assert.equal(native_receipt.exec_tid, 303);
+      if (request_id) assert.equal(native_receipt.request_id, request_id);
+      else assert.match(native_receipt.request_id, /^[0-9a-f-]{36}$/);
+      for (const unsupported of ["stddev", "variance", "preview", "path"]) assert.equal(Object.hasOwn(output, unsupported), false);
+    }
+    assert.deepEqual(host.requests.map(request => request.operation), ["SUMMARY", "SUMMARY"]);
+  } finally {await client.close(); await host.close();}
+});
+
+test("native SUMMARY keeps missing spatial units explicit and polls the same request without resubmission", async () => {
+  const expected = summaryFixture();
+  for (const axis of expected.image.calibration) {axis.unit = null; axis.usable = false; axis.issue = "unknown_units";}
+  expected.image.calibration_complete = false;
+  const host = await nativeHost(({socket, request, reply}) => socket.end(JSON.stringify(
+    request.operation === "SUMMARY" ? reply("queued") : reply("completed", expected)) + "\n"));
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session});
+  try {
+    await client.init();
+    const output = toolOutput(await client.tool("dm_native_summary", {image_id: 77, request_id: "summary-unmarked"}));
+    assert.equal(output.image.calibration_complete, false); assert.equal(output.image.calibration[0].unit, null);
+    assert.equal(output.image.calibration[0].issue, "unknown_units"); assert.equal(output.mean, -0.0625);
+    assert.equal(output.intensity_calibration_applied, false);
+    assert.deepEqual(host.requests, [
+      {operation: "SUMMARY", args: ["77"], id: "summary-unmarked"},
+      {operation: "QUERY", args: [], id: "summary-unmarked"},
+    ]);
+    assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id: "summary-unmarked"})), output);
+    assert.equal(host.requests.filter(request => request.operation === "SUMMARY").length, 1);
+  } finally {await client.close(); await host.close();}
+});
+
+test("native SUMMARY malformed completion is a protocol tool error, including recovered queries", async () => {
+  const cases = [
+    ...["minimum", "maximum", "sum", "mean"].map(key => r => {r[key] = "1.25";}),
+    r => {r.image_id = 78;}, r => {r.image.id = 78;}, r => {r.image.dtype = "uint16";},
+    r => {r.image.shape = [4, 3];}, r => {r.image.pixels = 13;},
+    r => {r.operators = ["Python::statistics"];}, r => {r.intensity_calibration_applied = true;},
+    r => {r.intensity_semantics = "calibrated";}, r => {r.source_write_requested = true;},
+    r => {r.image.calibration_complete = false;}, r => {r.image.native_summary_supported = false;},
+  ];
+  const host = await nativeHost(({socket, request, reply}) => {
+    const result = summaryFixture(); cases[Number(request.id.split("-").at(-1))](result);
+    socket.end(JSON.stringify(reply("completed", result)) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    for (let index = 0; index < cases.length; index++) {
+      const output = toolOutput(await client.tool("dm_native_summary", {image_id: 77, request_id: "malformed-summary-" + index}), true);
+      assert.equal(output.code, "NATIVE_PROTOCOL"); assert.equal(output.sent, true); assert.equal(output.state, "unknown");
+      assert.equal(output.request_id, "malformed-summary-" + index);
+    }
+    const recovered = toolOutput(await client.tool("dm_native_result", {request_id: "malformed-summary-0"}), true);
+    assert.equal(recovered.code, "NATIVE_PROTOCOL"); assert.equal(recovered.request_id, "malformed-summary-0");
+    assert.equal(host.requests.length, cases.length + 1, "invalid results do not cause resubmission or fallback");
+  } finally {await client.close(); await host.close();}
+});
+
+test("native SUMMARY errors and unknown do not fall back; timeout and cancellation recover through QUERY", async () => {
+  const completed = new Set();
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.id === "summary-failed") return socket.end(JSON.stringify(reply("failed", undefined,
+      {code: "native_summary_nonfinite_result", error: "nonfinite native result"})) + "\n");
+    if (request.id === "summary-unknown") return socket.end(JSON.stringify(reply("unknown")) + "\n");
+    if (request.operation === "SUMMARY") {completed.add(request.id); return;}
+    socket.end(JSON.stringify(completed.has(request.id) ? reply("completed", summaryFixture()) : reply("unknown")) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    const failed = toolOutput(await client.tool("dm_native_summary", {image_id: 77, request_id: "summary-failed"}), true);
+    assert.equal(failed.native_receipt.code, "native_summary_nonfinite_result");
+    const unknown = toolOutput(await client.tool("dm_native_summary", {image_id: 77, request_id: "summary-unknown"}), true);
+    assert.equal(unknown.native_receipt.state, "unknown");
+    const timed = toolOutput(await client.tool("dm_native_summary", {image_id: 77, request_id: "summary-timed"}), true);
+    assert.equal(timed.code, "NATIVE_TIMEOUT"); assert.equal(timed.sent, true);
+    assert.equal(toolOutput(await client.tool("dm_native_result", {request_id: "summary-timed"})).sum, -0.75);
+    client.send({id: 910, method: "tools/call", params: {name: "dm_native_summary", arguments: {image_id: 77, request_id: "summary-cancelled"}}});
+    await sleep(30); client.send({method: "notifications/cancelled", params: {requestId: 910}}); await sleep(180);
+    assert.equal(client.messages.some(message => message.id === 910), false);
+    assert.equal(toolOutput(await client.tool("dm_native_result", {request_id: "summary-cancelled"})).maximum, 8.5);
+    for (const id of ["summary-timed", "summary-cancelled"]) {
+      assert.deepEqual(host.requests.filter(request => request.id === id).map(request => request.operation), ["SUMMARY", "QUERY"]);
+    }
   } finally {await client.close(); await host.close();}
 });

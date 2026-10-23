@@ -1,6 +1,20 @@
 # 解锁后的最短操作顺序
 
-当前仍为 **HOLD**。本页是之后的人工操作清单，本轮离线工作没有操作 DM、
+**本清单的旧会话续接已执行完毕，不要重复下面的旧会话命令。** 原会话完成
+独立观察、可见文档关闭与引用释放、正常退出及按 manifest 移除；缺少 STOP 原始
+请求的历史资格仍为 UNVERIFIED。另一个新严格会话已通过完整 crop/SHOW/STOP/
+文档持有与关闭后释放验收，以及 SUMMARY 的 MCP 和独立 oracle，随后也正常
+退出并移除本项目 DLL。默认 v0.6 配置保持不变，当前没有等待清理的测试宿主。
+
+后续试用须重新准备空闲测试会话和新 session/证据目录。先检查构建/模块及
+实际 backend/ready，再固定图像 ID；副作用操作先保存 request_id，未知状态只
+查原 ID。新增算子逐项验收，不从 SUMMARY 推断 FFT 已支持。当前边界见
+[HANDOFF](HANDOFF.md)、[SUMMARY](SUMMARY_ACCEPTANCE.md) 和
+[RESULTS](../RESULTS.md)。以下保留为历史操作说明。
+
+## 历史续接清单（当时 HOLD，现已收尾）
+
+本页原来是之后的人工操作清单，当时离线工作没有操作 DM、
 更换 DLL 或完成任何桌面验收。保留原会话及全部历史记录，不重发旧 crop、
 Show 或 STOP。原 session 不在了，就把旧会话的剩余项目标为 NOT_TESTED；
 不能用新宿主或新图像补出旧会话的 PASS。

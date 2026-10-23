@@ -19,10 +19,12 @@ preserving the prior inventory and client configuration. See the separate
 ## Current scope
 
 The opt-in native MCP catalog includes `dm_status`, `dm_datasets`,
-`dm_native_mean`, `dm_native_result`, experimental `dm_crop` and the P1
-`dm_native_show` candidate. Its native completed receipt/image correlation
-passed a strict real-host MCP trial; independent visual/document acceptance
-remains NOT_TESTED.
+`dm_native_mean`, `dm_native_summary`, `dm_native_result`, `dm_crop` and
+`dm_native_show`. The new strict synthetic session independently passed SHOW
+visibility/document ownership, including after STOP and final release on normal
+document closure. SUMMARY directly calls DM's minimum/maximum/sum/mean for
+bounded 2D float32 raw intensity; strict MCP and a same-host pixel/calibration
+oracle passed. See [SUMMARY acceptance](mvp/SUMMARY_ACCEPTANCE.md).
 The native mean is a raw pixel
 intensity mean for a bounded two-dimensional float32 image. It is not the full
 `dm_stats` interface. Unsupported operations and types fail explicitly; the
@@ -34,17 +36,16 @@ same-session QUERY, not after STOP or a host restart.
 Native crop creates a separate image ID held by bounded plugin-owned references
 until native STOP/cleanup. Actual acceptance verified independent cropped data,
 half-open bounds, signed calibration and unchanged sources; this is not a
-visible DM document or a model-visible preview by itself. The show candidate
-targets only that plugin-retained crop and does not save a file. Its visible
-document, document count and post-STOP ownership still need separate
-acceptance. The current trial is HOLD pending desktop acceptance and this
-revision's full-pixel/source oracle. IPC STOP and pipe/window cleanup passed,
-but the test host remains open with the DLL loaded and manifest installed;
-normal exit and owned removal are still pending. Earlier crop/cleanup passes
-must not be inherited by this revision. ASCII names are qualified.
+visible DM document or a model-visible preview by itself. SHOW targets only
+that plugin-retained crop and does not save a file. The new strict trial passed
+independent full pixels/source checks, unique visible-document ownership after
+STOP, final image release on document closure, normal host exit and owned DLL
+removal. The older preserved session was also observed and cleaned normally,
+but its missing original STOP record remains historically UNVERIFIED.
+ASCII names are qualified.
 Non-ASCII naming interoperability with legacy GMS Python bindings is
 **NOT_QUALIFIED** after an independent comparison failed; no heuristic encoding
-conversion was added. Real experimental data, visual acceptance,
+conversion was added. Real experimental data, model image viewing,
 other GMS builds and concurrent native API use remain unverified.
 
 A worker owns the named-pipe transport. A message-only window dispatches native

@@ -133,7 +133,7 @@ Parsed parse_line(const std::string& line) {
     if (!valid_session(fields[1])) throw ProtocolError("bad_session", "session must be 32 lowercase hexadecimal characters");
     if (!valid_id(fields[2])) throw ProtocolError("bad_id", "id must match [A-Za-z0-9_-]{1,64}");
     const auto& op = fields[3]; unsigned count = 0;
-    if (op == "INFO" || op == "MEAN" || op == "SHOW") count = 1;
+    if (op == "INFO" || op == "MEAN" || op == "SUMMARY" || op == "SHOW") count = 1;
     else if (op == "CROP") count = 5;
     else if (op != "STATUS" && op != "DATASETS" && op != "QUERY" && op != "STOP")
         throw ProtocolError("bad_operation", "unsupported operation");

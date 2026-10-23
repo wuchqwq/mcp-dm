@@ -11,11 +11,13 @@ void reject(const std::string& s) { try { nb::parse_line(s); require(false); } c
 }
 int main() {
     try {
-        for (const auto& tail : {"id STATUS", "id DATASETS", "id QUERY", "id STOP", "id INFO 0", "id MEAN 4294967295", "id CROP 1 0 0 4 3", "id SHOW 1", "id SHOW 4294967295"}) require(!parse(tail).request.op.empty());
+        for (const auto& tail : {"id STATUS", "id DATASETS", "id QUERY", "id STOP", "id INFO 0", "id MEAN 4294967295", "id SUMMARY 0", "id SUMMARY 4294967295", "id CROP 1 0 0 4 3", "id SHOW 1", "id SHOW 4294967295"}) require(!parse(tail).request.op.empty());
         for (const auto& tail : {"id STATUSX", "id STATUS 1", "id INFO", "id INFO -1", "id INFO +1", "id INFO 4294967296", "id INFO 1x", "id MEAN 1.2", "id CROP 1 0 0 1", "id CROP 1 0 0 1 2 3", "bad.id STATUS", "id  STATUS", "id STATUS ", "id\tSTATUS"}) reject("NB1 " + session + " " + tail);
         reject(""); reject("NB2 " + session + " id STATUS"); reject("NB1 " + std::string(32, 'A') + " id STATUS");
         reject("NB1 " + session + " " + std::string(65, 'i') + " STATUS"); reject("NB1 " + session + " id STATUS\n");
         for (const auto& tail : {"id SHOW", "id SHOW 1 2", "id SHOW -1", "id SHOW +1", "id SHOW 1.5", "id SHOW 4294967296"})
+            reject("NB1 " + session + " " + tail);
+        for (const auto& tail : {"id SUMMARY", "id SUMMARY 1 2", "id SUMMARY -1", "id SUMMARY +1", "id SUMMARY 1.5", "id SUMMARY 4294967296", "id SUMMARY front"})
             reject("NB1 " + session + " " + tail);
         for (const auto& value : {"-1.25", "0.125", "{\"x\":[-2,0.25,true,null,\"hi\\u4e00\"]}", "1e-20"}) require(nb::valid_json(value));
         for (const auto& value : {"NaN", "Infinity", "01", "-", "1.", "1e", "{\"x\":1,}", "[1,]", "true false", "{\"x\":NaN}"}) require(!nb::valid_json(value));
@@ -49,6 +51,25 @@ int main() {
         auto e = core.accept(parse("e MEAN 1")); core.close(); require(!core.begin(e.dispatch_token, 321));
         require(core.accept(parse("e QUERY")).receipt.find("bridge_stopped") != std::string::npos);
         require(core.accept(parse("f MEAN 1")).receipt.find("bridge_stopped") != std::string::npos);
+        nb::Core summaries(session, 123, 321); summaries.set_worker(777); summaries.mark_ready(321);
+        auto summary = summaries.accept(parse("summary SUMMARY 17")); require(summary.dispatch_token != 0);
+        require(summaries.accept(parse("summary SUMMARY 17")).dispatch_token == 0);
+        require(summaries.accept(parse("summary SUMMARY 18")).receipt.find("id_conflict") != std::string::npos);
+        require(summaries.accept(parse("summary MEAN 17")).receipt.find("id_conflict") != std::string::npos);
+        auto summary_record = summaries.begin(summary.dispatch_token, 321); require(summary_record != nullptr);
+        require(summaries.accept(parse("summary QUERY")).receipt.find("running") != std::string::npos);
+        summaries.finish(summary_record, "{\"minimum\":-2,\"maximum\":1,\"sum\":-1.25,\"mean\":-0.125}");
+        const auto summary_receipt = summaries.accept(parse("summary QUERY")).receipt;
+        require(summary_receipt.find("\"minimum\":-2") != std::string::npos);
+        require(summary_receipt.find("\"sum\":-1.25") != std::string::npos);
+        require(summaries.accept(parse("summary SUMMARY 17")).receipt == summary_receipt);
+        require(!summaries.begin(summary.dispatch_token, 321));
+        auto failed_summary = summaries.accept(parse("failed_summary SUMMARY 18"));
+        summaries.finish(summaries.begin(failed_summary.dispatch_token, 321), {}, "native_error", "native_summary_nonfinite_result");
+        const auto failed_receipt = summaries.accept(parse("failed_summary QUERY")).receipt;
+        require(failed_receipt.find("\"state\":\"failed\"") != std::string::npos);
+        require(failed_receipt.find("native_summary_nonfinite_result") != std::string::npos);
+        require(failed_receipt.find("\"result\"") == std::string::npos);
         nb::Core delivery(session, 1, 1); delivery.mark_ready(1);
         auto show = delivery.accept(parse("visible SHOW 100")); require(show.dispatch_token != 0);
         require(delivery.accept(parse("visible SHOW 100")).dispatch_token == 0);

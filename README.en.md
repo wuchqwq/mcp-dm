@@ -50,10 +50,13 @@ The Node server has no npm runtime dependencies. The DM bridge uses the standard
 The v0.6 Python/TCP backend remains the default. A separate configuration with
 `DM_MCP_BACKEND=native` selects a build-pinned Windows x64 GMS **3.53.4137.0**
 experiment. It uses no resident Python listener and never falls back to Python.
-Its catalog is `dm_status`, `dm_datasets`, `dm_native_mean`, `dm_native_result`,
-experimental `dm_crop` and the `dm_native_show` candidate.
-Mean is not full statistics; crop returns a
-plugin-retained image ID and does not promise a visible document.
+Its seven tools are `dm_status`, `dm_datasets`, `dm_native_mean`,
+`dm_native_summary`, `dm_native_result`, `dm_crop` and `dm_native_show`.
+SUMMARY calls DM's built-in minimum, maximum, sum
+and mean reductions directly, limited to 2D float32 images up to 4,194,304
+pixels. It reports raw intensity without applying intensity calibration and
+is not full `dm_stats`; it adds no backend, preview or file-save interface.
+Crop returns a plugin-retained image ID and does not promise a visible document.
 
 For future native extensions, **DM performs the scientific processing**;
 MCP/C++ selects images, validates parameters, calls verified DM APIs and
@@ -63,9 +66,10 @@ behavior remains compatible. [FFT readiness](experiments/native-bridge/mvp/FFT_R
 is offline interface/acceptance preparation, not an added native tool.
 
 The [batch candidate handoff](experiments/native-bridge/mvp/BATCH_CANDIDATES.md)
-adds typed C++ call boundaries and synthetic reference tests. Candidates are
-not connected to DM, linked into the product DLL or exposed through NB1/MCP;
-they do not increase the supported native tool catalog.
+describes the `candidate_calls` module's typed C++ boundaries and synthetic
+reference tests. That module still uses synthetic callbacks only and is not
+linked into the product DLL or exposed through NB1/MCP. SUMMARY has been
+integrated separately in the real adapter; the remaining catalog is not migrated.
 
 Earlier limited real-host acceptance with ASCII-named synthetic inputs passed
 loading/host callbacks, metadata/signed calibration, native mean and strict
@@ -82,38 +86,52 @@ with legacy GMS Python bindings failed comparison and remains
 host and serialized requests. Query the saved operation ID after a timeout;
 never automatically replay work. Vendor native faults are not process-isolated.
 
-The current P0 policy permits supported raw means with recognized missing or
+The current P0 policy permits supported raw means and SUMMARY with recognized missing or
 unusable spatial calibration, reporting `calibration_complete:false` and
 per-axis issues; crop still requires usable calibration. Crop requires a
 caller-saved `request_id` before dispatch. Save its session/arguments too, and
 recover only by same-session result queries. Recovery after STOP or restart is
-not promised. New side-effect tools use the same rule; existing read-only
-tools keep compatibility, while the trial supplies explicit IDs throughout.
+not promised. Side-effect tools use the same rule; read-only SUMMARY may
+generate an ID when omitted, while acceptance saves explicit IDs throughout.
 Strict actual-host MCP passed the missing-unit mean/metadata, safe errors and
 crop recovery/conflict checks. Other invalid spatial-number cases currently
 have offline coverage only.
 
-P1 candidate `dm_native_show` targets only a plugin-retained crop and requires
-a new saved show ID. Actual native completed receipts and image correlation
-passed. **The current trial is HOLD pending desktop acceptance:** visibility,
-document count, post-STOP document ownership, this revision's independent
-full-pixel/source oracle, normal exit and owned removal remain NOT_TESTED.
-STOP acknowledged and removed the pipe/window, but the test host remains open
-with the DLL loaded and manifest installed. Earlier crop/cleanup passes are
-not inherited by this revision. A show receipt without seeing the image is
-not visual acceptance, model vision or file persistence. Native SaveAs remains unavailable pending adequate
+A new strict session passed the actual SUMMARY host/build gate, strict stdio
+MCP and an independent in-host oracle: raw values under nontrivial intensity
+calibration, missing spatial units, safe errors, unchanged full source pixels,
+spatial/intensity calibration and document count. The reductions are serialized
+on an idle host with `snapshot_atomic:false`, not an atomic snapshot during
+editing. See [SUMMARY acceptance](experiments/native-bridge/mvp/SUMMARY_ACCEPTANCE.md).
+Generic NB1 QUERY carries no original operation. The independent acceptance
+client continues field validation using its saved tool/ID/arguments; it does
+not claim to recognize every malformed recovery result with its operation
+features removed.
+
+Experimental `dm_native_show` targets only a plugin-retained crop and requires
+a new saved show ID. The new strict session independently passed MCP,
+before/after-STOP host oracles, visible-document observation and final-reference
+release after closing only that crop document. The original STOP request was
+saved before submission and verified; the document retained the exact crop
+after STOP. After its normal UI close, the output ID was invalid, document count
+was restored and other synthetic sources were unchanged. The host then exited
+normally and only its manifest-owned DLL was removed. A document can retain the
+output until the user closes it or the host exits; this is neither model vision
+nor file persistence. See the [validation matrix](experiments/native-bridge/RESULTS.md).
+The older session still lacks its original STOP request and remains historically
+**UNVERIFIED**; this new PASS cannot repair that evidence. Native SaveAs remains unavailable pending adequate
 ABI and exclusive/no-overwrite evidence.
 
 The offline E2E test now connects the actual Node MCP server, Windows named
 pipe and synthetic C++ host, recovering the same crop after cancellation and
 a client change. Separate fault injection tests the acceptance scripts.
-Neither test executes DM or clears the current real-host HOLD; commands and
+Neither test executes DM or replaces independent host acceptance; commands and
 evidence boundaries are in the native guide and validation matrix.
 
 Post-run oracles also bind receipts to their actual process PID and STOP to
 the saved pre-submission request. Incomplete historical evidence can only
-produce UNVERIFIED observations. Use the [unlock checklist](experiments/native-bridge/mvp/UNLOCK_CHECKLIST.md)
-for later display/lifetime/normal-cleanup checks and the [differential plan](experiments/native-bridge/mvp/INTEGRATION_PLAN.md)
+produce UNVERIFIED observations. The [unlock checklist](experiments/native-bridge/mvp/UNLOCK_CHECKLIST.md)
+preserves historical continuation steps; see the [differential plan](experiments/native-bridge/mvp/INTEGRATION_PLAN.md)
 for future main integration; no main merge is performed by this closeout.
 
 See the [native guide](experiments/native-bridge/mvp/README.md),

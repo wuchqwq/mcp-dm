@@ -3,9 +3,12 @@
 后续科学计算由 **DM 自己的算子**执行。MCP/C++ 负责显式数据身份、参数、
 宿主调用、状态及结果交接；独立数学参考只用于验收。
 
-**本批不是新增的可用 MCP 功能。** 公开原生目录仍为六个工具。下面的 C++
+**本批模块本身不是新增的可用 MCP 功能。** 后续已独立接通并有限实机验收
+`dm_native_summary` 的 GetMinimum/GetMaximum/GetSum/GetMean，原生目录现为七个
+工具；详见 [SUMMARY 验收](SUMMARY_ACCEPTANCE.md)。下面的 C++
 候选只连接合成回调，不加载厂商 DLL、不进入产品 DLL，也没有加入 NB1 操作
-或工具 schema。所有候选均为 **NOT_QUALIFIED / 真实 DM NOT_TESTED**。
+或工具 schema。除独立实现的 mean/SUMMARY 范围外，其余算子仍为
+**NOT_QUALIFIED / 真实 DM NOT_TESTED**，不能继承 SUMMARY 的通过。
 
 ## 已准备的调用层
 

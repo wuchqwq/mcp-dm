@@ -24,6 +24,18 @@ bool invalid_scale = false;
 bool calibration_throws = false, mean_throws = false;
 int mean_calls = 0;
 double expected_mean = -24.375;
+std::array<double, 3> expected_summary{-101.125, 92.75, -42.5};
+std::vector<std::string> summary_trace;
+bool summary_tracking = false;
+int summary_throw_index = -1, summary_gate_after_index = -1;
+void record_summary(unsigned index) {
+    static const char* names[] = {"minimum", "maximum", "sum", "mean"};
+    summary_trace.emplace_back(names[index]);
+    if (summary_throw_index == static_cast<int>(index))
+        throw std::runtime_error("surrogate native summary failure");
+    if (summary_gate_after_index == static_cast<int>(index))
+        gate_error = "surrogate summary gate changed";
+}
 struct FakeDocument { void* marker = nullptr; LONG64 references = 1; FakeImage* image = nullptr; };
 struct FakeWindow { unsigned char prefix[0x50]{}; LONG64 references = 1; };
 static_assert(offsetof(FakeDocument, references) == 8);
@@ -85,12 +97,22 @@ void calibration_fake(void* image, std::uint32_t dim, float* origin, float* scal
 }
 double mean_fake(const NativeRef* ref) {
     ++mean_calls;
+    if (summary_tracking) record_summary(3);
     if (mean_throws) throw std::runtime_error("surrogate native mean failure");
     const auto* image = static_cast<const FakeImage*>(ref->image);
     if (!image->generated) { check(ref->image == &fake); return expected_mean; }
     double sum = 0;
     for (float value : image->pixels) sum += value;
     return sum / image->pixels.size();
+}
+double minimum_fake(const NativeRef* ref) {
+    check(ref && ref->image == &fake); record_summary(0); return expected_summary[0];
+}
+double maximum_fake(const NativeRef* ref) {
+    check(ref && ref->image == &fake); record_summary(1); return expected_summary[1];
+}
+double sum_fake(const NativeRef* ref) {
+    check(ref && ref->image == &fake); record_summary(2); return expected_summary[2];
 }
 void delete_fake(void* pointer) {
     ++destructions;
@@ -217,6 +239,7 @@ void inject_fake() {
     api.dtype = dtype_fake; api.dimension = dimension_fake;
     api.calibration = calibration_fake; api.name = name_fake;
     api.mean = mean_fake; api.destroy = delete_fake; api.deallocate = free_fake;
+    api.minimum = minimum_fake; api.maximum = maximum_fake; api.sum = sum_fake;
     api.get_document = get_document_fake; api.show_document = show_document_fake;
     api.destroy_document_holder = delete_document_holder_fake; api.destroy_window = delete_window_fake;
     host_thread = GetCurrentThreadId(); gate_error.clear(); fatal_abi = false;
@@ -342,6 +365,109 @@ void raw_mean_calibration_tests() {
     check(fake.origin[0] == original.origin[0] && fake.origin[1] == original.origin[1]);
     check(fake.scale[0] == original.scale[0] && fake.scale[1] == original.scale[1]);
     check(fake.unit[0] == original.unit[0] && fake.unit[1] == original.unit[1]);
+}
+void summary_failure(std::uint32_t id, const std::string& expected, unsigned called = 0) {
+    summary_trace.clear();
+    std::string actual;
+    try { execute_native({"summary_failure", "SUMMARY", {id}}); }
+    catch (const std::runtime_error& error) { actual = error.what(); }
+    if (actual != expected) throw std::runtime_error("expected " + expected + ", received " + actual);
+    const std::vector<std::string> order{"minimum", "maximum", "sum", "mean"};
+    check(summary_trace == std::vector<std::string>(order.begin(), order.begin() + called));
+    check(fake.references == 1 && retained_crops.empty() && retained_crop_bytes == 0);
+}
+std::string accepted_summary(bool calibration_complete) {
+    summary_trace.clear();
+    const auto result = execute_native({"raw_summary", "SUMMARY", {fake.id}});
+    check(nb::valid_json(result));
+    check(summary_trace == std::vector<std::string>({"minimum", "maximum", "sum", "mean"}));
+    // Independently injected callback values deliberately do not follow a
+    // sum=mean*count relation: a bridge must pass each native value unchanged.
+    check(result.find("\"minimum\":-101.125") != std::string::npos);
+    check(result.find("\"maximum\":92.75") != std::string::npos);
+    check(result.find("\"sum\":-42.5") != std::string::npos);
+    check(result.find("\"mean\":-0.375") != std::string::npos);
+    check(result.find("\"image_id\":17,\"image\":{\"id\":17") != std::string::npos);
+    check(result.find("\"shape\":[7,11]") != std::string::npos);
+    check(result.find("\"native_mean_supported\":true,\"native_summary_supported\":true") != std::string::npos);
+    check(result.find("\"calibration_complete\":" + std::string(calibration_complete ? "true" : "false")) != std::string::npos);
+    check(result.find("\"operators\":[\"GMSImageProcessing::GetMinimum\",\"GMSImageProcessing::GetMaximum\",\"GMSImageProcessing::GetSum\",\"GMSImageProcessing::GetMean\"]") != std::string::npos);
+    check(result.find("\"computation\":\"DM native\"") != std::string::npos);
+    check(result.find("\"intensity_calibration_applied\":false,\"intensity_semantics\":\"raw pixel intensity\"") != std::string::npos);
+    check(result.find("\"source_write_requested\":false,\"snapshot_atomic\":false") != std::string::npos);
+    check(result.find("stddev") == std::string::npos && result.find("variance") == std::string::npos);
+    check(fake.references == 1 && registry.size() == 1 && retained_crops.empty());
+    return result;
+}
+void summary_tests() {
+    inject_fake(); invalid_scale = false; summary_tracking = true;
+    const auto original = fake;
+    const auto original_mean = expected_mean;
+    expected_mean = -0.375;
+    const auto status = execute_native({"summary_status", "STATUS", {}});
+    check(status.find("\"summary_float32_2d\"") != std::string::npos);
+    accepted_summary(true);
+    fake.unit[0].clear();
+    check(accepted_summary(false).find("\"issue\":\"unknown_units\"") != std::string::npos);
+    invalid_scale = true;
+    check(accepted_summary(false).find("\"issue\":\"invalid_calibration_and_unknown_units\"") != std::string::npos);
+    fake.unit[0] = original.unit[0]; invalid_scale = false;
+    fake.scale[1] = std::numeric_limits<float>::quiet_NaN();
+    check(accepted_summary(false).find("\"calibrated_value_at_pixel_zero\":null,\"scale\":null") != std::string::npos);
+    fake.scale[1] = original.scale[1];
+    fake.origin[0] = std::numeric_limits<float>::infinity(); accepted_summary(false);
+    fake.origin[0] = original.origin[0];
+    const auto before_crop = crop_calls;
+    fake.unit[0].clear(); expect_crop_failure({fake.id,0,0,1,1}, "unknown_image_units");
+    check(crop_calls == before_crop); fake.unit[0] = original.unit[0];
+    fake.code = 10; summary_failure(fake.id, "native_summary_requires_float32_2d");
+    check(execute_native({"summary_unsupported_list", "DATASETS", {}}).find("\"native_summary_supported\":false") != std::string::npos);
+    fake.code = original.code; fake.dimensions = 3;
+    summary_failure(fake.id, "native_summary_requires_float32_2d"); fake.dimensions = original.dimensions;
+    fake.width = 4194305; fake.height = 1;
+    summary_failure(fake.id, "native_summary_working_region_over_budget");
+    fake.width = 4194304; summary_trace.clear();
+    const auto budget_edge = execute_native({"summary_budget_edge", "SUMMARY", {fake.id}});
+    check(nb::valid_json(budget_edge) && budget_edge.find("\"pixels\":4194304") != std::string::npos);
+    check(summary_trace == std::vector<std::string>({"minimum", "maximum", "sum", "mean"}));
+    fake.width = 0; summary_failure(fake.id, "invalid_image_dimensions");
+    fake.width = original.width; fake.height = original.height;
+    summary_failure(99, "image_not_found");
+    registry.emplace(99, &fake); summary_failure(99, "image_identity_mismatch"); registry.erase(99);
+    calibration_throws = true; summary_failure(fake.id, "surrogate calibration getter failure"); calibration_throws = false;
+    fake.unit[1] = std::wstring(1, static_cast<wchar_t>(0xd800));
+    summary_failure(fake.id, "invalid_vendor_unicode"); fake.unit[1] = original.unit[1];
+    const auto saved_summary = expected_summary;
+    for (unsigned field = 0; field < 4; ++field) {
+        for (const double value : {std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+                                   std::numeric_limits<double>::quiet_NaN()}) {
+            if (field < 3) expected_summary[field] = value; else expected_mean = value;
+            summary_failure(fake.id, "native_summary_nonfinite_result", field + 1);
+            expected_summary = saved_summary; expected_mean = -0.375;
+        }
+        summary_throw_index = static_cast<int>(field);
+        summary_failure(fake.id, "surrogate native summary failure", field + 1); summary_throw_index = -1;
+        summary_gate_after_index = static_cast<int>(field);
+        summary_failure(fake.id, "surrogate summary gate changed", field + 1);
+        summary_gate_after_index = -1; gate_error.clear();
+    }
+    api.sum = nullptr; summary_failure(fake.id, "native_summary_not_available"); api.sum = sum_fake;
+    gate_error = "surrogate adapter not ready"; summary_failure(fake.id, "surrogate adapter not ready"); gate_error.clear();
+    fatal_abi = true; summary_failure(fake.id, "native_abi_invalid_output_path_disabled"); fatal_abi = false;
+    const auto saved_thread = host_thread; host_thread = saved_thread + 1;
+    summary_failure(fake.id, "wrong_native_execution_thread"); host_thread = saved_thread;
+    for (const std::vector<std::uint32_t>& args : {std::vector<std::uint32_t>{}, {fake.id, fake.id}}) {
+        summary_trace.clear(); std::string error;
+        try { execute_native({"summary_bad_shape", "SUMMARY", args}); }
+        catch (const std::runtime_error& e) { error = e.what(); }
+        check(error == "native_summary_requires_one_image_id" && summary_trace.empty() && fake.references == 1);
+    }
+    accepted_summary(true);
+    check(fake.origin[0] == original.origin[0] && fake.origin[1] == original.origin[1]);
+    check(fake.scale[0] == original.scale[0] && fake.scale[1] == original.scale[1]);
+    check(fake.unit[0] == original.unit[0] && fake.unit[1] == original.unit[1]);
+    check(fake.pixels == original.pixels && fake.id == original.id);
+    summary_tracking = false; expected_mean = original_mean;
 }
 void crop_tests() {
     inject_fake(); invalid_scale = false;
@@ -614,6 +740,7 @@ int main() {
         catch (const std::runtime_error& e) { check(std::string(e.what()) == "native_abi_invalid_output_path_disabled"); }
         check(fake.references == 1);
         raw_mean_calibration_tests();
+        summary_tests();
         crop_tests();
         show_tests();
         std::cout << "PASS adapter surrogate: " << assertions << " assertions; no DM loaded\n";

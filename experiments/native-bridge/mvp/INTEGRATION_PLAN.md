@@ -1,5 +1,23 @@
 # Native candidate integration plan
 
+## Latest continuation boundary
+
+The later fetch still found main at `64b5124` and the pre-SUMMARY remote feature
+at `15b7cfc`. The SUMMARY/live-closeout follow-up is additional feature work:
+preserve its real adapter, Node schemas/validation and independent client/oracle
+tests together with SHOW. The new strict synthetic session has now completed
+SHOW/STOP/document lifetime and normal cleanup; the old missing-STOP record
+remains historically UNVERIFIED. These updates do not authorize a merge.
+
+Recompute refs/diffs before integration. Main already has the reviewed native
+core and mandatory crop ID safeguard; port only the remaining raw-mean/SHOW,
+evidence/Unicode hardening and independently qualified SUMMARY differences.
+Do not replace main with the feature tree or drop main's safeguard while
+resolving overlapping hunks. The comparison below is an older frozen inventory,
+not the latest complete feature delta.
+
+## Earlier frozen comparison
+
 This is a review plan, not a merge or release approval. Preserve the complete
 SHOW candidate, trial scripts and offline tests for review. Their real-host
 desktop/ownership acceptance remains HOLD; synthetic success does not remove
@@ -114,10 +132,11 @@ with main's reviewed-core history; do not replace one scope with the other.
    deletion in the main-to-feature tree diff is branch divergence, not an
    intended removal. Preserve the historical reviewed-core decision and add a
    clearly scoped later-integration note if a new candidate is approved.
-4. **Preserve current HOLD.** Historical core/crop numerical and cleanup
-   acceptance is separate from this candidate's native SHOW receipts. Pending
-   desktop/document, current pixel/source, post-STOP lifetime, final release,
-   normal exit/removal checks must not become PASS by integration.
+4. **Preserve qualification boundaries.** The later new strict session now has
+   independent SHOW/pixel/source, post-STOP document ownership, final release
+   and normal cleanup evidence. Keep it separate from older missing-STOP
+   UNVERIFIED observations. Integration itself supplies no new host PASS, and
+   changed ABI/ownership behavior still needs its own acceptance.
 
 Six paths changed on both branches since the common base:
 `server.mjs`, `tests/native-mcp.test.mjs`, `README.md`, `README.en.md`, and MVP

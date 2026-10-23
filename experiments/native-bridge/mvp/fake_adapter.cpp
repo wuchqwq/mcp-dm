@@ -28,6 +28,22 @@ std::map<std::string, std::uint32_t> synthetic_creations;
 unsigned synthetic_show_calls = 0, synthetic_documents = 0;
 unsigned synthetic_gates_started = 0, synthetic_gates_released = 0;
 unsigned synthetic_gates_closed = 0, synthetic_gate_close_failures = 0;
+std::string synthetic_summary(std::uint32_t id) {
+    if (id < 1 || id > 2) throw std::runtime_error("mock image id not found");
+    return "{\"backend\":\"synthetic_mock\",\"synthetic_only\":true,\"image_id\":" + std::to_string(id) +
+        ",\"image\":{\"id\":" + std::to_string(id) +
+        ",\"name\":\"synthetic summary\",\"ndim\":2,\"data_type_code\":2,\"dtype\":\"float32\","
+        "\"shape\":[3,4],\"dm_dimensions\":[4,3],\"shape_order\":\"numpy (last axis is X)\",\"pixels\":12,"
+        "\"calibration\":[{\"dm_dimension\":0,\"numpy_axis\":1,\"size\":4,\"origin\":0,\"calibrated_value_at_pixel_zero\":0,\"scale\":0.25,\"unit\":\"nm\",\"usable\":true,\"issue\":null},"
+        "{\"dm_dimension\":1,\"numpy_axis\":0,\"size\":3,\"origin\":0,\"calibrated_value_at_pixel_zero\":0,\"scale\":0.5,\"unit\":\"nm\",\"usable\":true,\"issue\":null}],"
+        "\"calibration_complete\":true,\"native_mean_supported\":true,\"native_summary_supported\":true,"
+        "\"coordinate_rule\":\"physical(i)=calibrated_value_at_pixel_zero+i*scale\"}," +
+        (id == 1 ? "\"minimum\":-4,\"maximum\":2,\"sum\":-15,\"mean\":-1.25,"
+                 : "\"minimum\":-1,\"maximum\":2,\"sum\":1.5,\"mean\":0.125,") +
+        "\"operators\":[\"GMSImageProcessing::GetMinimum\",\"GMSImageProcessing::GetMaximum\",\"GMSImageProcessing::GetSum\",\"GMSImageProcessing::GetMean\"],"
+        "\"computation\":\"synthetic mock; no DM call\",\"intensity_calibration_applied\":false,"
+        "\"intensity_semantics\":\"raw pixel intensity\",\"source_write_requested\":false,\"snapshot_atomic\":false}";
+}
 bool valid_gate_id(const std::string& id) {
     if (id.empty() || id.size() > 64) return false;
     for (unsigned char c : id)
@@ -64,7 +80,7 @@ void crop_gate(const NativeRequest& r) {
 }
 std::string synthetic_execute(const NativeRequest& r) {
     if (r.op == "STATUS") return "{\"backend\":\"synthetic_mock\",\"synthetic_only\":true,\"ready\":true,\"host_tid\":" +
-        std::to_string(GetCurrentThreadId()) + ",\"synthetic_crops_created\":" + std::to_string(synthetic_crops.size()) +
+        std::to_string(GetCurrentThreadId()) + ",\"capabilities\":[\"summary_float32_2d\"],\"synthetic_crops_created\":" + std::to_string(synthetic_crops.size()) +
         ",\"synthetic_documents_created\":" + std::to_string(synthetic_documents) +
         ",\"synthetic_show_calls\":" + std::to_string(synthetic_show_calls) + "}";
     if (r.op == "CROP") {
@@ -100,6 +116,7 @@ std::string synthetic_execute(const NativeRequest& r) {
     if (r.op == "MEAN" && r.args.size() == 1 && r.args[0] >= 1 && r.args[0] <= 2)
         return "{\"backend\":\"synthetic_mock\",\"synthetic_only\":true,\"image_id\":" + std::to_string(r.args[0]) +
             ",\"mean\":" + (r.args[0] == 1 ? "-1.25}" : "0.125}");
+    if (r.op == "SUMMARY" && r.args.size() == 1) return synthetic_summary(r.args[0]);
     throw std::runtime_error("unsupported synthetic E2E operation");
 }
 } // namespace
@@ -146,7 +163,7 @@ std::string execute_native(const NativeRequest& r) {
     if (r.op != "STATUS" && setting("NB_FAKE_REENTER_SHUTDOWN") && fake_reentrant_hook) fake_reentrant_hook();
     if (setting("NB_FAKE_BAD_JSON")) return "{\"mean\":NaN}";
     if (fake_e2e_enabled()) return synthetic_execute(r);
-    if (r.op == "STATUS") return "{\"backend\":\"synthetic_mock\",\"ready\":true,\"host_tid\":" + std::to_string(GetCurrentThreadId()) + "}";
+    if (r.op == "STATUS") return "{\"backend\":\"synthetic_mock\",\"ready\":true,\"host_tid\":" + std::to_string(GetCurrentThreadId()) + ",\"capabilities\":[\"summary_float32_2d\"]}";
     if (r.op == "DATASETS") {
         unsigned bytes = setting("NB_FAKE_REPLY_BYTES");
         if (bytes) return "{\"backend\":\"synthetic_mock\",\"padding\":\"" + std::string(bytes, 'x') + "\"}";
@@ -154,6 +171,7 @@ std::string execute_native(const NativeRequest& r) {
     }
     if (r.args.empty() || r.args[0] == 0 || r.args[0] > 2) throw std::runtime_error("mock image id not found");
     if (r.op == "MEAN") return r.args[0] == 1 ? "{\"backend\":\"synthetic_mock\",\"mean\":-1.25}" : "{\"backend\":\"synthetic_mock\",\"mean\":0.125}";
+    if (r.op == "SUMMARY" && r.args.size() == 1) return synthetic_summary(r.args[0]);
     if (r.op == "INFO") return "{\"backend\":\"synthetic_mock\",\"image_id\":" + std::to_string(r.args[0]) + ",\"shape\":[3,4],\"dtype\":\"float32\"}";
     if (r.op == "SHOW") {
         if (r.args.size() != 1) throw std::runtime_error("mock show requires one image id");

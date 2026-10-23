@@ -48,8 +48,8 @@ const INSTRUCTIONS = [
 ].join("\n");
 const NATIVE_INSTRUCTIONS = [
   "实验性 DigitalMicrograph C++ NB1 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
-  "只提供 dm_status、dm_datasets、dm_native_mean、dm_native_result、dm_crop、dm_native_show；未实现工具明确拒绝，绝不回退到 Python。mean 只返回原生均值，不代表完整 stats。crop 创建插件持有的独立原生图像，本身不创建可见 DM 文档。dm_native_show 仅为本插件仍持有的 crop 工作副本创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的 crop 引用，不关闭已显示的文档。",
-  "每次提交返回 native_receipt 含 session/request_id。dm_crop、dm_native_show 和后续新增工具必须使用客户端在提交前保存的 request_id；仅现有 dm_status/dm_datasets/dm_native_mean 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
+  "只提供 dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show；未实现工具明确拒绝，绝不回退到 Python。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。crop 创建插件持有的独立原生图像，本身不创建可见 DM 文档。dm_native_show 仅为本插件仍持有的 crop 工作副本创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的 crop 引用，不关闭已显示的文档。",
+  "每次提交返回 native_receipt 含 session/request_id。dm_crop、dm_native_show 等副作用工具必须使用客户端在提交前保存的 request_id；只读 dm_status/dm_datasets/dm_native_mean/dm_native_summary 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
 
@@ -408,13 +408,16 @@ const tools = [
 
 const NATIVE_REQUEST_ID = {type: "string", minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "可选客户端请求 ID；省略时生成 UUID。取消前预先保存此 ID，之后只用 dm_native_result 查询，不自动重发"};
 const NATIVE_IMAGE_ID = {type: "integer", minimum: 0, maximum: 4294967295, description: "dm_datasets 返回的显式 uint32 图像 ID；不接受 front 或数字字符串"};
-// Only these existing read-only tools may generate an ID. Every newly added
-// native tool must carry a caller-saved ID before it can reach the plugin.
-const NATIVE_OPTIONAL_REQUEST_ID_TOOLS = new Set(["dm_status", "dm_datasets", "dm_native_mean"]);
+// Read-only tools may generate an ID; side-effect tools require a saved ID.
+const NATIVE_OPTIONAL_REQUEST_ID_TOOLS = new Set(["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary"]);
 const nativeTools = [
   tool("dm_status", "实验性指定构建的 C++ NB1 桥状态及宿主真实 backend；只在 DM 空闲且不编辑源图时调用，源图只读，不回退 Python。", {request_id: NATIVE_REQUEST_ID}),
   tool("dm_datasets", "实验性指定构建：枚举宿主当前图像；只在 DM 空闲且不编辑源图时调用，源图只读。请固定数字 image_id，不回退 Python。", {request_id: NATIVE_REQUEST_ID}),
   tool("dm_native_mean", "实验性指定构建的 DM 原生均值，仅 mean，不提供完整 stats；必须显式数字 image_id。只在 DM 空闲且不编辑源图时调用，源图只读。超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
+    image_id: NATIVE_IMAGE_ID,
+    request_id: NATIVE_REQUEST_ID,
+  }, ["image_id"]),
+  tool("dm_native_summary", "实验性指定构建的 DM 原生二维 float32 摘要，仅 minimum、maximum、sum、mean 四值，不提供完整 stats、stddev 或 variance；显式数字 image_id，最多 4194304 像素。不应用强度标定；已识别的缺失/无效空间标定通过 calibration_complete 和每轴 issue 报告，仍可计算 raw pixel intensity。只在 DM 空闲且不编辑源图时调用，源图只读；超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
     image_id: NATIVE_IMAGE_ID,
     request_id: NATIVE_REQUEST_ID,
   }, ["image_id"]),
@@ -443,8 +446,8 @@ async function callNativeTool(name, args, signal) {
   try {
     const options = {requestId: args.request_id, signal};
     const reply = name === "dm_native_result" ? await bridge.query(args.request_id, options)
-      : await bridge.execute({dm_status: "STATUS", dm_datasets: "DATASETS", dm_native_mean: "MEAN", dm_crop: "CROP", dm_native_show: "SHOW"}[name],
-        ["dm_native_mean", "dm_native_show"].includes(name) ? [args.image_id] : name === "dm_crop" ? [args.image_id, ...args.rect] : [], options);
+      : await bridge.execute({dm_status: "STATUS", dm_datasets: "DATASETS", dm_native_mean: "MEAN", dm_native_summary: "SUMMARY", dm_crop: "CROP", dm_native_show: "SHOW"}[name],
+        ["dm_native_mean", "dm_native_summary", "dm_native_show"].includes(name) ? [args.image_id] : name === "dm_crop" ? [args.image_id, ...args.rect] : [], options);
     const {result, ...receipt} = reply;
     const native_receipt = {...receipt, request_id: receipt.id};
     if (reply.state === "completed" && name === "dm_native_mean" && (typeof result.mean !== "number" || !Number.isFinite(result.mean))) {

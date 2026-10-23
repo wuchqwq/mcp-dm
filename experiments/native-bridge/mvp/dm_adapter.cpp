@@ -34,6 +34,7 @@ using Dimension = std::uint32_t (*)(const void*, std::int32_t);
 using Calibration = void (*)(void*, std::uint32_t, float*, float*, void*, std::int32_t);
 using Name = MsvcWString353* (*)(const void*, MsvcWString353*);
 using Mean = double (*)(const NativeRef*);
+using Reduction = double (*)(const NativeRef*);
 using Crop = NativeRef* (*)(const void*, NativeRef*, const nb::NativeDataSlice353*);
 using Delete = void (*)(void*);
 using VendorFree = void (*)(void*);
@@ -47,6 +48,7 @@ struct Api {
     Calibration calibration = nullptr;
     Name name = nullptr;
     Mean mean = nullptr;
+    Reduction minimum = nullptr, maximum = nullptr, sum = nullptr;
     Crop crop = nullptr;
     Delete destroy = nullptr;
     VendorFree deallocate = nullptr;
@@ -350,6 +352,7 @@ std::string metadata(void* image, bool strict_calibration = true) {
     require_ready();
     s << "],\"calibration_complete\":" << (calibration_complete ? "true" : "false")
       << ",\"native_mean_supported\":" << (code == 2 && ndim == 2 && pixels <= 4194304 ? "true" : "false")
+      << ",\"native_summary_supported\":" << (code == 2 && ndim == 2 && pixels <= 4194304 ? "true" : "false")
       << ",\"coordinate_rule\":\"physical(i)=calibrated_value_at_pixel_zero+i*scale\"}";
     return s.str();
 }
@@ -533,6 +536,12 @@ void initialize_native() {
             "?GetUnicodeName@Image@GMS@@QEBA?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@XZ");
         api.mean = symbol<Mean>(processing,
             "?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z");
+        api.minimum = symbol<Reduction>(processing,
+            "?GetMinimum@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z");
+        api.maximum = symbol<Reduction>(processing,
+            "?GetMaximum@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z");
+        api.sum = symbol<Reduction>(processing,
+            "?GetSum@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z");
         api.destroy = symbol<Delete>(image, "?ref_ptr_delete@Gatan@@YAXPEAVImage@GMS@@@Z");
         api.deallocate = symbol<VendorFree>(mfc, MAKEINTRESOURCEA(1487));
         api.crop = symbol<Crop>(image,
@@ -552,7 +561,7 @@ static std::string execute_operation(const NativeRequest& request) {
           << ",\"supported_build\":\"3.53.4137.0-x64\",\"binary_gate\":" << (gate_error.empty() ? "true" : "false")
           << ",\"host_pid\":" << GetCurrentProcessId() << ",\"host_thread\":" << host_thread
           << ",\"resident_python_required\":false,\"arbitrary_script\":false,\"requires_idle_host\":true"
-          << ",\"capabilities\":[\"datasets\",\"image_info\",\"mean_float32_2d\",\"crop_float32_2d\",\"show_plugin_crop_visible_document\"]"
+          << ",\"capabilities\":[\"datasets\",\"image_info\",\"mean_float32_2d\",\"summary_float32_2d\",\"crop_float32_2d\",\"show_plugin_crop_visible_document\"]"
           << ",\"retained_crop_count\":" << retained_crops.size() << ",\"retained_crop_bytes\":" << retained_crop_bytes
           << ",\"build_error\":" << (fatal_abi ? "\"native_abi_invalid_output_path_disabled\"" : gate_error.empty() ? "null" : nb::quote(gate_error)) << '}';
         return s.str();
@@ -581,7 +590,12 @@ static std::string execute_operation(const NativeRequest& request) {
           << ",\"enumeration_scope\":\"native registry including hidden utility images\"}";
         return s.str();
     }
-    if (request.op == "INFO" || request.op == "MEAN") {
+    if (request.op == "INFO" || request.op == "MEAN" || request.op == "SUMMARY") {
+        const bool summary = request.op == "SUMMARY";
+        if (summary && request.args.size() != 1)
+            throw std::runtime_error("native_summary_requires_one_image_id");
+        if (summary && (!api.minimum || !api.maximum || !api.sum || !api.mean))
+            throw std::runtime_error("native_summary_not_available");
         ImageRef image(api.find_id, request.args.at(0));
         if (api.id(image.value.image) != request.args[0]) throw std::runtime_error("image_identity_mismatch");
         if (request.op == "INFO") {
@@ -604,16 +618,42 @@ static std::string execute_operation(const NativeRequest& request) {
         }
         require_ready();
         if (api.ndim(image.value.image) != 2 || api.dtype(image.value.image) != 2)
-            throw std::runtime_error("native_mean_requires_float32_2d");
+            throw std::runtime_error(summary ? "native_summary_requires_float32_2d" : "native_mean_requires_float32_2d");
         auto w = api.dimension(image.value.image, 0), h = api.dimension(image.value.image, 1);
         if (!w || !h) throw std::runtime_error("invalid_image_dimensions");
         if (static_cast<std::uint64_t>(w) * h > 4194304)
-            throw std::runtime_error("native_mean_working_region_over_budget");
+            throw std::runtime_error(summary ? "native_summary_working_region_over_budget" : "native_mean_working_region_over_budget");
         // Raw intensity does not depend on a usable spatial calibration. Keep
         // recognized missing/invalid calibration visible in metadata, while
         // propagating vendor, object-identity and ABI failures unchanged.
         auto info = metadata(image.value.image, false);
         require_ready();
+        if (summary) {
+            const auto finite_result = [](double value) {
+                if (!std::isfinite(value)) throw std::runtime_error("native_summary_nonfinite_result");
+                return value;
+            };
+            // Four native reductions, never a C++ numerical kernel or a value
+            // derived from another field. Raw intensity is a candidate semantic
+            // contract that needs independent nontrivial intensity-calibration
+            // acceptance before this new operation is qualified on a real host.
+            const double minimum = finite_result(api.minimum(&image.value));
+            require_ready();
+            const double maximum = finite_result(api.maximum(&image.value));
+            require_ready();
+            const double sum = finite_result(api.sum(&image.value));
+            require_ready();
+            const double mean = finite_result(api.mean(&image.value));
+            require_ready();
+            auto s = json_stream();
+            s << "{\"backend\":\"digitalmicrograph-native\",\"image_id\":" << request.args[0]
+              << ",\"image\":" << info << ",\"minimum\":" << minimum << ",\"maximum\":" << maximum
+              << ",\"sum\":" << sum << ",\"mean\":" << mean
+              << ",\"operators\":[\"GMSImageProcessing::GetMinimum\",\"GMSImageProcessing::GetMaximum\",\"GMSImageProcessing::GetSum\",\"GMSImageProcessing::GetMean\"]"
+              << ",\"computation\":\"DM native\",\"intensity_calibration_applied\":false"
+              << ",\"intensity_semantics\":\"raw pixel intensity\",\"source_write_requested\":false,\"snapshot_atomic\":false}";
+            return s.str();
+        }
         double mean = api.mean(&image.value);
         if (!std::isfinite(mean)) throw std::runtime_error("native_mean_nonfinite_result");
         auto s = json_stream();

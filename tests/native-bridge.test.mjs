@@ -8,6 +8,22 @@ import {NativeBridge, NativeBridgeError, validRequestId} from "../lib/native_bri
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const sessionId = () => randomUUID().replaceAll("-", "");
 
+// A hand-built protocol fixture, never a vendor computation or DM acceptance.
+function summaryFixture(imageId = 77) {
+  return {backend: "digitalmicrograph-native", image_id: imageId,
+    image: {id: imageId, name: "synthetic", ndim: 2, data_type_code: 2, dtype: "float32", shape: [3, 4], dm_dimensions: [4, 3],
+      shape_order: "numpy (last axis is X)", pixels: 12,
+      calibration: [
+        {dm_dimension: 0, numpy_axis: 1, size: 4, origin: 2, calibrated_value_at_pixel_zero: 0.5, scale: -0.25, unit: "nm", usable: true, issue: null},
+        {dm_dimension: 1, numpy_axis: 0, size: 3, origin: -1, calibrated_value_at_pixel_zero: 0.5, scale: 0.5, unit: "nm", usable: true, issue: null},
+      ], calibration_complete: true, native_mean_supported: true, native_summary_supported: true,
+      coordinate_rule: "physical(i)=calibrated_value_at_pixel_zero+i*scale"},
+    minimum: -3.25, maximum: 8.5, sum: -0.75, mean: -0.0625,
+    operators: ["GMSImageProcessing::GetMinimum", "GMSImageProcessing::GetMaximum", "GMSImageProcessing::GetSum", "GMSImageProcessing::GetMean"],
+    computation: "DM native", intensity_calibration_applied: false, intensity_semantics: "raw pixel intensity",
+    source_write_requested: false, snapshot_atomic: false};
+}
+
 async function fakeHost(handler, timeoutMs = 1000) {
   const session = sessionId(), bridge = new NativeBridge({session, timeoutMs, pollMs: 5});
   const sockets = new Set(), requests = [];
@@ -249,5 +265,117 @@ test("low-level SHOW submits one explicit unsigned image ID once before same-ID 
       await assert.rejects(host.bridge.execute("SHOW", args, {requestId: "bad-show"}), /unsigned 32-bit/);
     }
     assert.equal(host.requests.length, 2, "invalid SHOW arguments must not reach the host");
+  } finally {await host.close();}
+});
+
+test("SUMMARY submits one explicit ID once, polls its original ID and validates complete raw metadata", async () => {
+  const expected = summaryFixture();
+  const host = await fakeHost(({socket, request, reply}) => socket.end(JSON.stringify(
+    request.operation === "SUMMARY" ? reply("queued") : reply("completed", expected)) + "\n"));
+  try {
+    assert.deepEqual((await host.bridge.execute("SUMMARY", [77], {requestId: "summary-known"})).result, expected);
+    assert.deepEqual(host.requests, [
+      {operation: "SUMMARY", args: ["77"], id: "summary-known"},
+      {operation: "QUERY", args: [], id: "summary-known"},
+    ]);
+    for (const args of [[], [77, 88], [-1], [0.5], [4294967296], ["77"], [true]]) {
+      await assert.rejects(host.bridge.execute("SUMMARY", args), /unsigned 32-bit/);
+    }
+    assert.equal(host.requests.length, 2);
+  } finally {await host.close();}
+});
+
+test("SUMMARY accepts explicit missing or invalid spatial calibration without applying intensity calibration", async () => {
+  const cases = [
+    axis => {axis.unit = null; axis.usable = false; axis.issue = "unknown_units";},
+    axis => {axis.scale = null; axis.usable = false; axis.issue = "invalid_calibration";},
+    axis => {axis.origin = null; axis.unit = null; axis.usable = false; axis.issue = "invalid_calibration_and_unknown_units";},
+    // Raw/native scale disagreement can be reported while serialized numbers
+    // themselves remain finite; do not invent a usable spatial calibration.
+    axis => {axis.usable = false; axis.issue = "invalid_calibration";},
+  ];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const result = summaryFixture(); cases[Number(request.id.at(-1))](result.image.calibration[0]);
+    result.image.calibration_complete = false;
+    socket.end(JSON.stringify(reply("completed", result)) + "\n");
+  });
+  try {
+    for (let index = 0; index < cases.length; index++) {
+      const reply = await host.bridge.execute("SUMMARY", [77], {requestId: "uncalibrated-" + index});
+      assert.equal(reply.result.image.calibration_complete, false);
+      assert.equal(reply.result.minimum, -3.25); assert.equal(reply.result.sum, -0.75);
+      assert.equal(reply.result.intensity_calibration_applied, false);
+    }
+  } finally {await host.close();}
+});
+
+test("SUMMARY rejects malformed values, identity, shape, dtype and raw semantics without replay", async () => {
+  const cases = [
+    [r => {r.image_id = 78;}, /image\/backend identity/],
+    [r => {r.image_id = "77";}, /image\/backend identity/],
+    [r => {r.backend = "mock-native";}, /image\/backend identity/],
+    ...["minimum", "maximum", "sum", "mean"].flatMap(key => [
+      [r => {delete r[key];}, /four finite/], [r => {r[key] = "1.5";}, /four finite/],
+      [r => {r[key] = null;}, /four finite/],
+    ]),
+    [r => {delete r.image;}, /image metadata/],
+    [r => {r.image.id = 78;}, /image metadata/],
+    [r => {r.image.dtype = "uint16";}, /image metadata/],
+    [r => {r.image.data_type_code = 1;}, /image metadata/],
+    [r => {r.image.ndim = 3;}, /image metadata/],
+    [r => {r.image.shape = [4, 3];}, /image metadata/],
+    [r => {r.image.shape = [0, 4];}, /image metadata/],
+    [r => {r.image.pixels = 13;}, /image metadata/],
+    [r => {r.image.shape = [2049, 2049]; r.image.dm_dimensions = [2049, 2049]; r.image.pixels = 2049 ** 2;}, /image metadata/],
+    [r => {r.image.native_summary_supported = false;}, /image metadata/],
+    [r => {r.image.shape_order = "X,Y";}, /image metadata/],
+    [r => {r.image.coordinate_rule = "origin+i*scale";}, /image metadata/],
+    [r => {r.image.calibration = [];}, /spatial calibration/],
+    [r => {r.image.calibration[0].size = 3;}, /spatial calibration/],
+    [r => {r.image.calibration[0].numpy_axis = 0;}, /spatial calibration/],
+    [r => {r.image.calibration[0].scale = null;}, /spatial calibration/],
+    [r => {r.image.calibration[0].unit = null;}, /spatial calibration/],
+    [r => {r.image.calibration[0].unit = "";}, /spatial calibration/],
+    [r => {r.image.calibration_complete = false;}, /spatial calibration/],
+    [r => {r.image.calibration[0].usable = false; r.image.calibration[0].issue = "missing"; r.image.calibration_complete = false;}, /spatial calibration/],
+    [r => {r.operators.reverse();}, /raw intensity semantics/],
+    [r => {r.operators.pop();}, /raw intensity semantics/],
+    [r => {r.computation = "Python";}, /raw intensity semantics/],
+    [r => {r.intensity_calibration_applied = true;}, /raw intensity semantics/],
+    [r => {r.intensity_semantics = "calibrated";}, /raw intensity semantics/],
+    [r => {r.source_write_requested = true;}, /raw intensity semantics/],
+    [r => {r.snapshot_atomic = true;}, /raw intensity semantics/],
+  ];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const result = summaryFixture(); cases[Number(request.id.split("-").at(-1))][0](result);
+    socket.end(JSON.stringify(reply("completed", result)) + "\n");
+  });
+  try {
+    for (let index = 0; index < cases.length; index++) {
+      await assert.rejects(host.bridge.execute("SUMMARY", [77], {requestId: "bad-summary-" + index}), error => {
+        assert.equal(error.details.code, "NATIVE_PROTOCOL"); assert.equal(error.details.sent, true);
+        assert.match(error.message, cases[index][1]); return true;
+      }, "case " + index);
+    }
+    assert.equal(host.requests.length, cases.length);
+  } finally {await host.close();}
+});
+
+test("SUMMARY QUERY validates recognizable recovered data, while failure and unknown stay terminal", async () => {
+  const host = await fakeHost(({socket, request, reply}) => {
+    let response;
+    if (request.id === "summary-failed") response = reply("failed", undefined, {code: "native_summary_nonfinite_result", error: "nonfinite reduction"});
+    else if (request.id === "summary-unknown") response = reply("unknown");
+    else {const result = summaryFixture(); if (request.id === "summary-bad-query") delete result.mean; response = reply("completed", result);}
+    socket.end(JSON.stringify(response) + "\n");
+  });
+  try {
+    assert.equal((await host.bridge.query("summary-recovered")).result.minimum, -3.25);
+    await assert.rejects(host.bridge.query("summary-bad-query"), /four finite/);
+    for (const state of ["failed", "unknown"]) {
+      const result = await host.bridge.execute("SUMMARY", [77], {requestId: "summary-" + state});
+      assert.equal(result.state, state); assert.equal(Object.hasOwn(result, "result"), false);
+    }
+    assert.deepEqual(host.requests.map(request => request.operation), ["QUERY", "QUERY", "SUMMARY", "SUMMARY"]);
   } finally {await host.close();}
 });

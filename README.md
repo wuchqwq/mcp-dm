@@ -47,21 +47,23 @@ Node 服务无 npm 运行依赖；DM 桥仅用 Python 标准库和 NumPy。DM/GM
 
 ## 可选原生 C++ 实验后端
 
-默认仍为 v0.6 Python/TCP 后端。通过独立配置显式选择 `DM_MCP_BACKEND=native`，可在 Windows x64 GMS **3.53.4137.0** 的固定二进制门限下试用原生桥；它不使用常驻 Python listener，也不回退到 Python。原生目录提供 `dm_status`、`dm_datasets`、`dm_native_mean`、`dm_native_result`、实验性 `dm_crop` 及 `dm_native_show`；均值不等于完整 `dm_stats`，裁剪本身只返回插件持有的新图像 ID。
+默认仍为 v0.6 Python/TCP 后端。通过独立配置显式选择 `DM_MCP_BACKEND=native`，可在 Windows x64 GMS **3.53.4137.0** 的固定二进制门限下试用原生桥；它不使用常驻 Python listener，也不回退到 Python。原生目录提供 `dm_status`、`dm_datasets`、`dm_native_mean`、`dm_native_summary`、`dm_native_result`、实验性 `dm_crop` 及 `dm_native_show`。SUMMARY 直接调用 DM 内置的 minimum/maximum/sum/mean，仅支持二维 float32、最多 4,194,304 像素的 raw intensity 摘要；不应用强度标定，不等于完整 `dm_stats`，也不提供新后端、预览或文件保存。裁剪本身只返回插件持有的新图像 ID。
 
 后续原生扩展由 **DM 执行科学数据处理**，MCP/C++ 负责图像选择、参数校验、接口调用和结果交接。不会另建 Python/C++ 分析引擎来补缺失的 DM 接口；独立计算仅可用于测试核对。现有 v0.6 保持兼容。下一项 [FFT 接通准备](experiments/native-bridge/mvp/FFT_READINESS.md) 仍是离线接口与验收准备，尚未加入原生工具目录。
 
-[批量离线候选与续接清单](experiments/native-bridge/mvp/BATCH_CANDIDATES.md) 已提供一批 DM 操作的类型明确的 C++ 调用边界和合成引用测试；候选未连接真实 DM，也未进入产品 DLL、NB1 或 MCP 工具目录，不能计为已迁移功能。
+[批量离线候选与续接清单](experiments/native-bridge/mvp/BATCH_CANDIDATES.md) 的 `candidate_calls` 模块提供类型明确的 C++ 调用边界和合成引用测试；该模块仍仅使用合成回调，未链接产品 DLL 或暴露为 NB1/MCP 工具。SUMMARY 已在真实 adapter 中单独接入，不代表整个候选目录已迁移。
 
 早前已用 ASCII 名称的合成输入通过目标 DM 的有限范围验收：加载与宿主回调、元数据/有符号标定、原生均值、严格 stdio MCP，以及原生裁剪的逐像素独立核对、独立内存和源数据不变。STOP 后已独立确认裁剪输出引用释放、实验管道/窗口消失且普通一次性 Python 继续可用；随后 DM 正常退出，并仅移除本实验拥有的 DLL，恢复安装前目录状态，未改客户端配置。**模型看图、真实实验数据、其它构建与并发图像调用仍为 NOT_TESTED**；非 ASCII 名称与旧 GMS Python binding 的互认对比未通过，单列为 **NOT_QUALIFIED**，未加入猜测性的编码转换。使用空闲宿主并串行请求；超时后查询原 `request_id`，不自动重发。原生异常不具备进程隔离保证。
 
-本轮 P0 将 raw mean 与空间标定解耦：已识别的缺单位或不可用空间标定仍允许支持类型的原始均值，返回 `calibration_complete:false` 和每轴问题；crop 仍严格要求标定。`dm_crop` 的 `request_id` 必填，须在提交前连同 session/参数保存；超时后只在原 session 用 `dm_native_result` 查询，STOP 或跨重启不承诺恢复。新增副作用工具遵循同样规则；旧只读工具保留兼容性，试用统一显式保存 ID。真实严格 MCP 已通过缺单位均值/元数据、安全错误及裁剪 ID 恢复与冲突检查；其它无效空间数值目前仅有离线覆盖。
+本轮 P0 将 raw mean 与空间标定解耦：已识别的缺单位或不可用空间标定仍允许支持类型的原始均值和 SUMMARY，返回 `calibration_complete:false` 和每轴问题；crop 仍严格要求标定。SUMMARY 的四次原生 reduction 在空闲宿主串行执行，`snapshot_atomic:false`，不保证编辑中数据的一致快照。新的严格会话已通过 SUMMARY 实机构建门、严格 MCP 及独立宿主 oracle，覆盖非平凡强度标定下的 raw 值、缺空间单位、安全错误、完整源像素/空间和强度标定及文档数不变；流程见 [SUMMARY 验收](experiments/native-bridge/mvp/SUMMARY_ACCEPTANCE.md)。其它无效空间数值目前仅有离线覆盖。
 
-P1 可见文档候选 `dm_native_show` 仅针对本插件持有的裁剪副本，须另存必填 show ID；真实原生完成回执和同图像身份核对通过。**当前试用 HOLD，桌面验收 pending**：实际可见性、文档数量、STOP 后文档持有、本轮独立全像素/源不变核对及正常退出/移除均未完成。STOP 回执及管道/窗口消失通过，但测试宿主仍运行、DLL 仍加载且 manifest 仍为 installed；早前的裁剪/清理 PASS 不继承到本轮。看不到图的显示回执不构成视觉验收，也不代表模型看见或文件保存。Native SaveAs 的 ABI/不覆盖语义证据仍不足，不作永久文件交付承诺。
+`dm_crop` 和 `dm_native_show` 等副作用工具的 `request_id` 必填，须在提交前连同 session/参数保存；只读 SUMMARY 可省略 ID 并生成 UUID，验收仍显式预存。超时后只在原 session 用 `dm_native_result` 查询，STOP 或跨重启不承诺恢复。通用 NB1 QUERY 不携带原操作；独立验收客户端依据预存的 tool/ID/参数继续验证返回字段，不声称能识别任意丢失操作特征的畸形恢复结果。
 
-离线完整链路已连接真实 Node MCP、Windows 管道和 C++ 合成宿主，验证取消后换客户端查询仍恢复同一裁剪对象；验收脚本另有故障注入测试。两者均不执行 DM，不解除上述实机 HOLD；运行方法及证据范围见原生实验说明和验收矩阵。
+实验性 `dm_native_show` 仅针对本插件持有的裁剪副本，须另存必填 show ID。本次新严格会话已单独通过 MCP、STOP 前后独立 oracle、实际可见文档和关闭文档后的最后引用释放核对：STOP 原请求在提交前保存且身份验证通过，文档在 STOP 后继续持有明确 crop；只关闭该文档后，输出 ID 失效、文档数恢复且其余合成源未变。随后宿主正常退出，仅移除 manifest 拥有的 DLL。文档可持有输出直至用户关闭或宿主退出；这不代表模型看见或文件保存，详见[验收矩阵](experiments/native-bridge/RESULTS.md)。先前旧会话缺原始 STOP 请求，历史身份资格仍为 **UNVERIFIED**，不能由本次 PASS 修复。Native SaveAs 的 ABI/不覆盖语义证据仍不足，不作永久文件交付承诺。
 
-后置核对进一步绑定实际进程 PID 与提交前保存的 STOP 请求；缺旧证据仅能做 UNVERIFIED 观察。解锁后按[最短操作清单](experiments/native-bridge/mvp/UNLOCK_CHECKLIST.md)完成显示、引用寿命与正常清理；main 与 feature 的后续差异整合见[方案](experiments/native-bridge/mvp/INTEGRATION_PLAN.md)，本轮不合并 main。
+离线完整链路已连接真实 Node MCP、Windows 管道和 C++ 合成宿主，验证取消后换客户端查询仍恢复同一裁剪对象；验收脚本另有故障注入测试。两者均不执行 DM，不代替独立实机验收；运行方法及证据范围见原生实验说明和验收矩阵。
+
+后置核对进一步绑定实际进程 PID 与提交前保存的 STOP 请求；缺旧证据仅能做 UNVERIFIED 观察。[最短操作清单](experiments/native-bridge/mvp/UNLOCK_CHECKLIST.md)保留历史续接步骤；main 与 feature 的后续差异整合见[方案](experiments/native-bridge/mvp/INTEGRATION_PLAN.md)，本轮不合并 main。
 
 安装和回退见 [原生实验说明](experiments/native-bridge/mvp/README.md)、[验收矩阵](experiments/native-bridge/RESULTS.md)、[安装/移除](experiments/native-bridge/mvp/INSTALL.md) 与 [原生合成验收](experiments/native-bridge/mvp/TRIAL_ACCEPTANCE.md)。STOP 只停实验 IPC；正常关闭 DM 后，按安装所有权记录移除本实验 DLL 即可回到未改动的默认后端。以下环境与启动说明仍以默认 Python 后端为准。
 

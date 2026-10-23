@@ -15,15 +15,16 @@ Existing client configuration remained unchanged.
 Offline tests use an explicitly synthetic host and do not
 load Gatan code; their PASS remains separate from real-host acceptance.
 
-**Current revision: HOLD pending desktop acceptance.** Actual strict stdio MCP
-passed calibrated/empty-unit raw means, metadata/limitations, safe failures,
-crop ID recovery/conflict checks and native SHOW receipts for the explicit
-crop. Independent visible-document, document-count, full-pixel/source and
-post-STOP ownership checks remain NOT_TESTED. STOP acknowledged and removed
-the native pipe/window; the test host is still running with the DLL loaded
-and manifest installed. Complete the independent post-STOP oracle, normal
-exit and ownership-based removal before declaring this trial complete. See
-[HANDOFF.md](HANDOFF.md) for the continuation state.
+**Current revision: limited synthetic real-host acceptance passed.** A new
+strict session passed native SUMMARY, crop/QUERY/duplicate/conflict and SHOW,
+with independent full-pixel, calibration, source and unique-document checks.
+SHOW remained visible after STOP released plugin references; closing only its
+document invalidated the output ID while preserving the other sources. STOP
+matched its original pre-submission request record and actual oracle PID.
+The test host exited normally and only its manifest-owned DLL was removed.
+The preserved older session was also observed and cleaned normally, but its
+missing original STOP request leaves its historical qualification UNVERIFIED.
+See [HANDOFF.md](HANDOFF.md) and [RESULTS.md](../RESULTS.md) for scope limits.
 
 The ordinary Python backend stays the default. Selecting
 `DM_MCP_BACKEND=native` selects this experimental backend and its own tool
@@ -35,9 +36,10 @@ analysis engine. [FFT readiness](FFT_READINESS.md) records static findings and
 unresolved acceptance conditions; native FFT is not implemented or advertised.
 
 The [batch candidate inventory](BATCH_CANDIDATES.md) prepares typed calls and
-synthetic ownership tests for further DM operators. These candidates are not
-linked into the product plugin or exposed as native MCP tools; all remain
-NOT_QUALIFIED pending individual integration and acceptance.
+synthetic ownership tests for further DM operators. That module remains
+outside the product plugin. The four SUMMARY reductions now have a separate
+qualified adapter path; remaining operators still require individual integration
+and acceptance.
 
 ## Public native tools
 
@@ -46,9 +48,10 @@ NOT_QUALIFIED pending individual integration and acceptance.
 | `dm_status` | Host readiness, build gate, native capabilities and limitations |
 | `dm_datasets` | Bounded image enumeration with numeric ID, name, shape, known dtype and dimension calibration |
 | `dm_native_mean` | Raw pixel intensity mean for a bounded 2D float32 image selected by explicit ID |
+| `dm_native_summary` | DM's minimum, maximum, sum and mean for an explicit-ID 2D float32 image, at most 4,194,304 pixels; raw intensity, no stddev/variance |
 | `dm_native_result` | Query the retained receipt using its original operation ID |
-| `dm_crop` | Explicit-ID half-open crop into a separate plugin-retained image; current strict MCP checks passed, current independent full-pixel/source oracle pending; earlier copy acceptance is separate |
-| `dm_native_show` | P1 exact plugin-crop display; saved request ID required, native receipt/identity passed, independent desktop acceptance NOT_TESTED |
+| `dm_crop` | Explicit-ID half-open crop into a separate plugin-retained image; limited strict MCP and independent pixel/source acceptance passed |
+| `dm_native_show` | Exact plugin-crop delivery to a visible DM document; saved request ID required; limited visibility, document ownership after STOP and final release passed |
 
 Current P0 policy separates raw intensity from spatial calibration. A known
 missing unit, zero/nonfinite spatial scale or unusable spatial origin does not
@@ -67,13 +70,13 @@ the native catalog. A cropped image is retained by bounded plugin-owned
 references until native STOP/cleanup. No visible document, displayed image or
 model visual acceptance is implied by the crop ID alone.
 
-P1 candidate: `dm_native_show(image_id, request_id)` calls the native display path only for an existing
+`dm_native_show(image_id, request_id)` calls the native display path only for an existing
 plugin-retained crop by its exact ID, without making another data copy or
 accepting a file path. It requires a separately saved request ID. This
-candidate's native completed receipt and same-image recovery were accepted
-through actual MCP. Actual visibility, document count and post-STOP document
-ownership remain **NOT_TESTED**. A completed receipt without seeing the image
-is not visual acceptance, a file save or proof that the model saw it.
+native completed receipt, same-image recovery, actual visibility and unique
+document ownership passed separate limited synthetic checks. The document
+retained the image after STOP; normal document closure released the last image
+reference. This is session-lifetime delivery, not a file save or an MCP preview.
 Native saving remains unavailable: the `SaveAsGatan` string ABI and
 exclusive/no-overwrite behavior are not sufficiently established. See the
 [acceptance procedure](TRIAL_ACCEPTANCE.md) before treating P1 as delivered.
@@ -105,7 +108,12 @@ failure or nonfinite result can still reject the operation.
 Use [TRIAL_ACCEPTANCE.md](TRIAL_ACCEPTANCE.md) for synthetic input creation,
 strict stdio MCP checks, independent pixel/calibration oracles and the saved
 STOP/document-lifetime sequence. Protocol receipts, actual visibility and
-source preservation require their own evidence. The current HOLD remains.
+source preservation require their own evidence. The limited new-session checks
+passed; historical missing evidence is not repaired by that later PASS.
+Use [SUMMARY_ACCEPTANCE.md](SUMMARY_ACCEPTANCE.md) for its independent scalar,
+nontrivial intensity-calibration and all-source checks. Four native reductions
+are sequential, with `snapshot_atomic:false`; no concurrent-edit protection is
+claimed.
 
 ## Protocol and lifecycle
 
@@ -118,7 +126,7 @@ NB1 <32-lowercase-hex-session> <request-id> <operation> [uint32 arguments]
 The complete request is at most 512 bytes including LF. IDs match
 `[A-Za-z0-9_-]{1,64}`. Fields use one space; argument counts, integer syntax and
 overflow are checked exactly. Supported transport forms are `STATUS`,
-`DATASETS`, `INFO image_id`, `MEAN image_id`, `CROP image_id x0 y0 x1 y1`,
+`DATASETS`, `INFO image_id`, `MEAN image_id`, `SUMMARY image_id`, `CROP image_id x0 y0 x1 y1`,
 `SHOW image_id`, `QUERY` and `STOP`. Rectangular upper bounds are exclusive. INFO is a direct
 acceptance/client operation, not a separate public MCP tool. Native crop
 support remains build-specific and experimental despite its limited acceptance.
@@ -145,7 +153,7 @@ operation records plus one STOP receipt, without eviction.
 `dm_crop` requires a caller-saved `request_id` before submission; newly added
 side-effect tools, including the P1 show candidate, follow the same rule.
 `dm_native_result` requires the original ID. Existing read-only status,
-datasets and mean calls retain optional generated IDs for compatibility, but
+datasets, mean and read-only summary calls permit generated IDs, but
 the operator trial supplies explicit IDs for every call. Save the original
 session, operation, arguments and ID before dispatch rather than depending on
 a response that cancellation might suppress.
@@ -178,10 +186,10 @@ source pixels/calibration. It did not rely on the native mean alone. The
 post-crop STOP ownership check separately confirmed that the hidden crop ID
 became invalid after cleanup and ordinary Python remained usable. This does
 not establish hot-unload safety or general concurrent API behavior.
-That earlier ownership test covered an unshown output. The P1 candidate is intended to let a
-visible DM document retain the crop independently; STOP must not close that
-document. Continued document ownership after STOP still requires its own
-real-host test.
+That earlier ownership test covered an unshown output. The later strict SHOW
+test separately verified a visible DM document retaining the exact crop after
+STOP, followed by final image release when only that document was closed.
+This does not extend delivery to unrelated images or permanent files.
 
 Earlier real-host acceptance verified ordinary one-shot Python after native work,
 without a resident Python listener. It also verified rejection of an ID after

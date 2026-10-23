@@ -1,12 +1,57 @@
 # Native MVP continuation handoff
 
+## Latest: qualified SUMMARY and completed document handoff
+
+The new prepared synthetic session passed the pinned build/native readiness
+gate, strict stdio MCP and independent same-process oracles. The native catalog
+now has seven tools: status, datasets, mean, SUMMARY, result query, crop and
+experimental exact-crop SHOW. SUMMARY calls DM's GetMinimum/GetMaximum/GetSum/
+GetMean directly for bounded 2D float32 raw intensity; it does not implement
+another analysis backend. Missing spatial units and a nontrivial intensity
+calibration were independently checked, including unchanged full source pixels,
+spatial/intensity calibration, source NPYs and document count.
+
+The new strict crop/SHOW trial also passed before and after STOP. STOP matched
+the original request persisted before dispatch and the oracle's actual PID.
+The exact crop was visibly present in DM after plugin reference release, with
+one matching document. Normal closure of only that document invalidated the
+output ID and restored the original document count without changing other trial
+sources. The pipe/message endpoint disappeared; ordinary one-shot Python still
+worked. The host exited normally, and only the manifest-owned DLL was removed.
+No client configuration or default v0.6 backend was changed.
+
+The older preserved session was observed and cleaned normally too. Its missing
+original STOP request still makes its historical qualification UNVERIFIED;
+those observations were written separately and never promoted to strict PASS.
+No old request was replayed or historical evidence overwritten.
+
+Full offline regression passed after correcting the old acceptance client's
+explicit catalog allowlist for SUMMARY. Keep the initial catalog failure and
+corrected rerun separate. New SUMMARY client/oracle negative controls cover
+wrong host/session/request/scalars/calibration/pixels/documents; the original
+fault-injection controls remain effective. See [RESULTS](../RESULTS.md),
+[SUMMARY acceptance](SUMMARY_ACCEPTANCE.md) and [trial procedure](TRIAL_ACCEPTANCE.md).
+
+Remaining limits: no native FFT, preview, file save, variance/stddev or general
+candidate migration. Native SHOW is document-lifetime delivery, not permanent
+storage or an image returned to the model. Non-ASCII names remain NOT_QUALIFIED;
+real experimental data, other builds and concurrent edits remain NOT_TESTED.
+The typed candidate module itself remains synthetic; qualify each remaining DM
+operation separately. Follow [the differential integration plan](INTEGRATION_PLAN.md)
+before any later main integration; this feature was not merged or released.
+
+## Archived continuation before live closeout
+
+The following pending-state notes describe earlier runs. Their HOLD statements
+are historical, not instructions to reopen or query the now-closed sessions.
+
 Target: Windows x64 GMS **3.53.4137.0**, with exact executable/module identity
 checks. The default v0.6 Python backend and client configuration remain
 unchanged. Earlier core native work and crop numerical/copy behavior have separate
 limited real-DM acceptance with ASCII-named synthetic inputs. Other unaccepted
 scopes must not inherit those passes.
 
-**Current trial: HOLD.** The revised DLL passed actual host/build gates and
+**Historical pending trial: HOLD.** The revised DLL passed actual host/build gates and
 strict stdio MCP checks: calibrated and empty-unit raw means/metadata,
 unsupported/nonfinite/missing-image errors, required crop ID, strict
 missing-unit crop rejection, immutable crop QUERY/duplicate/conflict behavior

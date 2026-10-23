@@ -5,6 +5,40 @@ observed to fail; **NOT_TESTED** means no accepted execution covers that scope.
 Offline, static and historical results are kept separate from current DM
 acceptance. Private run artifacts and scientific data are not distributed.
 
+## Latest live continuation: SUMMARY and document lifecycle
+
+Limited acceptance on the pinned Windows x64 GMS build used only new synthetic
+inputs, an idle host and serialized requests. The default v0.6 backend/configuration
+was unchanged. No real experimental file was used.
+
+| Scope | Status | Evidence boundary |
+|---|---|---|
+| Native SUMMARY | PASS, limited | Exact build/module gates and strict MCP; four direct DM reductions, raw intensity, bounded 2D float32 only |
+| Independent SUMMARY oracle | PASS, limited | Same actual host PID/session and original request ledger; hand-known values including nontrivial intensity calibration and missing spatial units; full pixels, both calibrations, source NPYs and documents unchanged |
+| SUMMARY failures and recovery | PASS, limited | Unsupported dtype, nonfinite result and missing ID fail explicitly; valid request still works; same-ID QUERY returns the original result |
+| New strict crop/SHOW | PASS, limited | Presaved crop/SHOW IDs, duplicate/query/conflict checks; independent pixels, dtype, axis/calibration, separate memory and unchanged sources; exactly one document for the explicit output |
+| New STOP and shown-document ownership | PASS, limited | Original request persisted before dispatch and matched actual-PID oracle; pipe/message endpoint gone; exact crop remains visible and valid after plugin reference release |
+| Final output release | PASS, limited | Close only the delivered document while host lives; output ID invalid, original document count restored, other trial sources unchanged |
+| Normal cleanup | PASS, limited | Test host normal exit; manifest manager removes only the owned unchanged DLL after exit; client configuration preserved |
+| Older preserved session | UNVERIFIED | Independent pixel/document/release observations and normal cleanup completed, but missing original STOP request was not reconstructed or promoted to PASS |
+| Offline regression | PASS | C++ core/adapter/candidate, Windows synthetic transport, complete Node/Python suites, default mock, old fault injections and GMS Python compatibility; none substitute for host acceptance |
+| Native FFT/preview/file saving, other candidates | NOT_TESTED / unsupported | SUMMARY is the newly integrated scalar subset; typed synthetic calls do not establish support for the rest |
+| Unicode, model image viewing, real data, concurrency | NOT_QUALIFIED / NOT_TESTED | Non-ASCII interoperation remains unqualified; no MCP preview or model-vision acceptance, real-data acceptance or concurrent-image guarantee |
+
+The initial complete offline run failed because the older acceptance client
+rejected the new explicit SUMMARY catalog entry before reaching its semantic
+controls. Its allowlist/schema was updated without admitting unknown tools;
+the targeted controls and subsequent complete regression passed. Original
+failure logs were retained. A separate startup-time `/es` wrapper attempt
+failed before fixture creation. After ordinary host initialization completed,
+the one-shot fixture/oracles succeeded from the Python editor; no dependency
+installation, forced termination or restart was used to make it pass.
+
+Historical reports below retain their original pending/failure states. They
+must not be read as the latest host state or silently rewritten by the later
+limited passes. Reproduction: [SUMMARY](mvp/SUMMARY_ACCEPTANCE.md),
+[crop/SHOW](mvp/TRIAL_ACCEPTANCE.md), [install/remove](mvp/INSTALL.md).
+
 ## Earlier accepted MVP baseline
 
 Target: Windows x64 GMS **3.53.4137.0**, with exact binary identity checks.
@@ -43,9 +77,9 @@ The ordinary-operation record budget is 1023 per session, plus one reserved STOP
 receipt, for a total of at most 1024 retained records. No completed record is
 evicted to admit a new operation.
 
-## Current P0 policy and P1 delivery revision
+## Earlier P0 policy and P1 delivery revision, before desktop closeout
 
-**Current trial: HOLD.** The new DLL passed its actual host/build gates and
+**Then-current trial: HOLD.** The new DLL passed its actual host/build gates and
 the strict stdio MCP trial below. Desktop acceptance remains pending because
 desktop interaction was unavailable. The earlier passes above cover their own
 implementation and inputs; they do not certify this revision automatically.
