@@ -75,7 +75,10 @@ belong here and in those guides, not in a restored old long-form homepage.
 This feature is for review; do not merge into main, release, change the default
 backend or restart a closed historical session without a new explicit task.
 
-## Latest: qualified SUMMARY and completed document handoff
+## Historical: qualified SUMMARY and completed document handoff
+
+This earlier seven-tool qualification record does not describe the current
+feature scope; use the Current section above for active capabilities and limits.
 
 The new prepared synthetic session passed the pinned build/native readiness
 gate, strict stdio MCP and independent same-process oracles. The native catalog

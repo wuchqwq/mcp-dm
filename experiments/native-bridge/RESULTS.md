@@ -43,7 +43,10 @@ negative set. Exact logs, per-case errors and source/binary hashes remain local.
 See [operation boundaries](mvp/OPERATIONS_ACCEPTANCE.md),
 [the workflow](mvp/NATIVE_WORKFLOW.md) and [adapter matrix](mvp/ADAPTERS.md).
 
-## Latest live continuation: SUMMARY and document lifecycle
+## Historical live continuation: SUMMARY and document lifecycle
+
+This earlier qualification record is preserved as evidence of its own scope.
+Use the Current feature section above for active capabilities and limits.
 
 Limited acceptance on the pinned Windows x64 GMS build used only new synthetic
 inputs, an idle host and serialized requests. The default v0.6 backend/configuration
