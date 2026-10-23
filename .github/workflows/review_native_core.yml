@@ -26,6 +26,21 @@ jobs:
           python-version: '3.11'
       - name: Prepare narrow candidate
         run: python "$env:RUNNER_TEMP/prepare_native_core.py"
+      - name: Compare installer paths by actual file identity
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/test_native_install.py')
+          s = p.read_text(encoding='utf-8')
+          old = '        self.assertEqual(record["source_path"], str(self.source))\n        self.assertEqual(record["owned_path"], str(self.target))'
+          new = '        self.assertTrue(Path(record["source_path"]).is_absolute())\n        self.assertTrue(Path(record["owned_path"]).is_absolute())\n        self.assertTrue(os.path.samefile(record["source_path"], self.source))\n        self.assertTrue(os.path.samefile(record["owned_path"], self.target))'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='\n')
+          p = Path('docs/NATIVE_MERGE_SCOPE.md')
+          with p.open('a', encoding='utf-8', newline='\n') as f:
+              f.write('\nThe initial integration regression exposed a test-only Windows short/long\npath comparison mismatch. The corrected test checks absolute paths and real\nfile identity while retaining the checksum, ownership and foreign-file\nprotection assertions. Installer implementation and deletion rules are unchanged.\n')
+          PY
       - name: Install isolated test dependencies
         run: python -m pip install -r requirements-dev.txt -r requirements-analysis.txt
       - name: Python synthetic regression
@@ -63,10 +78,10 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- server.mjs tests/native-mcp.test.mjs README.md README.en.md experiments/native-bridge/mvp/README.md experiments/native-bridge/mvp/HANDOFF.md docs/NATIVE_MERGE_SCOPE.md
+          git add -- server.mjs tests/native-mcp.test.mjs tests/test_native_install.py README.md README.en.md experiments/native-bridge/mvp/README.md experiments/native-bridge/mvp/HANDOFF.md docs/NATIVE_MERGE_SCOPE.md
           git diff --cached --check
           git diff --cached --stat
-          git commit -m 'fix(native): require saved crop IDs for reviewed-core integration' -m 'Integrate the reviewed 3c9715c scope only; later SHOW and desktop-trial revisions remain on feature/native-bridge-mvp. No native ABI or runtime changes. Synthetic regression passed; no new real-DM claim.'
+          git commit -m 'fix(native): require saved crop IDs for reviewed-core integration' -m 'Integrate the reviewed 3c9715c scope only; later SHOW and desktop-trial revisions remain on feature/native-bridge-mvp. Normalize test-only installer path identity. No native ABI/runtime or installer implementation changes. Synthetic regression passed; no new real-DM claim.'
           git push origin HEAD:refs/heads/merge/native-core-reviewed-20261023
           echo "TESTED_CANDIDATE=$(git rev-parse HEAD)"
           git status --short
