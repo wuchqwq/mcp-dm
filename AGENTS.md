@@ -26,8 +26,26 @@ honest errors. Do not add an agent framework, scheduler, report platform or
 - `bridge/lossless_tiff.py`: scientific TIFF with dtype/calibration preservation. Do not replace it with a display export or silently downcast.
 - `setup/`: target-GMS offline runtime installer, two-stage real-DM launcher, explicit Codex registration. These are user-run setup operations, not CI prerequisites.
 - `tests/`: synthetic arrays, fake DM API and isolated mock/echo bridges only. No test should require a DM license, private sample or fixed local drive.
+- `lib/native_bridge.mjs`: opt-in NB1 transport for `DM_MCP_BACKEND=native`; strict receipts, one submission followed by same-ID QUERY, no Python fallback.
+- `experiments/native-bridge/mvp/`: fixed-build C++ plugin, explicit POD vendor adapter, synthetic host/tests and manually invoked real-host acceptance. Read its README, INSTALL and the parent RESULTS/ABI_NOTES before native changes. Never build or load the retired `nb_probe.cpp`.
 
-The public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
+The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
+
+The separate experimental native catalog has status, datasets, native mean,
+result query and crop. Its target is Windows x64 GMS 3.53.4137.0 with exact
+binary gates. Core idle-host metadata/mean/MCP acceptance and separate native
+crop pixel/copy/calibration acceptance passed using ASCII-named synthetic
+inputs. Crop output release after STOP was independently checked along with
+pipe/window cleanup and continued one-shot Python use. Non-ASCII legacy
+Python/native name comparison failed and remains
+NOT_QUALIFIED; do not add a heuristic conversion or silently replace its truth.
+Do not inherit that core PASS for changed operators or other builds. Native
+mean is not full stats, and a plugin-retained crop ID is not a visible document.
+Keep source images unchanged and requests serialized on an idle host; there is
+no general host-activity lock or vendor crash isolation. Retain session/ID after
+unknown or timeout, query it and never replay automatically. Native STOP only
+ends this experiment's IPC/owned resources, not DM. Close DM normally before
+manifest-based installation/removal; do not alter existing client entries.
 
 ## Mandatory scientific contracts
 
@@ -35,7 +53,7 @@ The public MCP catalog has 21 tools, including the four fixed-input 2D capture/p
 2. Specify axes explicitly. NumPy and DM dimension order differ. Never infer an energy or diffraction axis solely from filename, image brightness or largest dimension.
 3. Use physical zero plus index times signed scale. DM raw origin conventions differ; preserve all axes and shift crop calibration correctly. Unknown units, nonfinite calibration or ambiguous axes must fail explicitly.
 4. Integer reductions need an appropriate exactness/overflow bound; float64 does not represent arbitrary uint64 exactly. Report the arithmetic used. No silent 8/16-bit conversion.
-5. Rectangle/bounds upper endpoints are exclusive. Two-dimensional ROI tools reject invalid types and out-of-bounds rectangles; never reintroduce rounding/clipping or crop-result selection by recency/user names. The crop result handoff requires exactly one new image with the per-operation nonce. Spectral and virtual-detector selections use documented channel/pixel centres, with lower-inclusive/upper-exclusive windows. No hidden interpolation, area weighting or energy-bin multiplication.
+5. Rectangle/bounds upper endpoints are exclusive. Two-dimensional ROI tools reject invalid types and out-of-bounds rectangles; never reintroduce rounding/clipping or crop-result selection by recency/user names. The default Python crop result handoff requires exactly one new image with the per-operation nonce; native crop binds its independently owned new image ID to the immutable request receipt. Spectral and virtual-detector selections use documented channel/pixel centres, with lower-inclusive/upper-exclusive windows. No hidden interpolation, area weighting or energy-bin multiplication.
 6. Large 4D sources must be accessed in bounded chunks. Validate shape/dtype and memory budget **before** allocation and reads. Never coerce/reshape/copy the entire cube as a shortcut. Account for native DM image copies as well as Python buffers. A full memmap alone does not prove bounded working-set residency.
 7. Fourier peaks are not confirmed lattice identifications. Virtual BF/ADF are geometric windows, not proof of calibrated experimental detector angles or HAADF. Element names, quantification, camera-length conversions, COM/DPC and reconstruction need their own inputs and acceptance.
 8. Keep arbitrary DM-Script disabled by default at both layers. Do not add camera, beam, stage or optical controls. The script gate is not a security sandbox.
@@ -55,7 +73,7 @@ the persistent Python Bridge, or after disconnecting clients and cleanly
 stopping it; never force-restart DM for script-slot conflicts. Check both
 JSON-RPC `error` and MCP tool `isError` before claiming tool success.
 
-Use PASS / FAIL / NOT_TESTED for each scope. Distinguish arithmetic unit tests, protocol tests, mock-chain checks, actual DM API execution, real-data numerical comparison, export reopening and visual review. A successful mock response does not prove real DM. `dm_status.backend` must be `digitalmicrograph` for actual host claims. Record actual version/source identity.
+Use PASS / FAIL / NOT_TESTED for each scope. Distinguish arithmetic unit tests, protocol tests, mock-chain checks, actual DM API execution, real-data numerical comparison, export reopening and visual review. A successful mock response does not prove real DM. `dm_status.backend` must be `digitalmicrograph` for default-backend host claims or `digitalmicrograph-native` for native claims, with its actual build gate and process/thread receipts checked. Record actual version/source identity privately.
 
 Run tests locally. The optional Actions workflow is manual only; hosted runs cover synthetic behavior only and have no real DM or experimental data. Bounded canonical uint8 4D reads and virtual detectors have limited real-host validation. Whole-file native OpenImage and built-in BF/ADF plugins remain unverified. Real EDS/EELS/spectral SI remain NOT_TESTED. New types/layouts/versions need independent bounded-read, axis/calibration, numerical, source-invariance and memory evidence. Do not mark a failed first run as passed merely because a corrected rerun passed.
 

@@ -1,7 +1,17 @@
 # Native plugin route: feasibility assessment
 
-Status: assessment only. No production code, tool or bridge in this repository
-was changed, and nothing here is supported by Gatan.
+Status: historical assessment. This assessment itself changed no production
+code, tool or bridge; that statement describes its original scope, not the
+repository's current implementation. Nothing here is supported by Gatan.
+
+The subsequent [native MVP](../experiments/native-bridge/mvp/README.md) now has
+limited acceptance on its pinned build with an idle host and serialized
+requests, including core MCP/mean and independent crop/cleanup checks. The
+default Python backend remains unchanged. Current evidence and remaining
+limits belong to [RESULTS.md](../experiments/native-bridge/RESULTS.md), including
+the ASCII-qualified name scope and unqualified non-ASCII interoperability.
+Concurrent native/script image access remains unverified and is not a
+prerequisite for that accepted idle-host scope.
 
 ## Question
 
@@ -64,13 +74,16 @@ matter for this project's own launchers:
   may conflict with the product's terms. It is not a substitute for the vendor
   SDK, which is available on request.
 
-## Recommendation
+## Historical recommendation
 
 Ask the vendor for the SDK first. It removes most of the uncertainty above at
 the cost of a request form, and it converts "a measured snapshot" into "a
 documented contract".
 
-Treat the native route as a fallback, and gate it on one question only: can a
-worker thread safely hand work to the main thread while a script is running? If
-that cannot be answered with evidence, the route does not solve the problem it
-was proposed for, however well the registration test passes.
+At this assessment stage, the proposed gate was whether a worker could safely
+hand work to the main thread while a script was running. Registration alone
+did not answer that question. The later MVP deliberately qualified idle,
+serialized post-acquisition operations instead, without making concurrent
+image access a condition of that narrower result. Do not apply this historical
+gate as a current requirement to perform concurrent experiments, or inherit
+its early probe observations as acceptance of changed code.

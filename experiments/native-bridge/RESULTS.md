@@ -1,128 +1,142 @@
-# T1–T5 实验结果矩阵
+# Native bridge validation matrix
 
-环境：GMS 3.53.4137.0 x64，Windows；探针 `nb_probe.dll`（9 导出，kernel32×19 + user32×5 导入，零 CRT、零 SDK），
-编译器 clang-cl 23.1.4 + lld-link；插件目录 `C:\ProgramData\Gatan\Plugins`（实验前为空，实验后已清空）。
+**PASS** means the stated scope has evidence; **FAIL** means a requirement was
+observed to fail; **NOT_TESTED** means no accepted execution covers that scope.
+Offline, static and historical results are kept separate from current DM
+acceptance. Private run artifacts and scientific data are not distributed.
 
-判定口径：**PASS** = 有可复核的运行证据；**FAIL** = 观察到不符合预期的行为；**NOT_TESTED** = 未达到可测条件。
+## Replacement MVP
 
-> 证据文件（插件日志、标记文件、DM 日志片段）仅保留在本地实验目录，不随仓库分发；
-> 下表中的"证据位置"指本机路径，仅用于复核时定位。
+Target: Windows x64 GMS **3.53.4137.0**, with exact binary identity checks.
+The core native path has passed limited real-host acceptance with known
+synthetic inputs in an idle, prepared session. No real experimental data was
+used. This is a build-specific acceptance, not a general DM compatibility or
+native concurrency guarantee.
 
+| Scope | Status | Evidence boundary |
+|---|---|---|
+| C++ build, including the plugin DLL | PASS | Builds with parameterized LLVM-MinGW toolchain paths; static C++ runtime, Windows/UCRT dependencies remain |
+| Core protocol and retained state | PASS | Offline assertions cover strict parsing, overflow, duplicate/conflict handling, late tokens, finite UTF-8 JSON and capacity/STOP behavior |
+| Adapter ownership and ABI surrogates | PASS | Explicit synthetic POD callbacks; no Gatan module is loaded by this test |
+| Windows named-pipe transport with a synthetic host | PASS | Fragmentation, unread responses, silent clients, readiness, startup failure stages, reentrant cleanup and STOP host cleanup |
+| Node transport and MCP facade | PASS | Offline synthetic response identity, bounded framing, cancellation, recovery and unchanged default-backend checks |
+| New DLL loaded by DM, host readiness and build gate | PASS, limited | Actual target-host lifecycle/message callback and build identity checked |
+| Numeric image lookup, dimensions and dtype | PASS, limited | Explicit synthetic image IDs resolved in DM; no borrowed object-address lookup |
+| ASCII dataset names and signed-scale calibration | PASS, limited | Actual host metadata matched the independently qualified fixture; missing utility-image units are reported per entry instead of aborting the list |
+| Native mean and repeat access | PASS, limited | Actual `GMSImageProcessing::GetMean` matched independent synthetic truth; finite sign and fractions preserved |
+| Strict stdio MCP through actual DM | PASS, limited | Initialize, catalog, status, datasets, mean and safe invalid-parameter checks passed; RPC and tool error layers checked |
+| One-shot ordinary Python after native work | PASS, limited | Ordinary Python remained usable without a resident Python listener; this is serialized coexistence |
+| Source preservation | PASS, limited | Full synthetic pixel and calibration fingerprints remained unchanged after native operations |
+| Released image ID | PASS, limited | After closing the synthetic document and releasing Python references, its old ID failed as missing; another native mean still succeeded |
+| STOP and normal host exit | PASS, limited | Experimental pipe/window disappeared; after crop ownership verification, DM exited normally without forced termination. STOP itself did not close DM |
+| Manifest installation/removal and recovery | PASS, limited | Ownership-based recovery, fresh installation and final removal succeeded; only the owned DLL was removed, the prior inventory was restored and client configuration stayed unchanged |
+| Native crop through strict stdio MCP | PASS, limited | Actual tools/call returned a separate image ID; repeated request ID returned the same result, and out-of-bounds ROI was rejected |
+| Crop numerical correctness and independent copy | PASS, limited | Independent one-shot GMS Python checked every pixel, dtype/shape, separate memory, signed physical calibration and unchanged source pixels/calibration; native cropped mean also matched an independent oracle |
+| Plugin crop output release after STOP | PASS, limited | The experimental pipe/window disappeared; an independent one-shot DM check found the hidden crop ID invalid and ordinary Python still usable |
+| Non-ASCII naming / legacy Python binding interoperability | FAIL / NOT_QUALIFIED | Independent Python/native name comparison failed; no encoding repair or broader Unicode compatibility claim |
+| Native export, direct pixel access and additional numeric types | NOT_TESTED | No broader native replacement claim |
+| WorkBuddy, model image viewing and real experimental data | NOT_TESTED | Strict MCP acceptance does not imply a client UI or visual/scientific-data acceptance |
+| Concurrent native/script image calls, vendor exception isolation and other GMS builds | NOT_TESTED | Idle serialization and a pinned build remain required |
+| Hot unload, arbitrary scripts, hardware or acquisition control | NOT_TESTED | No support claim; hardware and arbitrary-script tools are not exposed |
 
-## T1 生命周期
+The ordinary-operation record budget is 1023 per session, plus one reserved STOP
+receipt, for a total of at most 1024 retained records. No completed record is
+evicted to admit a new operation.
 
-| 测试条件 | 输入 | 预期结果 | 实际结果 | 证据位置 | 判定 |
-|---|---|---|---|---|---|
-| 冷启动加载 | 把 DLL 放入用户插件目录，启动 DM | 依次 Link → GetSDKVersion → Startup → RegisterFloatingWindows → Run | 日志依次出现 `DMPlugIn_Link_2`、`PlugInGetSDKVersion`、`PlugInStartup tid=…`、`PlugInRegisterFloatingWindows`、`PlugInRun` | `evidence/nb_probe.log` | PASS |
-| 初始化阶段创建宿主线程资源 | PlugInStartup 中建隐藏窗口 + worker 线程 | 窗口创建在宿主线程，worker 另有线程 | `PlugInStartup tid=46300`、`window ok`、`worker started`；后续请求的执行线程恒为 46300，接收线程为另一值 | 同上 + T2 回执 | PASS |
-| 显式停止后拒绝新请求 | 客户端发 `STOP`，再发 `PING` | 返回 `BYE`；再连接失败 | `BYE`；随后 `CONNECT_FAILED [Errno 2]` | 见 §T3 前的停止测试 | PASS |
-| 正常退出顺序 | 关闭 DM | RequestClose → PrepareClose → Cleanup → Shutdown，且 worker 已被回收 | 首次测得 `Cleanup` 后**没有** `worker exited`（worker 卡在 ConnectNamedPipe，`WaitForSingleObject` 空等 3 s）；加入"用一次性客户端连接唤醒"后复测为 `PlugInCleanup → worker exited → cleanup done → PlugInShutdown` | `evidence/nb_probe.log` | PASS（修复后）／首次为 FAIL |
-| 初始化失败不留半初始化状态 | 构造失败的注册/初始化 | 失败后不可调用 | 未构造（需人为注入失败），不猜测 | — | NOT_TESTED |
-| 热卸载 | 运行中卸载 DLL | — | 未做；该构建无热卸载证据，按任务边界不做 | — | NOT_TESTED |
+Two corrected offline runs must not obscure their initial failures:
 
-注：`DllMain` 只写一行日志，不做宿主操作；所有宿主相关初始化都在 `PlugInStartup`。
+- The first oversized-result transport test failed because the result was
+  rejected with the wrong error classification. The correction distinguishes
+  `response_too_large` from invalid JSON, and the corrected run passed.
+- The first expanded cleanup test incorrectly required a zero change in the
+  process-wide handle count. Windows lazily initializes window/security
+  resources, so that total included unrelated runtime caching. The replacement
+  checks the bridge's actual event/thread/pipe handles with Windows handle
+  queries and verifies that its window/class are removed. Those specific
+  resource checks passed. This correction is not a claim about all host memory
+  or operating-system resources.
 
-## T2 外部请求 → 宿主执行（最高优先级）
+## Initial real-host failures and corrected acceptance
 
-| 测试条件 | 输入 | 预期结果 | 实际结果 | 证据位置 | 判定 |
-|---|---|---|---|---|---|
-| 单次往返，空闲态 | `PING 1` | 有回执，且执行线程 = 宿主线程 | `OK 1 0 2226 10654 0 1 42864 35296`（接收线程 42864，执行线程 35296 = PlugInStartup 线程） | 终端输出 + 日志 | PASS |
-| 顺序 10 次 | `PING 1..10` | 全部成功，线程稳定 | 10/10 成功，执行线程恒 35296，总延迟 0.32–1.19 ms，`post→exec` 22–728 µs | 终端输出 | PASS |
-| 非法请求 | `HELLO there` | 明确拒绝 | `ERR bad-request`（0.16 ms） | 终端输出 | PASS |
-| 宿主未及时执行 | 宿主 5 s 内未取走请求 | 返回 unknown，不重发 | **已实测触发**：在 DM 启动阶段（消息泵尚未运行）发请求，稳定返回 `UNKNOWN host-did-not-run`（恰好 5003 ms），未重发 | `stat_test.out` | PASS（超时路径已验证） |
-| 通信线程不碰 DM API | worker 只做收发/入队/PostMessage | 满足 | 代码路径可见：worker 内无任何 DM 调用，DM 调用只在 WndProc | `nb_probe.cpp` | PASS（代码审查级） |
+The first real-host run produced a correct native mean receipt but its overall
+acceptance was **FAIL**. Dataset enumeration treated an uncalibrated hidden
+utility image as a fatal list error, and recreating the listening pipe between
+connections exposed a connection gap. A correct operator receipt did not make
+that aggregate run pass. The corrected enumeration reports incomplete
+calibration per image, and the transport/client changes address connection
+admission without resubmitting an already sent operation. The subsequent
+prepared idle-host core acceptance passed the limited scopes listed above.
 
-**关键回执字段**：`OK <reqid> <recv→post µs> <post→exec µs> <exec 耗时 µs> <…> <result> <worker tid> <exec tid>`。
-`exec tid` 与 `PlugInStartup` 的线程号一致，是"确实在宿主线程执行"的可核对证据，而不是"PostMessage 返回成功"。
+An initial closed-document fixture still held Python image references, so the
+old image ID remained live. That was not a valid missing-image test. After the
+fixture released those references, the old ID failed as missing and the host
+continued to serve another native mean. Closing a document alone must not be
+described as destroying every remaining reference.
 
-## T3 与普通 Python 共存
+The first installation reached a durable `prepared` manifest but failed to
+finalize it because a null backup argument did not bind as intended to
+`File.Replace` in PowerShell. The prepared ownership record remained available
+for recovery. After the bookkeeping correction, removal used that ownership
+record and a new installation completed without overwriting another plugin
+or clearing the directory.
 
-| 测试条件 | 输入 | 预期结果 | 实际结果 | 证据位置 | 判定 |
-|---|---|---|---|---|---|
-| 插件存在时普通 Python 可运行 | `/es "ExecutePythonScriptFile(\"C:\\dmtest\\busy.py\")"`，脚本 10 s | 正常开始并结束 | `py_started.txt`、`py_done.txt` 均出现；DM 未崩溃 | `evidence/busy.py`、`evidence/run_busy.bat` | PASS |
-| 脚本运行期间收到外部请求 | 在 `py_started` 之后立即 `PING 102` | 允许等待，或明确拒绝；不得强行进入内嵌 Python | **0.68 ms 完成**，执行线程仍为宿主线程；请求未被推迟 | 终端输出 + DM 日志（Python 于 15:52:21–15:52:31 执行） | PASS（结果与预期不同，见下） |
-| 脚本结束后请求 | `PING 103` | 正常 | 0.44 ms 成功 | 终端输出 | PASS |
-| 重复 ID | 同 ID 两次 | 不得静默执行第二次 | 探针无 ID 去重；这是桥接层职责，本轮未实现 | — | NOT_TESTED |
-| 客户端断连/超时 | 中途断开 | 不泄漏、不误发 | 未单独构造 | — | NOT_TESTED |
+An additional non-ASCII naming fixture failed independent comparison between
+the legacy GMS Python name bindings and native `GetUnicodeName`; the observed
+display title was also insufficient to resolve the encoding cause. The native
+encoding path was not changed or guessed. The original failed truth/receipts
+were preserved. Only the session's synthetic names were explicitly changed to
+ASCII, a separate truth record was written, and the same implementation then
+passed the full core MCP and separate crop acceptance. Thus ASCII names are
+qualified while non-ASCII naming interoperability remains **NOT_QUALIFIED**.
+An ASCII rerun does not convert that failed comparison into a Unicode PASS.
 
-**这条结果需要特别说明**：DM 文档称 `ExecutePythonScriptFile` 默认"在主线程同步执行"，但实测在 Python 运行的那 10 秒里，
-宿主线程仍能在 0.68 ms 内处理我们的消息。若主线程真被占用，`PostMessage` 后排队的消息不可能被派发（我的 5 s 等待会返回 `UNKNOWN`）。
-结论：**该构建下 Python 并未占用我们的窗口线程，宿主回调与脚本执行是可并发的。**
-这既是好消息（不需要等待）、也是风险（并发确实存在，图像 API 的重入是否安全仍未证明）。
+Detailed host receipts, binary fingerprints, source arrays and local manifests
+remain private. Crop numerical/copy behavior and post-STOP output release were
+accepted separately; neither certifies later implementation changes.
 
-## T4 原生图像读取
+## Historical nb_probe T1–T5 results
 
-| 测试条件 | 输入 | 预期 | 实际 | 证据 | 判定 |
-|---|---|---|---|---|---|
-| 按 ID 取图、读尺寸 | `STAT <id>`，图像由 Python 侧 `DM.CreateImage` 创建（37×53 float32，常量 3.0，ID=23） | 返回 dims=2 | 未取得有效采样：请求在宿主启动阶段到达，宿主消息泵尚未运行，5 s 后返回 `UNKNOWN host-did-not-run` | `stat_test.out`、`evidence/nb_probe.last.log` | NOT_TESTED |
-| 读标定/像素/负 scale | 同上 | 与独立真值一致 | 未执行（本路径未实现标定读取，像素仍需结构体尺寸） | — | NOT_TESTED |
+These are retained observations from the retired probe, not a fresh rerun.
+Its source is preserved behind a compile-time error. The historical record does
+not establish that its native image calls were correct or safe, and no PASS
+below is inherited by the replacement MVP.
 
-已实现但未验证的代码路径（`STAT` → `Image::FindImageAsObject` → `GetDimensions` → `ref_ptr_delete`）：
-插件能成功解析全部导出名（`stat api unresolved` 未出现），说明符号解析与调用准备就绪，缺的只是一个**宿主已就绪**的采样窗口。
+| Historical scope | Historical status | What the record supports |
+|---|---|---|
+| T1 plugin lifecycle and initialization | PASS, limited | Lifecycle exports were called and a window/worker were created |
+| T1 normal cleanup | First FAIL; corrected rerun PASS, limited | Initial cleanup left the worker blocked in pipe connect. A wake connection allowed the later observed exit; silent reads/writes and complete teardown were not proven |
+| T1 startup failure and hot unload | NOT_TESTED | No accepted injection or hot-unload test |
+| T2 idle PING round trip | PASS, limited | Requests reached a callback with the recorded startup-thread identity and returned receipts; PING performed no image API call |
+| T2 malformed input and host timeout | PASS, limited | The recorded invalid-input/timeout paths returned errors or unknown; they did not prove safe late completion or request identity retention |
+| T3 ordinary Python activity | PASS, limited | An ordinary script began and ended while the probe was installed, and a window callback was observed during that interval |
+| T3 concurrent image calls, duplicate IDs and client disconnects | NOT_TESTED | The observation does not establish simultaneous execution, mutual exclusion or image API reentrancy safety |
+| T4 numeric image lookup and dimensions | NOT_TESTED | No valid image-operation receipt was accepted |
+| T4 calibration and pixels | NOT_TESTED | No accepted execution of these paths |
+| T5 native mean | NOT_TESTED | No accepted native-operator result |
 
-## T5 原生处理操作
+## Correction to the old interpretation
 
-| 测试条件 | 输入 | 预期 | 实际 | 证据 | 判定 |
-|---|---|---|---|---|---|
-| 经 T2 路径触发 `GMSImageProcessing::GetMean` | `STAT <id>`，宿主线程内计算 | 返回值 = 3.000 | 未采样成功（同上，窗口未对齐）；最后一次尝试因 DM 被人工关闭而中断 | `stat_test.out` | NOT_TESTED |
+The retired report said that symbol resolution/call preparation was complete
+and **only sampling time** remained unverified. That conclusion is withdrawn.
+The absence of an `api unresolved` log is not positive evidence for correct
+resolution or execution.
 
-`GetMean` 已按修饰名解析（`?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z`），
-调用形态为 `double(ref_ptr<Image> const&)`，即传入 8 字节 ref_ptr 的地址。**未验证的不是调用方式，而是采样时机。**
+Independent static review found that the old PE resolver failed to apply the
+export ordinal mapping; `FindImageAsObject` was the wrong lookup for numeric
+IDs; and the old `ref_ptr_delete` call could destroy an image instead of
+releasing an acquired reference. Its two-pointer placeholder did not specify
+the proven single-pointer reference ABI. Its mean encoding could lose
+fractional precision and misrepresent negative values. Shared request and
+completion state could also associate a late callback with a later request.
 
+The replacement uses standard symbol lookup, an exact build gate, explicit POD
+call shapes, numeric-ID lookup, paired reference ownership, finite native
+double results, immutable per-request identity and cancellable I/O. Details
+are in [ABI_NOTES.md](ABI_NOTES.md). These changes made offline validation and
+the separately recorded limited core DM acceptance possible. Historical probe
+PASS still does not validate a changed native implementation.
 
----
-
-# 对六个问题的回答
-
-**1. 哪些能力已实测，哪些仍是静态推断？**
-
-实测（有运行证据）：插件被加载并走完 初始化→启动→运行→清理→退出；入口顺序；自定义窗口创建在宿主线程；
-外部请求经 worker 线程入队、由宿主线程执行并返回带线程号与分段时间的回执；非法请求被拒绝；显式停止后拒绝新连接；
-Cleanup 能回收 worker（修复后）；插件存在期间普通 Python 脚本正常运行结束。
-
-静态推断（未实测）：图像对象布局与标定语义、像素锁的字段与尺寸、脚本函数注册槽位的语义细节、宿主版本门的具体区间。
-其中"槽 8/10 是注册入口"已由上一轮的脚本调用实验证实，不属于推断。
-
-**2. 是否已证明外部请求能安全驱动一个 DM 原生操作？**
-
-**没有。** 已证明的是链路的**前半段**：外部请求 → C++ 插件 → 宿主线程执行 → 明确回执。
-后半段（在宿主线程里调用 DM 原生图像/处理 API）**没有做**，因为缺少结构体尺寸证据；而"安全"更是未证明——
-T3 恰好显示宿主回调可以与脚本执行并发，这意味着重入风险真实存在，不能因为一次成功就宣布安全。
-
-**3. 是否能让普通 Python 正常使用，而不要求危险重入？**
-
-插件存在时，普通 Python 脚本能正常开始与结束（实测）。而且插件不占用 Python 脚本槽——它是原生线程与原生回调。
-但"危险重入"没有被排除：实测显示 Python 执行期间我们的宿主回调仍会被派发，所以若回调里调用图像 API，
-就构成"脚本运行中访问图像"。是否安全，仍是未解问题。
-
-**4. 哪些失败可以明确拒绝，哪些仍只能判为 unknown？**
-
-可明确拒绝：语法/协议非法（`ERR bad-request`）；服务已显式停止（连接失败）；未来的重复 ID 与参数不一致（设计上应拒绝，尚未实现）。
-只能判 unknown：宿主在超时窗口内没有取走请求（已实现 `UNKNOWN` 回执且不重发）；请求已入队但进程在完成前退出。
-
-**5. 是否值得进入一个限定 GMS 构建、少量工具的 C++ Bridge 原型？**
-
-**有条件值得，但现在还不该开工。** 传输层与宿主线程执行已经可用且可核对，这是最难的一半；
-但决定成败的是"在宿主线程里调用图像 API 是否与脚本执行互斥"。这一条没有证据之前，原型只会在第一次真实并发时暴露问题。
-建议：先补一个实验（见 6），再决定是否投入。
-
-**6. 下一步还缺哪一到三项决定性证据？**
-
-1. **并发下的图像 API 行为**：在 Python 脚本运行期间，由宿主回调执行一次只读的图像属性读取（例如 `GetDimensions`），
-   观察是否稳定、结果是否正确。这是唯一能判"能不能并行"的实验。
-2. **结构体尺寸**：`DataAlignment` / `DataSlice` / `DataLayout` 的 `sizeof` 与字段布局，用于安全地取像素。
-   没有它，T4/T5 无法开始。
-3. **重复 ID 与在途请求的语义**：桥接层需要确定"同 ID 不同参数"如何拒绝、超时后如何标记 unknown 而不重发。
-   这一项可以先用合成客户端测出来，不依赖 DM。
-
----
-
-# 边界与自我限制
-
-- 未改动 main、v0.6 桥、启动器或任何客户端配置；本目录内容独立。
-- 未操作实验数据、未接触硬件；实验用图仅为合成内容（本轮未进入图像路径）。
-- 动态加载只在本机空插件目录、无采集任务的会话中进行；DM 每次由脚本冷启动，未在用户正在工作的实例中注入。
-- 出现过一次真实缺陷（Cleanup 未回收 worker），已定位并修复，未通过"多试几次"掩盖。
-- 未绕过许可证、未修改厂商二进制。
-- 本轮未推送、未合并（推送由后续步骤单独执行）。
-- 单次成功不等于长期稳定；以上全部结论仅对 3.53.4137 这一个构建成立。
+The earlier suggestion to try concurrent image calls first is also withdrawn.
+Acceptance starts with an idle host and serialized read-only operations.
+Thread affinity and a working message pump do not establish general native
+API concurrency safety or exception isolation.

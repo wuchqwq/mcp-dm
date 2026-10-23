@@ -25,6 +25,31 @@ The report/replay worker remains optional. Preview needs only NumPy/Pillow in an
 2. Try small independent tasks: identify an image and its calibration; view a selected capture; take a specified profile; export a calibrated crop or FFT summary. Fix concrete usability or correctness failures without expanding the platform.
 3. Gather feedback from a few research users when the core is usable. Add installation polish or another operator only when actual friction justifies it.
 
+## Build-pinned native experiment
+
+The default v0.6 backend stays unchanged. The opt-in native backend targets
+Windows x64 GMS 3.53.4137.0 and exposes status, datasets, native mean, retained
+result queries and experimental crop. Limited idle-host acceptance of the core
+metadata/mean/MCP path and source preservation has passed with synthetic inputs
+without a resident Python listener. Historical probe results and offline
+surrogates do not certify changed native code.
+
+Native crop separately passed actual MCP and an independent one-shot GMS
+Python oracle for explicit IDs, half-open bounds, every pixel, separate memory,
+signed calibration, unchanged sources and duplicate-request identity. Its
+output lifetime through STOP was separately accepted: the hidden crop ID
+became invalid, its pipe/window disappeared and ordinary Python remained usable. The
+test host then exited normally and manifest-owned DLL removal restored the
+prior inventory without changing client configuration. The
+qualified name scope is ASCII; the legacy Python/native non-ASCII name
+comparison failed and remains NOT_QUALIFIED without heuristic conversion.
+A plugin-retained result ID is not a displayed DM
+document or model visual acceptance. WorkBuddy, real experimental data, other
+builds, concurrent image API use and vendor exception isolation remain
+unverified. Keep the backend opt-in and the original client configuration
+unchanged. See [the matrix](experiments/native-bridge/RESULTS.md) and
+[native handoff](experiments/native-bridge/mvp/HANDOFF.md).
+
 ## Deferred, not silently completed
 
 4D-STEM development; automated crystallographic identification, strain, EDS/EELS quantification or reconstruction; complete job scheduling; atomic snapshots; generic object versioning; arbitrary-script enablement; a report platform; new chat UI or multi-agent framework.

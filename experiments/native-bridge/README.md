@@ -1,83 +1,89 @@
-# nb_probe — native plugin round-trip probe
+# Experimental native DigitalMicrograph bridge
 
-A deliberately narrow native plugin used to answer one question:
+The current implementation is [mvp/](mvp/README.md). It explores a small,
+build-pinned native backend for post-acquisition analysis without a resident
+Python bridge. The existing Python backend remains the default.
 
-> can an external request be carried into DigitalMicrograph's own thread, executed there,
-> and answered with an auditable receipt — without resident Python?
+The target is Windows x64 GMS **3.53.4137.0**, with exact host/module identity
+checks. Passing those checks is a prerequisite, not a compatibility or runtime
+acceptance claim. The core native path has passed a limited real-DM acceptance
+using synthetic inputs on this target: lifecycle/readiness, metadata, native
+mean, strict MCP calls, source preservation and normal cleanup. Native crop also
+passed separate strict MCP and independent pixel/calibration checks with ASCII
+fixture names. Post-crop STOP was separately checked to release the retained
+image and remove the experimental pipe/window while ordinary Python remained
+usable. Normal host exit and ownership-based DLL removal then completed,
+preserving the prior inventory and client configuration. See the separate
+[validation matrix](RESULTS.md).
 
-It is a **probe**, not a bridge. It does no image work, registers no script functions, and is
-not supported by Gatan. Everything here is a build-specific experiment.
+## Current scope
 
-## What it does
+The opt-in native MCP catalog has five tools: `dm_status`, `dm_datasets`,
+`dm_native_mean`, `dm_native_result` and experimental `dm_crop`. The native mean is a raw pixel
+intensity mean for a bounded two-dimensional float32 image. It is not the full
+`dm_stats` interface. Unsupported operations and types fail explicitly; the
+native backend never falls back to Python.
 
-```
-external client ──named pipe──▶ worker thread          (parse, validate, enqueue only)
-                                    │  PostMessage
-                                    ▼
-                              hidden window WndProc     (host thread; the only place that
-                                    │                    touches host state)
-                                    ▼
-                              receipt ──named pipe──▶ client
-```
+Native crop creates a separate image ID held by bounded plugin-owned references
+until native STOP/cleanup. Actual acceptance verified independent cropped data,
+half-open bounds, signed calibration and unchanged sources; this is not a
+visible DM document or a model-visible preview. ASCII names are qualified.
+Non-ASCII naming interoperability with legacy GMS Python bindings is
+**NOT_QUALIFIED** after an independent comparison failed; no heuristic encoding
+conversion was added. Real experimental data, WorkBuddy/visual acceptance,
+other GMS builds and concurrent native API use remain unverified.
 
-The receipt carries the request id, four phase timestamps (µs), the worker thread id and the
-thread id that actually executed the request. Comparing that last value with the thread id
-logged at `PlugInStartup` is the point of the exercise.
+A worker owns the named-pipe transport. A message-only window dispatches native
+operations on the plugin startup thread. The bridge permits one queued or
+running operation, preserves operation IDs after client timeouts, and uses
+`QUERY` to recover the original result. Use only an idle host with serialized
+analysis requests. A callback thread check does not establish safe concurrent
+access with scripts, user edits or other plugins.
 
-## Protocol
+The pipe permits the current Windows user and rejects remote clients. This is
+a local transport boundary, not process isolation. Vendor access violations or
+other native faults can still terminate the host; C++ exception handling does
+not provide a vendor crash sandbox. No camera, beam, stage, optics or acquisition
+controls are included.
 
-One ASCII line per request, one line per reply.
+## The older probe is retired
 
-| Request | Reply |
-|---|---|
-| `PING <id>` | `OK <id> <recv→post> <post→exec> <exec> <…> <result> <worker_tid> <exec_tid>` |
-| `STOP` | `BYE`, then the pipe stops listening |
-| anything else | `ERR bad-request` |
-| host did not pick it up within 5 s | `UNKNOWN host-did-not-run` (no retry) |
+`nb_probe.cpp` and its Python clients remain as historical source. The source
+now contains a compile-time error to prevent accidental rebuilding or loading.
+`build_nb.ps1` is a parameterized wrapper for the replacement MVP build.
+Do not use the old clients to test the new NB1 protocol.
 
-`STAT <id> <imageid>` resolves an image by id on the host thread, reads its dimension count and
-computes the mean with GMS's own implementation. The code path is complete, but **no valid sample
-was captured** in this round: every attempt landed while the host message pump was not yet running,
-so the honest status is NOT_TESTED (see RESULTS.md).
+The old report's statement that image API execution lacked **only a ready
+sampling window** was incorrect. Independent review found three material bugs:
 
-## Build
+- The manual PE resolver indexed the function table with a name-table index,
+  omitting the name-to-ordinal mapping. Lack of an unresolved-symbol log did not
+  prove a correct function address. The replacement uses `GetProcAddress`.
+- `ref_ptr_delete(Image*)` is a final destructor/deallocator on the pinned build,
+  not a release operation. Calling it after every lookup could destroy a live
+  image. The replacement guards owned references, decrements the established
+  intrusive count, and calls the vendor destructor only at zero.
+- `FindImageAsObject` takes an object-address token rather than the numeric
+  image ID used by clients. The replacement uses `FindByID(uint32)` with an
+  explicit single-pointer result object and verifies identity.
 
-No Visual Studio and no Windows SDK required — clang-cl plus import libraries synthesised from
-`.def` files.
+The original probe also lacked per-ID retained state, reliable late-completion
+isolation, cancellable pipe I/O and complete cleanup confirmation. Historical
+lifecycle/PING observations are retained in [RESULTS.md](RESULTS.md); they do not
+validate either the old image calls or the replacement DLL.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File build_nb.ps1
-```
+See [ABI_NOTES.md](ABI_NOTES.md) for the build-specific calling and ownership
+contracts. No vendor binary, header or disassembly is distributed here.
 
-Expected artefacts: `nb_probe.dll` (~13 KB, 9 exports, imports only from kernel32 and user32).
+## Build, installation and rollback
 
-Under Git Bash, set `MSYS2_ARG_CONV_EXCL='*'` first, otherwise `/c`, `/Fo` get rewritten into paths.
+Use the [MVP build and offline tests](mvp/README.md#build-and-offline-tests),
+then follow the [installation and rollback guide](mvp/INSTALL.md) before any
+explicit host acceptance. No SDK is bundled. A toolchain with Windows headers,
+import libraries and the C++ standard library is required; **no SDK dependency
+does not mean no CRT dependency**. The replacement statically links its C++
+runtime while retaining Windows/UCRT dependencies.
 
-## Run
-
-```bat
-copy nb_probe.dll C:\ProgramData\Gatan\Plugins\
-start "" "C:\Program Files\Gatan\DigitalMicrograph.exe"
-python nb_client.py ping 10
-```
-
-`nb_busy_test.py` brackets a 10-second Python script (`ExecutePythonScriptFile`) and sends
-requests before, during and after it.
-
-## Clean up
-
-```bat
-del C:\ProgramData\Gatan\Plugins\nb_probe.dll
-del C:\ProgramData\Gatan\Plugins\nb_probe.log
-```
-
-The plugin dir is empty on a stock install; deleting the DLL restores that state. No registry
-keys, no configuration, no service.
-
-## Boundaries
-
-- No vendor binaries, decompiled output, addresses or offsets are shipped here.
-- One build only (3.53.4137 x64). Nothing here is a compatibility claim.
-- The plugin deliberately keeps no state worth preserving: if it crashes, delete it and nothing
-  is left behind.
-- Do not load this into a session with unsaved work.
+The [production repository guide](../../README.md) describes the default Python
+backend. Native installation does not authorize overwriting that configuration
+or upgrading GMS-managed Python.
