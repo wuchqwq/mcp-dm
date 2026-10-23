@@ -45,6 +45,16 @@ MCP 客户端 → Node stdio server.mjs → 127.0.0.1 TCP → DM 内嵌 Python
 
 Node 服务无 npm 运行依赖；DM 桥仅用 Python 标准库和 NumPy。DM/GMS、Python 运行时、Gatan 插件、参考手册和真实实验数据均不随仓库分发。MIT 许可只覆盖本仓库代码，不改变 Gatan 软件的许可。
 
+## 可选原生 C++ 实验后端
+
+**本次部分合并边界：**主线接纳已审阅的 `3c9715c` 基础原生后端，并要求原生 `dm_crop` 在提交前提供并保存 `request_id`。默认 v0.6 后端不变。后续 Show/可见文档交付、原始均值标定策略调整及最新试用验收仍留在 `feature/native-bridge-mvp`，其 HOLD/NOT_QUALIFIED 不因本次合并解除；详见 [合并范围](docs/NATIVE_MERGE_SCOPE.md)。
+
+默认仍为 v0.6 Python/TCP 后端。通过独立配置显式选择 `DM_MCP_BACKEND=native`，可在 Windows x64 GMS **3.53.4137.0** 的固定二进制门限下试用原生桥；它不使用常驻 Python listener，也不回退到 Python。原生目录提供 `dm_status`、`dm_datasets`、`dm_native_mean`、`dm_native_result` 和实验性 `dm_crop`；均值不等于完整 `dm_stats`，裁剪返回插件持有的新图像 ID，不承诺创建可见窗口。
+
+已用 ASCII 名称的合成输入通过目标 DM 的有限范围验收：加载与宿主回调、元数据/有符号标定、原生均值、严格 stdio MCP，以及原生裁剪的逐像素独立核对、独立内存和源数据不变。STOP 后已独立确认裁剪输出引用释放、实验管道/窗口消失且普通一次性 Python 继续可用；随后 DM 正常退出，并仅移除本实验拥有的 DLL，恢复安装前目录状态，未改客户端配置。**WorkBuddy/模型看图、真实实验数据、其它构建与并发图像调用仍为 NOT_TESTED**；非 ASCII 名称与旧 GMS Python binding 的互认对比未通过，单列为 **NOT_QUALIFIED**，未加入猜测性的编码转换。使用空闲宿主并串行请求；超时后查询原 `request_id`，不自动重发。原生异常不具备进程隔离保证。
+
+安装和回退见 [原生实验说明](experiments/native-bridge/mvp/README.md)、[验收矩阵](experiments/native-bridge/RESULTS.md) 与 [安装/移除](experiments/native-bridge/mvp/INSTALL.md)。STOP 只停实验 IPC；正常关闭 DM 后，按安装所有权记录移除本实验 DLL 即可回到未改动的默认后端。以下环境与启动说明仍以默认 Python 后端为准。
+
 ## 当前验证范围
 
 | 功能 | 已有证据与限制 |
@@ -272,7 +282,7 @@ mock 自测使用临时 loopback 端口和合成数组，不连接正在运行�
 
 `skills/dm-2d-analysis/SKILL.md` 是可选使用指南。注册 MCP 不会自动安装它；可直接要求 Agent 阅读该文件。Codex 本地发现时，可将整个 `dm-2d-analysis` 目录复制到工作目录的 `.agents/skills/`，已有同名目录先检查，不覆盖。[官方 Skill 文档](https://developers.openai.com/codex/skills/)
 
-工具名称与 21 项目录保持兼容，没有新增模式开关。可选报告的剖面 `sampled_coordinates` 现为原图坐标，副本坐标在 `sampled_coordinates_local`；强度明确为原始像素值，强度标定只保留为元数据；`replay.py --verify` 失败或状态未知时非零退出。旧结果包保留自己的复跑代码，不原位改写。新变更的真实 DM/客户端验收仍须分别执行。范围决策与剩余限制见 [ROADMAP.md](ROADMAP.md) 和 [审计记录](docs/SCOPE_AUDIT.md)。
+默认 Python 后端的工具名称与 21 项目录保持兼容，其既有功能无需新增模式开关。可选报告的剖面 `sampled_coordinates` 现为原图坐标，副本坐标在 `sampled_coordinates_local`；强度明确为原始像素值，强度标定只保留为元数据；`replay.py --verify` 失败或状态未知时非零退出。旧结果包保留自己的复跑代码，不原位改写。新变更的真实 DM/客户端验收仍须分别执行。范围决策与剩余限制见 [ROADMAP.md](ROADMAP.md) 和 [审计记录](docs/SCOPE_AUDIT.md)。
 
 ## 普通客户端测试版本（D0 → 本机 P0）
 
@@ -280,4 +290,4 @@ mock 自测使用临时 loopback 端口和合成数组，不连接正在运行�
 
 [本机客户端验收](docs/CLIENT_ACCEPTANCE.md) 包含 WorkBuddy 官方配置参考、手动创建的两张合成图和短任务。先在新会话不用 Skill、不读源码、不临时写替代分析脚本，检查模型能否凭工具说明完成基本操作；失败后再单独记录带 Skill 的辅助测试。
 
-D0 只表示代码、合成回归和交付准备完成；本次真实 DM、WorkBuddy 图像显示、模型看图及操作正确性仍须本机 P0 验收。当前桥一次服务一个持续连接：测试前断开其它 MCP 客户端，不要因 busy/unknown 重启 DM 或重复注入桥。详见 [D0 交接边界](docs/D0_HANDOFF.md)。
+默认 Python 客户端的 D0 只表示代码、合成回归和交付准备完成；该客户端的真实 DM、WorkBuddy 图像显示、模型看图及操作正确性仍须本机 P0 验收。默认桥一次服务一个持续连接：测试前断开其它 MCP 客户端，不要因 busy/unknown 重启 DM 或重复注入桥。原生后端的独立验收见上文实验说明；默认客户端详见 [D0 交接边界](docs/D0_HANDOFF.md)。

@@ -20,7 +20,10 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import { NativeBridge, NativeBridgeError, validRequestId } from "./lib/native_bridge.mjs";
 
+const BACKEND = process.env.DM_MCP_BACKEND === undefined ? "python" : process.env.DM_MCP_BACKEND;
+if (!["python", "native"].includes(BACKEND)) throw new Error("DM_MCP_BACKEND must be python or native; no implicit backend fallback");
 const BRIDGE_HOST = process.env.DM_BRIDGE_HOST || "127.0.0.1";
 const BRIDGE_PORT = Number(process.env.DM_BRIDGE_PORT || 8765);
 const TIMEOUT_MS = Number(process.env.DM_MCP_TIMEOUT_MS || 30000);
@@ -30,10 +33,10 @@ const ANALYSIS_WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), 
 const SERVER_NAME = "digitalmicrograph";
 const SERVER_VERSION = "0.6.0";
 const PROTOCOL_VERSION = "2024-11-05";
-if (!["127.0.0.1", "localhost"].includes(BRIDGE_HOST)) throw new Error("DM bridge must use IPv4 loopback");
-if (!Number.isInteger(BRIDGE_PORT) || BRIDGE_PORT < 1 || BRIDGE_PORT > 65535) throw new Error("Invalid bridge port");
+if (BACKEND === "python" && !["127.0.0.1", "localhost"].includes(BRIDGE_HOST)) throw new Error("DM bridge must use IPv4 loopback");
+if (BACKEND === "python" && (!Number.isInteger(BRIDGE_PORT) || BRIDGE_PORT < 1 || BRIDGE_PORT > 65535)) throw new Error("Invalid bridge port");
 if (!Number.isFinite(TIMEOUT_MS) || TIMEOUT_MS < 100 || TIMEOUT_MS > 600000) throw new Error("Invalid timeout (100..600000 ms)");
-if (!Number.isFinite(ANALYSIS_WORKER_TIMEOUT_MS) || ANALYSIS_WORKER_TIMEOUT_MS < 1000 || ANALYSIS_WORKER_TIMEOUT_MS > 3600000) throw new Error("Invalid analysis timeout (1000..3600000 ms)");
+if (BACKEND === "python" && (!Number.isFinite(ANALYSIS_WORKER_TIMEOUT_MS) || ANALYSIS_WORKER_TIMEOUT_MS < 1000 || ANALYSIS_WORKER_TIMEOUT_MS > 3600000)) throw new Error("Invalid analysis timeout (1000..3600000 ms)");
 
 const INSTRUCTIONS = [
   "DigitalMicrograph 分析用 MCP（仅分析，不控制电镜）。",
@@ -42,6 +45,12 @@ const INSTRUCTIONS = [
   "dm_run_script 调用返回不代表分析成功；必须检查输出和后置条件。超时或取消仅停止等待，已经发送的 DM 操作可能仍在运行，不要自动重试。导出禁止覆盖已有文件。",
   "实验性光谱工具只接受明确指定的 NumPy 能量轴（eV/keV 标定），不自动判断 EDS/EELS；真实 EDS/EELS/SI 为 NOT_TESTED，仅合成数据覆盖。四维衍射与 nm 空间轴不适用。",
   "离线参考手册：Scripting_DigitalMicrograph.pdf（DM-Script）、PythonReference.pdf（Python API），位于 C:\\ProgramData\\Gatan\\Documentation。",
+].join("\n");
+const NATIVE_INSTRUCTIONS = [
+  "实验性 DigitalMicrograph C++ NB1 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
+  "只提供 dm_status、dm_datasets、dm_native_mean、dm_native_result、dm_crop；未实现工具明确拒绝，绝不回退到 Python。mean 只返回原生均值，不代表完整 stats。crop 创建插件持有的独立原生图像至正常 STOP/cleanup 释放，不创建可见 DM 文档。",
+  "每次提交返回 native_receipt 含 session/request_id。超时、取消、断连均不代表操作终止，使用 dm_native_result 查询同一 ID，不自动重发。原生 dm_crop 必须在提交前指定并保存 request_id；只读工具仍可省略。取消或断连后只能在同一存活 session 查询原 ID。",
+  "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
 
 /* ------------------------------------------------------------------ */
@@ -165,7 +174,7 @@ class Bridge {
   }
 }
 
-const bridge = new Bridge();
+const bridge = BACKEND === "native" ? new NativeBridge({session: process.env.DM_NATIVE_SESSION, timeoutMs: TIMEOUT_MS}) : new Bridge();
 
 /* ------------------------------------------------------------------ */
 /* Tool catalog                                                        */
@@ -397,6 +406,63 @@ const tools = [
   ),
 ];
 
+const NATIVE_REQUEST_ID = {type: "string", minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "可选客户端请求 ID；省略时生成 UUID。取消前预先保存此 ID，之后只用 dm_native_result 查询，不自动重发"};
+const NATIVE_IMAGE_ID = {type: "integer", minimum: 0, maximum: 4294967295, description: "dm_datasets 返回的显式 uint32 图像 ID；不接受 front 或数字字符串"};
+const nativeTools = [
+  tool("dm_status", "实验性指定构建的 C++ NB1 桥状态及宿主真实 backend；只在 DM 空闲且不编辑源图时调用，源图只读，不回退 Python。", {request_id: NATIVE_REQUEST_ID}),
+  tool("dm_datasets", "实验性指定构建：枚举宿主当前图像；只在 DM 空闲且不编辑源图时调用，源图只读。请固定数字 image_id，不回退 Python。", {request_id: NATIVE_REQUEST_ID}),
+  tool("dm_native_mean", "实验性指定构建的 DM 原生均值，仅 mean，不提供完整 stats；必须显式数字 image_id。只在 DM 空闲且不编辑源图时调用，源图只读。超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
+    image_id: NATIVE_IMAGE_ID,
+    request_id: NATIVE_REQUEST_ID,
+  }, ["image_id"]),
+  tool("dm_native_result", "实验性指定构建：用已保存 request_id 查询 NB1 记录，只发送 QUERY，不重执行原操作。queued/running/unknown 不当作成功；只在 DM 空闲且不编辑源图时调用。", {
+    request_id: {...NATIVE_REQUEST_ID, description: "原操作已保存的 request_id，必须属于当前 DM_NATIVE_SESSION"},
+  }, ["request_id"]),
+  tool("dm_crop", "实验性指定构建的原生二维独立副本裁剪；必须在调用前生成并保存 request_id；显式数字 image_id 和非空半开 rect=[x0,y0,x1,y1]，不舍入/裁夹。插件持有新图像至正常 native STOP/cleanup 释放，不创建可见 DM 文档。只在 DM 空闲且不编辑源图时调用，源图不改；超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
+    image_id: NATIVE_IMAGE_ID,
+    rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
+    request_id: NATIVE_REQUEST_ID,
+  }, ["image_id", "rect", "request_id"]),
+];
+
+async function callNativeTool(name, args, signal) {
+  const catalog = nativeTools.find(entry => entry.name === name);
+  if (!catalog) throw new RpcError(-32602, `native backend 不支持工具: ${name}；不会回退 Python`);
+  args = args === undefined ? {} : args;
+  validate(args, catalog.inputSchema);
+  if (args.request_id !== undefined && !validRequestId(args.request_id)) throw new RpcError(-32602, "request_id 必须匹配 [A-Za-z0-9_-]{1,64}");
+  if (name === "dm_crop" && (args.rect[2] <= args.rect[0] || args.rect[3] <= args.rect[1])) throw new RpcError(-32602, "rect 必须为正面积，右下边界不包含");
+  try {
+    const options = {requestId: args.request_id, signal};
+    const reply = name === "dm_native_result" ? await bridge.query(args.request_id, options)
+      : await bridge.execute({dm_status: "STATUS", dm_datasets: "DATASETS", dm_native_mean: "MEAN", dm_crop: "CROP"}[name],
+        name === "dm_native_mean" ? [args.image_id] : name === "dm_crop" ? [args.image_id, ...args.rect] : [], options);
+    const {result, ...receipt} = reply;
+    const native_receipt = {...receipt, request_id: receipt.id};
+    if (reply.state === "completed" && name === "dm_native_mean" && (typeof result.mean !== "number" || !Number.isFinite(result.mean))) {
+      throw new NativeBridgeError("Native MEAN completed without a finite numeric mean", {session: bridge.session, requestId: reply.id, code: "NATIVE_PROTOCOL", sent: true});
+    }
+    if (reply.state === "completed" && name === "dm_crop") {
+      const matches = rect => Array.isArray(rect) && rect.length === 4 && rect.every((value, index) => value === args.rect[index]);
+      const hasEffective = Object.hasOwn(result, "effective_rect"), hasRect = Object.hasOwn(result, "rect");
+      if (!Number.isInteger(result.image_id) || result.image_id < 0 || result.image_id > 4294967295 || result.image_id === args.image_id ||
+          result.source_image_id !== args.image_id || !(hasEffective || hasRect) ||
+          (hasEffective && !matches(result.effective_rect)) || (hasRect && !matches(result.rect)) ||
+          (Object.hasOwn(result, "requested_rect") && !matches(result.requested_rect))) {
+        throw new NativeBridgeError("Native CROP completed with invalid new/source image identity or effective rectangle", {session: bridge.session, requestId: reply.id, code: "NATIVE_PROTOCOL", sent: true});
+      }
+    }
+    const output = reply.state === "completed" ? {...result, native_receipt} : {native_receipt, error: reply.error || `Native request is ${reply.state}; only completed is success`};
+    return {content: [{type: "text", text: JSON.stringify(output, null, 2)}], ...(reply.state !== "completed" ? {isError: true} : {})};
+  } catch (error) {
+    // Let the existing MCP cancellation path suppress the response; returning a
+    // tool result here would fall through after handle() sees an aborted signal.
+    if (signal?.aborted) throw error;
+    if (!(error instanceof NativeBridgeError)) throw error;
+    return {content: [{type: "text", text: JSON.stringify(error.details, null, 2)}], isError: true};
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* MCP plumbing                                                        */
 /* ------------------------------------------------------------------ */
@@ -557,6 +623,7 @@ function validate(value, schema, label = "arguments") {
 }
 
 async function callTool(name, args, signal) {
+  if (BACKEND === "native") return callNativeTool(name, args, signal);
   const entry = OPS[name];
   if (!Object.hasOwn(OPS, name) && !Object.hasOwn(LOCAL_ACTIONS, name)) throw new RpcError(-32602, `未知工具: ${name}`);
   const catalog = tools.find(t => t.name === name);
@@ -628,11 +695,11 @@ async function handle(msg) {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-      instructions: INSTRUCTIONS,
+      instructions: BACKEND === "native" ? NATIVE_INSTRUCTIONS : INSTRUCTIONS,
     });
   }
   if (method === "ping") return ok(id, {});
-  if (method === "tools/list") return ok(id, { tools });
+  if (method === "tools/list") return ok(id, { tools: BACKEND === "native" ? nativeTools : tools });
   if (method === "tools/call") {
     if (!params || typeof params.name !== "string") return fail(id, -32602, "需要工具名称");
     if (running.has(id)) return fail(id, -32600, "Duplicate in-flight request id");

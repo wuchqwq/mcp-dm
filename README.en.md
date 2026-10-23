@@ -45,6 +45,39 @@ MCP client → Node stdio server.mjs → 127.0.0.1 TCP → Python inside DM
 
 The Node server has no npm runtime dependencies. The DM bridge uses the standard library and NumPy. DM/GMS, the Gatan Python runtime, plugins, manuals, and experimental data are not distributed here. The MIT license covers this repository's code, not Gatan software.
 
+## Optional native C++ experiment
+
+**Partial merge boundary:** main integrates the reviewed `3c9715c` native core and now requires a caller-saved `request_id` for native `dm_crop`. The default v0.6 backend is unchanged. Later Show/document delivery, raw-mean calibration policy changes and current trial acceptance remain on `feature/native-bridge-mvp`; their HOLD/NOT_QUALIFIED status is not cleared. See [merge scope](docs/NATIVE_MERGE_SCOPE.md).
+
+The v0.6 Python/TCP backend remains the default. A separate configuration with
+`DM_MCP_BACKEND=native` selects a build-pinned Windows x64 GMS **3.53.4137.0**
+experiment. It uses no resident Python listener and never falls back to Python.
+Its catalog is `dm_status`, `dm_datasets`, `dm_native_mean`, `dm_native_result`
+and experimental `dm_crop`. Mean is not full statistics; crop returns a
+plugin-retained image ID and does not promise a visible document.
+
+Limited real-host acceptance with ASCII-named synthetic inputs passed
+loading/host callbacks, metadata/signed calibration, native mean and strict
+stdio MCP. Separate crop acceptance checked every pixel, independent memory,
+physical calibration and unchanged sources. A separate STOP check verified
+release of the hidden crop ID, removal of the experimental pipe/window and
+continued one-shot Python use. The test host then exited normally, and only
+the manifest-owned experimental DLL was removed, restoring the prior plugin
+inventory without changing client configuration.
+**WorkBuddy/model image viewing, real experimental data, other builds and
+concurrent image API use remain NOT_TESTED.** Non-ASCII naming interoperability
+with legacy GMS Python bindings failed comparison and remains
+**NOT_QUALIFIED**; no heuristic encoding conversion was added. Use an idle
+host and serialized requests. Query the saved operation ID after a timeout;
+never automatically replay work. Vendor native faults are not process-isolated.
+
+See the [native guide](experiments/native-bridge/mvp/README.md),
+[validation matrix](experiments/native-bridge/RESULTS.md) and
+[installation/removal](experiments/native-bridge/mvp/INSTALL.md). STOP ends only
+the experimental IPC. Close DM normally, then remove only the owned test DLL
+using its manifest to return to the unchanged default backend. The setup
+instructions below continue to describe that default Python backend.
+
 ## Validation scope
 
 | Area | Evidence and limits |
@@ -267,7 +300,7 @@ Read [AGENTS.md](AGENTS.md). Add independent numerical oracles or appropriate pr
 
 `skills/dm-2d-analysis/SKILL.md` is optional guidance, not installed by MCP registration. Ask an agent to read it directly, or copy the whole `dm-2d-analysis` directory into the working project's `.agents/skills/` for Codex local discovery. Inspect any existing same-name directory first; do not overwrite it. [Official Skill documentation](https://developers.openai.com/codex/skills/)
 
-Tool names and the 21-entry catalog are retained; no new mode flag is required. In optional reports, `sampled_coordinates` now uses original-image coordinates and `sampled_coordinates_local` retains capture-relative coordinates. Intensities are explicitly raw pixel values; intensity calibration is retained as metadata, not applied. `replay.py --verify` exits nonzero for failed or unresolved verification. Existing bundles keep their own replay code and are not rewritten. New real-DM/client behavior still needs separate acceptance. See [ROADMAP.md](ROADMAP.md) and the [scope audit](docs/SCOPE_AUDIT.md).
+The default Python backend retains its tool names and 21-entry catalog; its existing features require no new mode flag. In optional reports, `sampled_coordinates` now uses original-image coordinates and `sampled_coordinates_local` retains capture-relative coordinates. Intensities are explicitly raw pixel values; intensity calibration is retained as metadata, not applied. `replay.py --verify` exits nonzero for failed or unresolved verification. Existing bundles keep their own replay code and are not rewritten. New real-DM/client behavior still needs separate acceptance. See [ROADMAP.md](ROADMAP.md) and the [scope audit](docs/SCOPE_AUDIT.md).
 
 ## General-client candidate (D0 → local P0)
 
@@ -275,4 +308,4 @@ The core MCP does not depend on Codex. For previews use [mcp.preview.json.exampl
 
 [Local client acceptance](docs/CLIENT_ACCEPTANCE.md) provides official WorkBuddy configuration references, two manually created synthetic images and short tasks. Start a fresh session without the optional Skill, source-code reading or substitute analysis scripts. Measure whether tool descriptions alone are usable; record Skill-assisted retries separately.
 
-D0 covers code, synthetic regression and delivery readiness only. Real DM, WorkBuddy image rendering, model vision and actual operations still require local P0 acceptance. The bridge serves one persistent client connection at a time: disconnect other MCP clients first. Busy/unknown must not trigger DM restarts or duplicate bridge injection. See [D0 handoff](docs/D0_HANDOFF.md).
+D0 for the default Python client covers code, synthetic regression and delivery readiness only. That client's real-DM, WorkBuddy image rendering, model vision and actual operations still require local P0 acceptance. The default bridge serves one persistent client connection at a time: disconnect other MCP clients first. Busy/unknown must not trigger DM restarts or duplicate bridge injection. Native acceptance is recorded separately above; see [D0 handoff](docs/D0_HANDOFF.md) for the default-client boundary.
