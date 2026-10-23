@@ -12,6 +12,26 @@ import re
 import DigitalMicrograph as DM
 
 
+def _protocol():
+    mode = os.environ.get("DM_NATIVE_ORACLE_PROTOCOL", "NB2")
+    if mode not in ("NB2", "NB1_LEGACY"):
+        raise RuntimeError("Unsupported native oracle protocol mode")
+    return "NB1" if mode == "NB1_LEGACY" else "NB2"
+
+
+def _operation_identity(receipt, operation, args):
+    if _protocol() == "NB1":
+        return  # Explicit read-only historical validation; never a sender fallback.
+    types = {"STATUS":"status", "DATASETS":"datasets", "INFO":"image_info", "MEAN":"native_mean",
+             "SUMMARY":"native_summary", "CROP":"image_crop", "SHOW":"image_delivery", "STOP":"ipc_stop"}
+    if (not isinstance(receipt, dict) or receipt.get("protocol") != "NB2" or receipt.get("original_operation") != operation
+            or type(receipt.get("normalized_args")) is not list or receipt["normalized_args"] != args
+            or any(type(value) is not int or not 0 <= value <= 0xffffffff for value in receipt["normalized_args"])
+            or receipt.get("result_type") != types[operation]
+            or type(receipt.get("result_version")) is not int or receipt["result_version"] != 1):
+        raise RuntimeError("NB2 original operation/arguments/result schema mismatch")
+
+
 def _load(_path, _strict_stop=False):
     def _unique(_pairs):
         _result = {}
@@ -39,7 +59,7 @@ def _verify_stop_request(_path, _stop, _host_pid, _observe):
     _request = _load(_path, True)
     if (not isinstance(_request, dict) or set(_request) != {
             "protocol", "session", "id", "op", "args", "host_pid", "wire"}
-            or _request.get("protocol") != "NB1" or _request.get("op") != "STOP"
+            or _request.get("protocol") != _protocol() or _request.get("op") != "STOP"
             or type(_request.get("args")) is not list or _request["args"] != []
             or not isinstance(_request.get("session"), str)
             or re.fullmatch(r"[0-9a-f]{32}", _request["session"]) is None
@@ -50,7 +70,7 @@ def _verify_stop_request(_path, _stop, _host_pid, _observe):
     if (_request["session"] != _stop["session"] or _request["id"] != _stop["id"]
             or _request["host_pid"] != _host_pid):
         raise RuntimeError("STOP request/receipt identity mismatch")
-    if _request["wire"] != "NB1 %s %s STOP\n" % (_request["session"], _request["id"]):
+    if _request["wire"] != "%s %s %s STOP\n" % (_protocol(), _request["session"], _request["id"]):
         raise RuntimeError("STOP wire/request binding mismatch")
     return True, _file_hash(_path)
 
@@ -81,13 +101,37 @@ def verify():
         raise RuntimeError("Invalid native host status anchor")
     if _host_pid != os.getpid():
         raise RuntimeError("Native host PID does not match this process")
+    if _protocol() == "NB2":
+        _ids = []
+        for _output in (_status, _summary["crop"], _summary["delivery"], _summary["repeated_show"]):
+            _receipt = _output.get("native_receipt", {})
+            _id = _receipt.get("id")
+            _timings = _receipt.get("timings_us")
+            if (_output.get("backend") != "digitalmicrograph-native" or _receipt.get("protocol") != "NB2"
+                    or _receipt.get("session") != _truth["session"] or _receipt.get("state") != "completed"
+                    or not isinstance(_id, str) or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", _id) is None
+                    or _receipt.get("request_id") != _id
+                    or any(type(_receipt.get(_key)) is not int for _key in ("host_pid", "worker_tid", "exec_tid"))
+                    or (_receipt["host_pid"], _receipt["worker_tid"], _receipt["exec_tid"]) != (_host_pid, _worker_tid, _exec_tid)
+                    or not isinstance(_timings, dict) or any(type(_timings.get(_key)) is not int
+                        or not 0 <= _timings[_key] <= (1 << 53) - 1 for _key in ("queue", "execute"))
+                    or any(_key in _receipt for _key in ("error", "code", "result"))):
+                raise RuntimeError("NB2 closed native receipt correlation/state mismatch")
+            _ids.append(_id)
+        if len(set(_ids)) != len(_ids):
+            raise RuntimeError("NB2 closed operation IDs must remain distinct")
+    _source_for_identity = next(_item for _item in _truth["images"] if _item["label"] == "CAL")
+    _operation_identity(_status["native_receipt"], "STATUS", [])
+    _operation_identity(_summary["crop"]["native_receipt"], "CROP", [_source_for_identity["id"]] + _truth["crop_rect"])
+    for _key in ("delivery", "repeated_show"):
+        _operation_identity(_summary[_key]["native_receipt"], "SHOW", [_summary["crop"]["image_id"]])
     _stop_path = os.path.join(_directory, "stop-receipt.json")
     if not os.path.isfile(_stop_path):
         raise RuntimeError("Required STOP receipt is missing")
     _stop = _load(_stop_path, True)
     _stop_result = _stop.get("result")
     _timings = _stop.get("timings_us")
-    if (_stop.get("protocol") != "NB1" or _stop.get("session") != _truth["session"]
+    if (_stop.get("protocol") != _protocol() or _stop.get("session") != _truth["session"]
             or not isinstance(_stop.get("id"), str)
             or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", _stop["id"]) is None
             or _stop.get("state") != "completed" or not isinstance(_stop_result, dict)
@@ -129,6 +173,9 @@ def verify():
     _request_verified, _request_hash = _verify_stop_request(_request_path, _stop, _host_pid, _observe)
     if _post.get("stop_request_verified") is not _request_verified:
         raise RuntimeError("Post-STOP evidence is not bound to the current trial records")
+    _operation_identity(_stop, "STOP", [])
+    if _protocol() == "NB2" and (_post.get("protocol") != "NB2" or _post.get("protocol_mode") != "NB2"):
+        raise RuntimeError("Post-STOP protocol mode mismatch")
     _output_id = _summary["crop"]["image_id"]
     if _post["image_id"] != _output_id:
         raise RuntimeError("Wrong post-STOP output identity")
@@ -150,6 +197,7 @@ def verify():
             if (_zero != _expected["origin"] or _scale != _expected["scale"] or _unit != _expected["unit"]):
                 raise RuntimeError("Synthetic source calibration changed")
     return {"status": "UNVERIFIED" if _observe else "PASS", "oracle_mode": _mode,
+            "protocol": _protocol(), "protocol_mode": os.environ.get("DM_NATIVE_ORACLE_PROTOCOL", "NB2"),
             "host_pid": os.getpid(), "stop_request_verified": _request_verified,
             "stop_request_sha256": _request_hash, "truth_sha256": _file_hash(_truth_path),
             "summary_sha256": _file_hash(_summary_path), "stop_receipt_sha256": _file_hash(_stop_path),

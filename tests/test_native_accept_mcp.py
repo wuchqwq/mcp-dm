@@ -48,7 +48,8 @@ const server = net.createServer(socket => {
       result={backend,image_id:truth.id,image:image(truth),mean:truth.mean+(mode==='badmean'?1:0),operator:'GMSImageProcessing::GetMean',computation:'DM native',
         intensity_calibration_applied:false,source_write_requested:false,snapshot_atomic:false};
     }
-    const reply={protocol:'NB1',session,id,state:'completed',host_pid:process.pid,worker_tid:1002,exec_tid:1003,timings_us:{queue:1,execute:2},result};
+    const resultTypes={STATUS:'status',DATASETS:'datasets',MEAN:'native_mean'};
+    const reply={protocol:'NB2',session,id,state:'completed',original_operation:operation,normalized_args:args.map(Number),result_type:resultTypes[operation],result_version:1,host_pid:process.pid,worker_tid:1002,exec_tid:1003,timings_us:{queue:1,execute:2},result};
     socket.end(JSON.stringify(reply)+'\n'); input='';
   });
 });
@@ -93,6 +94,64 @@ class NativeStrictClientTests(unittest.TestCase):
         for source in ['{"id":1,"id":2}', '{"mean":1e400}', '{"mean":NaN}']:
             with self.assertRaises(ValueError):
                 accept.strict_json(source)
+
+    def test_read_and_fourier_versions_bind_the_declared_result_contract(self):
+        def receipt(operation, args, result_type, version):
+            return {"protocol": "NB2", "original_operation": operation, "normalized_args": args,
+                    "result_type": result_type, "result_version": version, "state": "completed"}
+        read = receipt("READ", [77, 1, 1, 4, 3], "native_data_snapshot", 1)
+        accept.validate_operation_identity(read, "READ", [77, 1, 1, 4, 3])
+        accept.validate_operation_identity(read, "QUERY", [])
+        for change in ({"result_type": "native_preview"}, {"normalized_args": [77, 1, 1, 4]},
+                       {"normalized_args": [77, 1, 1, 4, True]}):
+            with self.subTest(read=change), self.assertRaisesRegex(ValueError, "operation/result schema identity mismatch"):
+                accept.validate_operation_identity(dict(read, **change))
+        for version in (0, 2, 3, True, "1", 1.5):
+            with self.subTest(read_version=version), self.assertRaisesRegex(ValueError, "operation/result schema identity mismatch"):
+                accept.validate_operation_identity(dict(read, result_version=version))
+        for operation in ("FFT", "IFFT", "REAL", "IMAG", "VENDOR_ARG", "VENDOR_NORM"):
+            for version in (1, 2):
+                value = receipt(operation, [77], "native_fourier_operation", version)
+                accept.validate_operation_identity(value, operation, [77])
+                accept.validate_operation_identity(value, "QUERY", [])
+            for version in (0, 3, True, "2", 1.5):
+                with self.subTest(operation=operation, version=version), self.assertRaisesRegex(ValueError, "operation/result schema identity mismatch"):
+                    accept.validate_operation_identity(receipt(operation, [77], "native_fourier_operation", version))
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, "operation/result schema identity mismatch"):
+                accept.validate_operation_identity(receipt(operation, [77], "native_mean", 2))
+
+    def test_new_tool_and_preview_rpc_receipts_bind_original_arguments(self):
+        cases = [
+            ("dm_native_read", {"image_id": 77, "rect": [1, 1, 4, 3]}, "READ", [77, 1, 1, 4, 3], "native_data_snapshot"),
+            ("dm_native_fft", {"image_id": 77, "direction": "forward"}, "FFT", [77], "native_fourier_operation"),
+            ("dm_native_complex", {"image_id": 77, "component": "power"}, "VENDOR_NORM", [77], "native_fourier_operation"),
+            ("dm_native_unary", {"image_id": 77, "operation": "abs"}, "UNARY", [77, 2], "native_image_operation"),
+            ("dm_native_binary", {"left_image_id": 77, "right_image_id": 78, "operation": "subtract"}, "BINARY", [77, 78, 2], "native_image_operation"),
+            ("dm_native_filter", {"image_id": 77, "operation": "sobel"}, "FILTER", [77, 2], "native_image_operation"),
+            ("dm_native_preview", {"image_id": 77}, "PREVIEW", [77, 128, 128], "native_preview"),
+        ]
+        for name, arguments, operation, args, result_type in cases:
+            for mismatch in (False, True):
+                actual_args = list(args)
+                if mismatch:
+                    actual_args[0] = 78
+                output = {"backend": "mock-native", "native_receipt": {
+                    "protocol": "NB2", "original_operation": operation, "normalized_args": actual_args,
+                    "result_type": result_type, "result_version": 2 if result_type == "native_fourier_operation" else 1,
+                    "state": "completed"}}
+                content = [{"type": "text", "text": json.dumps(output)}]
+                if operation == "PREVIEW":
+                    content.append({"type": "image", "mimeType": "image/png", "data": "synthetic-placeholder-only"})
+                response = {"jsonrpc": "2.0", "id": 1, "result": {"content": content}}
+                code = "import sys\nsys.stdin.readline()\nprint(%r)\n" % json.dumps(response)
+                client = self.owned_client(code)
+                with self.subTest(tool=name, mismatch=mismatch):
+                    if mismatch:
+                        with self.assertRaisesRegex(ValueError, "original operation/arguments differ from submitted request"):
+                            client.rpc("tools/call", {"name": name, "arguments": arguments})
+                    else:
+                        actual = client.rpc("tools/call", {"name": name, "arguments": arguments})
+                        self.assertEqual(actual["result"]["content"], content)
 
     def fixture(self):
         fixture = {"session": uuid.uuid4().hex, "kind": "synthetic-only", "python_is_listener": False, "images": []}

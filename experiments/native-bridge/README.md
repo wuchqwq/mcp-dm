@@ -20,7 +20,15 @@ preserving the prior inventory and client configuration. See the separate
 
 The opt-in native MCP catalog includes `dm_status`, `dm_datasets`,
 `dm_native_mean`, `dm_native_summary`, `dm_native_result`, `dm_crop` and
-`dm_native_show`. The new strict synthetic session independently passed SHOW
+`dm_native_show`, plus limited `dm_native_unary`, `dm_native_binary`,
+`dm_native_fft`, `dm_native_complex`, `dm_native_filter`, `dm_native_preview`
+and `dm_native_read`. The qualified
+[workflow](mvp/NATIVE_WORKFLOW.md) combines explicit native processing with
+bounded NPY/calibration handoff and a separately invoked external example.
+The [version matrix](mvp/ADAPTERS.md) describes safe selection; only the pinned
+3.53 profile is supported. See [per-operation evidence](mvp/OPERATIONS_ACCEPTANCE.md)
+for the final build's limited synthetic MCP/host/cleanup acceptance.
+The new strict synthetic session independently passed SHOW
 visibility/document ownership, including after STOP and final release on normal
 document closure. SUMMARY directly calls DM's minimum/maximum/sum/mean for
 bounded 2D float32 raw intensity; strict MCP and a same-host pixel/calibration
@@ -37,7 +45,7 @@ Native crop creates a separate image ID held by bounded plugin-owned references
 until native STOP/cleanup. Actual acceptance verified independent cropped data,
 half-open bounds, signed calibration and unchanged sources; this is not a
 visible DM document or a model-visible preview by itself. SHOW targets only
-that plugin-retained crop and does not save a file. The new strict trial passed
+a qualified plugin-retained result and does not save a file. The new strict trial passed
 independent full pixels/source checks, unique visible-document ownership after
 STOP, final image release on document closure, normal host exit and owned DLL
 removal. The older preserved session was also observed and cleaned normally,

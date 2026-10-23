@@ -13,6 +13,26 @@ import numpy as np
 import DigitalMicrograph as DM
 
 
+def _protocol():
+    mode = os.environ.get("DM_NATIVE_ORACLE_PROTOCOL", "NB2")
+    if mode not in ("NB2", "NB1_LEGACY"):
+        raise RuntimeError("Unsupported native oracle protocol mode")
+    return "NB1" if mode == "NB1_LEGACY" else "NB2"
+
+
+def _operation_identity(receipt, operation, args):
+    if _protocol() == "NB1":
+        return  # Explicit read-only historical validation; never a sender fallback.
+    types = {"STATUS":"status", "DATASETS":"datasets", "INFO":"image_info", "MEAN":"native_mean",
+             "SUMMARY":"native_summary", "CROP":"image_crop", "SHOW":"image_delivery", "STOP":"ipc_stop"}
+    if (not isinstance(receipt, dict) or receipt.get("protocol") != "NB2" or receipt.get("original_operation") != operation
+            or type(receipt.get("normalized_args")) is not list or receipt["normalized_args"] != args
+            or any(type(value) is not int or not 0 <= value <= 0xffffffff for value in receipt["normalized_args"])
+            or receipt.get("result_type") != types[operation]
+            or type(receipt.get("result_version")) is not int or receipt["result_version"] != 1):
+        raise RuntimeError("NB2 original operation/arguments/result schema mismatch")
+
+
 def _load(_path, _strict_stop=False):
     def _unique(_pairs):
         _result = {}
@@ -40,7 +60,7 @@ def _verify_stop_request(_path, _stop, _host_pid, _observe):
     _request = _load(_path, True)
     if (not isinstance(_request, dict) or set(_request) != {
             "protocol", "session", "id", "op", "args", "host_pid", "wire"}
-            or _request.get("protocol") != "NB1" or _request.get("op") != "STOP"
+            or _request.get("protocol") != _protocol() or _request.get("op") != "STOP"
             or type(_request.get("args")) is not list or _request["args"] != []
             or not isinstance(_request.get("session"), str)
             or re.fullmatch(r"[0-9a-f]{32}", _request["session"]) is None
@@ -51,7 +71,7 @@ def _verify_stop_request(_path, _stop, _host_pid, _observe):
     if (_request["session"] != _stop["session"] or _request["id"] != _stop["id"]
             or _request["host_pid"] != _host_pid):
         raise RuntimeError("STOP request/receipt identity mismatch")
-    if _request["wire"] != "NB1 %s %s STOP\n" % (_request["session"], _request["id"]):
+    if _request["wire"] != "%s %s %s STOP\n" % (_protocol(), _request["session"], _request["id"]):
         raise RuntimeError("STOP wire/request binding mismatch")
     return True, _file_hash(_path)
 
@@ -83,13 +103,14 @@ def verify():
     if _host_pid != os.getpid():
         raise RuntimeError("Native host PID does not match this process")
     _request_ids = []
+    _source_for_identity = next(_item for _item in _truth["images"] if _item["label"] == "CAL")
     for _label, _output in (("status", _status), ("crop", _summary["crop"]),
                             ("delivery", _summary["delivery"]), ("repeated_show", _summary["repeated_show"])):
         if _output.get("backend") != "digitalmicrograph-native":
             raise RuntimeError("Native backend mismatch")
         _receipt = _output["native_receipt"]
         _request_id = _receipt.get("id")
-        if (_receipt.get("protocol") != "NB1" or _receipt.get("session") != _truth["session"]
+        if (_receipt.get("protocol") != _protocol() or _receipt.get("session") != _truth["session"]
                 or _receipt.get("state") != "completed" or not isinstance(_request_id, str)
                 or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", _request_id) is None
                 or _receipt.get("request_id") != _request_id):
@@ -99,6 +120,8 @@ def verify():
                 != (_host_pid, _worker_tid, _exec_tid)):
             raise RuntimeError("Native receipt host/thread identity mismatch")
         _request_ids.append(_request_id)
+        _operation_identity(_receipt, "STATUS" if _label == "status" else "CROP" if _label == "crop" else "SHOW",
+                            [] if _label == "status" else [_source_for_identity["id"]] + _truth["crop_rect"] if _label == "crop" else [_summary["crop"]["image_id"]])
     if len(set(_request_ids)) != len(_request_ids):
         raise RuntimeError("Crop and distinct Show requests reused an operation ID")
     _source_truth = next(_item for _item in _truth["images"] if _item["label"] == "CAL")
@@ -130,7 +153,7 @@ def verify():
         _stop = _load(_stop_path, True)
         _stop_result = _stop.get("result")
         _timings = _stop.get("timings_us")
-        if (_stop.get("protocol") != "NB1" or _stop.get("session") != _truth["session"]
+        if (_stop.get("protocol") != _protocol() or _stop.get("session") != _truth["session"]
                 or not isinstance(_stop.get("id"), str)
                 or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", _stop["id"]) is None
                 or _stop.get("state") != "completed" or not isinstance(_stop_result, dict)
@@ -143,6 +166,7 @@ def verify():
                 or (_stop["host_pid"], _stop["worker_tid"], _stop["exec_tid"]) != (_host_pid, _worker_tid, 0)):
             raise RuntimeError("STOP host/thread identity mismatch")
         _request_verified, _request_hash = _verify_stop_request(_request_path, _stop, _host_pid, _observe)
+        _operation_identity(_stop, "STOP", [])
     _checks = []
     for _entry in _truth["images"]:
         _image = DM.FindImageByID(_entry["id"])
@@ -201,6 +225,7 @@ def verify():
         with open(os.path.join(_directory, "trial-crop.npy"), "xb") as _file:
             np.save(_file, np.array(_crop_view, copy=True), allow_pickle=False)
     return {"status": "UNVERIFIED" if _observe else "PASS", "oracle_mode": _mode,
+            "protocol": _protocol(), "protocol_mode": os.environ.get("DM_NATIVE_ORACLE_PROTOCOL", "NB2"),
             "host_pid": os.getpid(), "stop_request_verified": _request_verified,
             "session": _truth["session"], "phase": "after_stop" if _after else "before_stop",
             "backend": "digitalmicrograph-native",

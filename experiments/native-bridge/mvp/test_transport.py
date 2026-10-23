@@ -113,13 +113,20 @@ EXE = None
 class Host:
     def __init__(self, **settings):
         self.session = uuid.uuid4().hex
+        self.originals = {}
         env = dict(os.environ, DM_NATIVE_SESSION=self.session, NB_FAKE_CLOSE_AFTER_MS="10000")
         env.update({"NB_FAKE_" + key.upper(): str(value) for key, value in settings.items()})
         self.p = subprocess.Popen([str(EXE)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, creationflags=subprocess.CREATE_NO_WINDOW)
         self.finished = None
-    def frame(self, tail): return ("NB1 " + self.session + " " + tail + "\n").encode("ascii")
+    def frame(self, tail): return ("NB2 " + self.session + " " + tail + "\n").encode("ascii")
     def raw(self, frame, fragments=None):
+        try:
+            fields = frame.decode("ascii").strip().split(" ")
+            if len(fields) >= 4 and fields[0] == "NB2" and fields[1] == self.session and fields[3] != "QUERY":
+                self.originals.setdefault(fields[2], (fields[3], [int(value) for value in fields[4:]]))
+        except (ValueError, UnicodeError):
+            pass  # Deliberately invalid raw frames are tested too.
         with Pipe(self.session) as pipe:
             if fragments:
                 for chunk in fragments:
@@ -132,11 +139,25 @@ class Host:
     def assert_write(pipe, frame):
         if pipe.io(frame) != len(frame): raise AssertionError("partial test client write")
     def request(self, tail):
+        ident, operation, *arguments = tail.split(" ")
+        if operation != "QUERY" and ident not in self.originals:
+            self.originals[ident] = (operation, [int(value) for value in arguments])
         reply = self.raw(self.frame(tail))
-        if reply["protocol"] != "NB1" or reply["session"] != self.session:
+        if reply["protocol"] != "NB2" or reply["session"] != self.session:
             raise AssertionError("bad response correlation")
         if not isinstance(reply["host_pid"], int) or not isinstance(reply["timings_us"], dict):
             raise AssertionError("missing process/timing evidence")
+        types = {"STATUS":"status", "DATASETS":"datasets", "INFO":"image_info", "MEAN":"native_mean",
+                 "SUMMARY":"native_summary", "CROP":"image_crop", "SHOW":"image_delivery", "STOP":"ipc_stop",
+                 "UNARY":"native_image_operation", "BINARY":"native_image_operation"}
+        original = reply.get("original_operation")
+        if original is None:
+            if any(key not in reply or reply[key] is not None for key in ("original_operation", "normalized_args", "result_type", "result_version")) or reply["state"] not in ("unknown", "failed"):
+                raise AssertionError("missing-record identity must be null")
+        elif (original not in types or reply.get("result_type") != types[original]
+                or type(reply.get("result_version")) is not int or reply["result_version"] != 1
+                or (original, reply.get("normalized_args")) != self.originals.get(ident)):
+            raise AssertionError("immutable original identity mismatch")
         return reply
     def ready(self):
         for i in range(100):
@@ -199,6 +220,10 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(h.raw(frame)["state"], "failed")
         mismatched = h.frame("mismatch STATUS").replace(h.session.encode(), b"0" * 32)
         self.assertEqual(h.raw(mismatched)["code"], "session_mismatch")
+        legacy = h.raw(h.frame("legacy STATUS").replace(b"NB2 ", b"NB1 ", 1))
+        self.assertEqual(legacy["code"], "bad_protocol")
+        self.assertEqual(legacy["protocol"], "NB2")
+        self.assertIsNone(legacy["original_operation"])
         self.assertEqual(h.lifecycle()["execute"], 1) # only readiness STATUS executed
     def test_duplicate_conflict_late_dispatch_and_no_retry(self):
         h = self.host(dispatch_delay_ms=250); h.ready()

@@ -77,8 +77,8 @@ def _child(state_path):
             return result
         return real_fsync(fd)
 
-    expected = {"protocol": "NB1", "session": SESSION, "id": "stop-synthetic", "op": "STOP",
-                "args": [], "host_pid": 101, "wire": "NB1 %s stop-synthetic STOP\n" % SESSION}
+    expected = {"protocol": "NB2", "session": SESSION, "id": "stop-synthetic", "op": "STOP",
+                "args": [], "host_pid": 101, "wire": "NB2 %s stop-synthetic STOP\n" % SESSION}
 
     class Pipe:
         def __init__(self, session, timeout):
@@ -138,7 +138,8 @@ class NativeStopHelperTests(unittest.TestCase):
         self.state_path = self.directory / "state.json"
 
     def reply(self):
-        return {"protocol": "NB1", "session": SESSION, "id": "stop-synthetic", "state": "completed",
+        return {"protocol": "NB2", "session": SESSION, "id": "stop-synthetic", "state": "completed",
+                "original_operation": "STOP", "normalized_args": [], "result_type": "ipc_stop", "result_version": 1,
                 "host_pid": 101, "worker_tid": 202, "exec_tid": 0,
                 "timings_us": {"queue": 0, "execute": 0}, "result": {"ipc_stopped": True}}
 
@@ -171,8 +172,8 @@ class NativeStopHelperTests(unittest.TestCase):
         self.assertLess(events.index("pipe_init"), events.index("send"))
         self.assertEqual(events.count("send"), 1)
         request = json.loads(self.request.read_text(encoding="utf-8"))
-        self.assertEqual(request, {"protocol": "NB1", "session": SESSION, "id": "stop-synthetic", "op": "STOP",
-                                   "args": [], "host_pid": 101, "wire": "NB1 %s stop-synthetic STOP\n" % SESSION})
+        self.assertEqual(request, {"protocol": "NB2", "session": SESSION, "id": "stop-synthetic", "op": "STOP",
+                                   "args": [], "host_pid": 101, "wire": "NB2 %s stop-synthetic STOP\n" % SESSION})
         self.assertEqual(json.loads(self.evidence.read_text(encoding="utf-8")), self.reply())
 
     def test_existing_request_or_receipt_is_never_overwritten_or_sent(self):
@@ -229,6 +230,11 @@ class NativeStopHelperTests(unittest.TestCase):
 
     def test_raw_failed_receipt_is_saved_but_never_acknowledged_as_qualified(self):
         cases = [("id", "different", "STOP was not acknowledged"),
+                 ("protocol", "NB1", "STOP was not acknowledged"),
+                 ("original_operation", "QUERY", "STOP was not acknowledged"),
+                 ("normalized_args", [1], "STOP was not acknowledged"),
+                 ("result_type", "native_mean", "STOP was not acknowledged"),
+                 ("result_version", 2, "STOP was not acknowledged"),
                  ("session", "fedcba9876543210fedcba9876543210", "STOP was not acknowledged"),
                  ("state", "failed", "STOP was not acknowledged"),
                  ("result", {"ipc_stopped": 1}, "STOP was not acknowledged"),

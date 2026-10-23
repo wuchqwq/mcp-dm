@@ -25,7 +25,8 @@ OPERATORS = ["GMSImageProcessing::GetMinimum", "GMSImageProcessing::GetMaximum",
 SCALARS = ("minimum", "maximum", "sum", "mean")
 LABELS = {"DEFAULT", "CALIBRATED_INTENSITY", "RAW_UNITS", "UINT16", "NONFINITE"}
 CATALOG = {"dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary",
-           "dm_native_result", "dm_crop", "dm_native_show"}
+           "dm_native_result", "dm_crop", "dm_native_show", "dm_native_unary", "dm_native_binary",
+           "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read"}
 BACKEND = "digitalmicrograph-native"
 COORDINATE_RULE = "physical(i)=calibrated_value_at_pixel_zero+i*scale"
 
@@ -167,9 +168,9 @@ def run_acceptance(client, truth, report, request_log, build):
     def save_request(tool, arguments, operation, native_args):
         saved_id = "summary-" + uuid.uuid4().hex
         params = dict(arguments, request_id=saved_id)
-        record = {"protocol": "NB1", "session": session, "id": saved_id, "op": operation,
+        record = {"protocol": "NB2", "session": session, "id": saved_id, "op": operation,
                   "args": native_args, "host_pid": pid, "tool": tool, "arguments": params,
-                  "wire": "NB1 %s %s %s%s\n" % (session, saved_id, operation,
+                  "wire": "NB2 %s %s %s%s\n" % (session, saved_id, operation,
                             " " + " ".join(str(value) for value in native_args) if native_args else "")}
         request_log.write(json.dumps(record, allow_nan=False) + "\n")
         request_log.flush()
@@ -219,7 +220,7 @@ def run_acceptance(client, truth, report, request_log, build):
         require(isinstance(content, list) and len(content) == 1 and content[0].get("type") == "text", "SUMMARY failure content mismatch")
         output = strict_json(content[0]["text"])
         failed = output.get("native_receipt", {})
-        require(failed.get("protocol") == "NB1" and failed.get("session") == session
+        require(failed.get("protocol") == "NB2" and failed.get("session") == session
                 and failed.get("id") == request_id and failed.get("request_id") == request_id
                 and failed.get("state") == "failed" and failed.get("code") == "native_error"
                 and failed.get("error") == expected_error and output.get("error") == expected_error

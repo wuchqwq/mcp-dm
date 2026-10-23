@@ -6,15 +6,22 @@ import {spawn} from "node:child_process";
 import {once} from "node:events";
 import {randomUUID} from "node:crypto";
 import {fileURLToPath} from "node:url";
+import {inflateSync} from "node:zlib";
 import {NativeBridge} from "../lib/native_bridge.mjs";
+import {operationFixture, readFixture} from "./fixtures/native-operations.mjs";
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const resultTypes = {STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop"};
+Object.assign(resultTypes, {UNARY: "native_image_operation", BINARY: "native_image_operation", FILTER: "native_image_operation", PREVIEW: "native_preview", READ: "native_data_snapshot",
+  FFT: "native_fourier_operation", IFFT: "native_fourier_operation", REAL: "native_fourier_operation", IMAG: "native_fourier_operation", VENDOR_ARG: "native_fourier_operation", VENDOR_NORM: "native_fourier_operation"});
+const nativeCatalog = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
+  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read"];
 
 // Contract emulation only: no DM process/vendor computation is used here.
 function summaryFixture(imageId = 77) {
   return {backend: "digitalmicrograph-native", image_id: imageId,
-    image: {id: imageId, name: "synthetic", ndim: 2, data_type_code: 2, dtype: "float32", shape: [3, 4], dm_dimensions: [4, 3],
+    image: {id: imageId, name: "synthetic", ndim: 2, data_type_code: 2, dtype: "float32", packing_style: 1, shape: [3, 4], dm_dimensions: [4, 3],
       shape_order: "numpy (last axis is X)", pixels: 12,
       calibration: [
         {dm_dimension: 0, numpy_axis: 1, size: 4, origin: 2, calibrated_value_at_pixel_zero: 0.5, scale: -0.25, unit: "nm", usable: true, issue: null},
@@ -72,17 +79,23 @@ function toolOutput(message, expectedError = false) {
 
 async function nativeHost(handler) {
   const session = randomUUID().replaceAll("-", ""), bridge = new NativeBridge({session});
-  const requests = [], sockets = new Set();
+  const requests = [], sockets = new Set(), records = new Map();
   const server = net.createServer(socket => {
     sockets.add(socket); socket.on("error", () => {}); socket.on("close", () => sockets.delete(socket));
     let input = "";
     socket.on("data", chunk => {
       input += chunk.toString("ascii"); const newline = input.indexOf("\n"); if (newline < 0) return;
       const [protocol, requestSession, id, operation, ...args] = input.slice(0, newline).split(" ");
-      assert.equal(protocol, "NB1"); assert.equal(requestSession, session);
+      assert.equal(protocol, "NB2"); assert.equal(requestSession, session);
       const request = {id, operation, args}; requests.push(request);
-      const reply = (state, result, extra = {}) => ({protocol: "NB1", session, id, state, host_pid: 301, worker_tid: 302,
-        exec_tid: state === "completed" ? 303 : 0, timings_us: {queue: 4, execute: 5}, ...(state === "completed" ? {result} : {}), ...extra});
+      if (operation !== "QUERY" && !records.has(id)) records.set(id, request);
+      const original = records.get(id) || {operation: "STATUS", args: []};
+      const reply = (state, result, extra = {}) => ({protocol: "NB2", session, id, state, host_pid: 301, worker_tid: 302,
+        exec_tid: state === "completed" || state === "running" ? 303 : 0, timings_us: {queue: 4, execute: 5},
+        ...(state === "unknown" ? {original_operation: null, normalized_args: null, result_type: null, result_version: null} :
+          {original_operation: original.operation, normalized_args: original.args.map(Number), result_type: resultTypes[original.operation],
+            result_version: resultTypes[original.operation] === "native_fourier_operation" ? 2 : 1}),
+        ...(state === "completed" ? {result} : {}), ...extra});
       handler({socket, request, requests, reply}); input = "";
     });
   });
@@ -100,6 +113,7 @@ test("default backend retains v0.6 and all original 21 tool schemas", async () =
     assert.deepEqual(catalog[0].inputSchema.properties, {});
     assert.equal((await client.tool("dm_native_mean", {image_id: 1})).error.code, -32602);
     assert.equal((await client.tool("dm_native_summary", {image_id: 1})).error.code, -32602);
+    for (const name of nativeCatalog.slice(7)) assert.equal((await client.tool(name, {image_id: 1, request_id: "saved"})).error.code, -32602);
   } finally {await client.close();}
 });
 
@@ -123,7 +137,7 @@ test("native MCP exposes only implemented tools, strict IDs and real host fields
   try {
     const init = await client.init(); assert.match(init.instructions, /空闲/); assert.match(init.instructions, /不回退/);
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.deepEqual(catalog.map(entry => entry.name), ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show"]);
+    assert.deepEqual(catalog.map(entry => entry.name), nativeCatalog);
     for (const name of ["dm_stats", "dm_run_script", "dm_2d_preview", "dm_open", "no_such_tool"]) {
       const response = await client.tool(name); assert.equal(response.error.code, -32602); assert.match(response.error.message, /不支持工具/);
     }
@@ -418,7 +432,7 @@ test("native dm_native_show requires both saved request ID and explicit uint32 i
     const show = (await client.rpc("tools/list")).result.tools.find(tool => tool.name === "dm_native_show");
     assert.deepEqual(show.inputSchema.required, ["image_id", "request_id"]);
     assert.equal(show.inputSchema.properties.image_id.type, "integer");
-    assert.match(show.description, /本插件仍持有的 crop/);
+    assert.match(show.description, /本插件仍持有的已合格原生结果/);
     assert.match(show.description, /不保存文件/);
     assert.match(show.description, /不代表模型已看图/);
     assert.match(show.description, /不关闭已显示的文档/);
@@ -542,7 +556,7 @@ test("native SUMMARY exposes only four raw reductions with explicit image ID and
   try {
     const init = await client.init(); assert.match(init.instructions, /dm_native_summary/); assert.match(init.instructions, /四个原生摘要/);
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 7);
+    assert.equal(catalog.length, 14);
     const summary = catalog.find(tool => tool.name === "dm_native_summary");
     assert.deepEqual(summary.inputSchema.required, ["image_id"]);
     assert.equal(summary.inputSchema.properties.image_id.type, "integer");
@@ -641,6 +655,245 @@ test("native SUMMARY errors and unknown do not fall back; timeout and cancellati
     assert.equal(toolOutput(await client.tool("dm_native_result", {request_id: "summary-cancelled"})).maximum, 8.5);
     for (const id of ["summary-timed", "summary-cancelled"]) {
       assert.deepEqual(host.requests.filter(request => request.id === id).map(request => request.operation), ["SUMMARY", "QUERY"]);
+    }
+  } finally {await client.close(); await host.close();}
+});
+
+const operationCases = [
+  ...["negate", "abs", "square"].map((operation, index) => ["dm_native_unary", {image_id: 77, operation}, "UNARY", [77, index + 1]]),
+  ...["add", "subtract", "multiply"].map((operation, index) => ["dm_native_binary", {left_image_id: 77, right_image_id: 78, operation}, "BINARY", [77, 78, index + 1]]),
+  ...["forward", "inverse"].map(direction => ["dm_native_fft", {image_id: 77, direction}, direction === "forward" ? "FFT" : "IFFT", [77]]),
+  ...["real", "imaginary", "phase", "power"].map((component, index) => ["dm_native_complex", {image_id: 77, component}, ["REAL", "IMAG", "VENDOR_ARG", "VENDOR_NORM"][index], [77]]),
+  ...["smooth", "sobel", "laplace", "sharpen"].map((operation, index) => ["dm_native_filter", {image_id: 77, operation}, "FILTER", [77, index + 1]]),
+];
+
+test("new native tools expose finite enums and require saved side-effect IDs before any send", async () => {
+  const host = await nativeHost(() => {assert.fail("invalid arguments reached the native pipe");});
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session});
+  try {
+    await client.init();
+    const catalog = (await client.rpc("tools/list")).result.tools;
+    assert.equal(catalog.length, 14); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
+    for (const name of nativeCatalog.slice(7, 12)) assert.ok(catalog.find(tool => tool.name === name).inputSchema.required.includes("request_id"));
+    const preview = catalog.find(tool => tool.name === "dm_native_preview");
+    assert.deepEqual(preview.inputSchema.required, ["image_id"]);
+    for (const key of ["max_width", "max_height"]) assert.deepEqual(preview.inputSchema.properties[key], {type: "integer", minimum: 1, maximum: 128, default: 128});
+    assert.match(catalog.find(tool => tool.name === "dm_native_complex").description, /平方模.*不是幅值/);
+    assert.match(catalog.find(tool => tool.name === "dm_native_show").description, /已合格原生结果/);
+    for (const [name, args] of operationCases) {
+      assert.equal((await client.tool(name, args)).error.code, -32602, "missing saved ID: " + name);
+      for (const request_id of ["", "unsafe id", "x\n", "x".repeat(65), 2]) assert.equal((await client.tool(name, {...args, request_id})).error.code, -32602);
+      assert.equal((await client.tool(name, {...args, request_id: "saved", path: "forbidden"})).error.code, -32602);
+      const selector = Object.hasOwn(args, "direction") ? "direction" : Object.hasOwn(args, "component") ? "component" : "operation";
+      for (const invalid of ["divide", "__proto__", "script()", "", 1]) assert.equal((await client.tool(name, {...args, [selector]: invalid, request_id: "saved"})).error.code, -32602);
+    }
+    for (const args of [{}, {image_id: "front"}, {image_id: "77"}, {image_id: -1}, {image_id: 77, max_width: 0},
+      {image_id: 77, max_height: 129}, {image_id: 77, max_width: 1.5}, {image_id: 77, max_width: null}, {image_id: 77, request_id: "bad id"}, {image_id: 77, output_path: "forbidden"}]) {
+      assert.equal((await client.tool("dm_native_preview", args)).error.code, -32602);
+    }
+    assert.equal(host.requests.length, 0);
+  } finally {await client.close(); await host.close();}
+});
+
+test("all new finite operation enums map to exact NB2 operations and recover only through QUERY", async () => {
+  const records = new Map();
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation !== "QUERY") records.set(request.id, {operation: request.operation, args: request.args.map(Number)});
+    const original = records.get(request.id);
+    socket.end(JSON.stringify(request.operation === "QUERY" ? reply("completed", operationFixture(original.operation, original.args)) : reply("queued")) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    for (let index = 0; index < operationCases.length; index++) {
+      const [name, args, operation, nativeArgs] = operationCases[index], request_id = "operation-" + index;
+      const output = toolOutput(await client.tool(name, {...args, request_id}));
+      const {native_receipt, ...result} = output;
+      assert.deepEqual(result, operationFixture(operation, nativeArgs));
+      assert.equal(native_receipt.original_operation, operation); assert.deepEqual(native_receipt.normalized_args, nativeArgs);
+      assert.equal(native_receipt.result_version, resultTypes[operation] === "native_fourier_operation" ? 2 : 1);
+      assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id})), output);
+      assert.deepEqual(host.requests.filter(request => request.id === request_id).map(request => [request.operation, request.args]),
+        [[operation, nativeArgs.map(String)], ["QUERY", []], ["QUERY", []]]);
+    }
+  } finally {await client.close(); await host.close();}
+});
+
+test("public Fourier tools reject candidate v1 receipts before polling or claiming qualified results", async () => {
+  const host = await nativeHost(({socket, reply}) => socket.end(JSON.stringify(reply("queued", undefined, {result_version: 1})) + "\n"));
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    for (const [name, args] of [["dm_native_fft", {image_id: 77, direction: "forward"}], ["dm_native_complex", {image_id: 77, component: "power"}]]) {
+      const request_id = "reject-v1-" + name, message = await client.tool(name, {...args, request_id}), output = toolOutput(message, true);
+      assert.equal(output.code, "NATIVE_PROTOCOL"); assert.match(output.error, /version 1 is historical QUERY only/); assert.equal(output.sent, true);
+      assert.equal(message.result.content.length, 1);
+      assert.equal(host.requests.filter(request => request.id === request_id).length, 1, "old candidate rejection never resubmits or polls");
+    }
+  } finally {await client.close(); await host.close();}
+});
+
+function decodedPreview(message) {
+  const output = toolOutput(message);
+  assert.equal(message.result.content.length, 2);
+  const block = message.result.content[1]; assert.equal(block.type, "image"); assert.equal(block.mimeType, "image/png");
+  const png = Buffer.from(block.data, "base64"); assert.deepEqual(png.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const compressed = []; let width, height;
+  for (let offset = 8; offset < png.length;) {
+    const size = png.readUInt32BE(offset), type = png.toString("ascii", offset + 4, offset + 8), data = png.subarray(offset + 8, offset + 8 + size);
+    if (type === "IHDR") {width = data.readUInt32BE(0); height = data.readUInt32BE(4); assert.equal(data[8], 8); assert.equal(data[9], 0);}
+    if (type === "IDAT") compressed.push(data);
+    offset += size + 12;
+  }
+  assert.equal(width, output.width); assert.equal(height, output.height);
+  const rows = inflateSync(Buffer.concat(compressed)), pixels = Buffer.from(output.gray8_hex, "hex");
+  for (let y = 0; y < height; y++) {
+    assert.equal(rows[y * (width + 1)], 0);
+    assert.deepEqual(rows.subarray(y * (width + 1) + 1, (y + 1) * (width + 1)), pixels.subarray(y * width, (y + 1) * width));
+  }
+  return output;
+}
+
+test("native PREVIEW and its QUERY return bounded display PNG plus exact text without files", async () => {
+  const records = new Map();
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation !== "QUERY") records.set(request.id, request.args.map(Number));
+    socket.end(JSON.stringify(reply("completed", operationFixture("PREVIEW", records.get(request.id)))) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    for (const args of [{image_id: 77}, {image_id: 77, max_width: 2, max_height: 1, request_id: "small-preview"}]) {
+      const message = await client.tool("dm_native_preview", args), output = decodedPreview(message), id = output.native_receipt.id;
+      assert.equal(output.quantitative, false); assert.equal(output.native_receipt.original_operation, "PREVIEW");
+      assert.deepEqual(output.native_receipt.normalized_args, [77, args.max_width ?? 128, args.max_height ?? 128]);
+      assert.deepEqual(decodedPreview(await client.tool("dm_native_result", {request_id: id})), output);
+      for (const key of ["path", "preview_path", "saved_file", "image"]) assert.equal(Object.hasOwn(output, key), false);
+      assert.deepEqual(host.requests.filter(request => request.id === id).map(request => request.operation), ["PREVIEW", "QUERY"]);
+    }
+  } finally {await client.close(); await host.close();}
+});
+
+test("new native result failures, unknown and malformed typed outputs never fall back or gain images", async () => {
+  const bad = [
+    ["dm_native_unary", {image_id: 77, operation: "negate"}, "UNARY", [77, 1], result => {result.image_id = 77;}],
+    ["dm_native_binary", {left_image_id: 77, right_image_id: 78, operation: "add"}, "BINARY", [77, 78, 1], result => {result.sources[1].id = 77;}],
+    ["dm_native_filter", {image_id: 77, operation: "sobel"}, "FILTER", [77, 2], result => {result.filter_kind = 1;}],
+    ["dm_native_preview", {image_id: 77, max_width: 2, max_height: 2}, "PREVIEW", [77, 2, 2], result => {result.gray8_hex = "00";}],
+  ];
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.id === "failed-unary") return socket.end(JSON.stringify(reply("failed", undefined, {code: "native_unary_nonfinite_output", error: "nonfinite output"})) + "\n");
+    if (request.id === "unknown-unary") return socket.end(JSON.stringify(reply("unknown")) + "\n");
+    const [, , operation, args, change] = bad[Number(request.id.split("-").at(-1))], result = operationFixture(operation, args);
+    change(result); socket.end(JSON.stringify(reply("completed", result)) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    for (const request_id of ["failed-unary", "unknown-unary"]) {
+      const message = await client.tool("dm_native_unary", {image_id: 77, operation: "negate", request_id});
+      const output = toolOutput(message, true); assert.equal(message.result.content.length, 1);
+      assert.equal(output.native_receipt.state, request_id.split("-")[0]);
+    }
+    for (let index = 0; index < bad.length; index++) {
+      const [name, args] = bad[index], request_id = "malformed-operation-" + index;
+      for (const message of [await client.tool(name, {...args, request_id}), await client.tool("dm_native_result", {request_id})]) {
+        assert.equal(toolOutput(message, true).code, "NATIVE_PROTOCOL"); assert.equal(message.result.content.length, 1);
+      }
+      assert.equal(host.requests.filter(request => request.id === request_id && request.operation !== "QUERY").length, 1);
+    }
+  } finally {await client.close(); await host.close();}
+});
+
+test("cancelled native output and preview waits recover typed results by same-ID QUERY without replay", async () => {
+  const records = new Map();
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation !== "QUERY") {records.set(request.id, {operation: request.operation, args: request.args.map(Number)}); return;}
+    const record = records.get(request.id); socket.end(JSON.stringify(reply("completed", operationFixture(record.operation, record.args))) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session});
+  try {
+    await client.init();
+    for (const [index, name, args, operation] of [[0, "dm_native_unary", {image_id: 77, operation: "abs"}, "UNARY"],
+      [1, "dm_native_preview", {image_id: 77, max_width: 2, max_height: 2}, "PREVIEW"],
+      [2, "dm_native_fft", {image_id: 77, direction: "forward"}, "FFT"],
+      [3, "dm_native_read", {image_id: 77, rect: [1, 1, 4, 3]}, "READ"]]) {
+      const request_id = "cancelled-new-" + index, rpcId = 940 + index;
+      client.send({id: rpcId, method: "tools/call", params: {name, arguments: {...args, request_id}}});
+      await sleep(30); client.send({method: "notifications/cancelled", params: {requestId: rpcId}}); await sleep(170);
+      assert.equal(client.messages.some(message => message.id === rpcId), false);
+      const recovered = await client.tool("dm_native_result", {request_id});
+      const output = operation === "PREVIEW" ? decodedPreview(recovered) : toolOutput(recovered);
+      assert.equal(output.native_receipt.original_operation, operation);
+      assert.deepEqual(host.requests.filter(request => request.id === request_id).map(request => request.operation), [operation, "QUERY"]);
+    }
+  } finally {await client.close(); await host.close();}
+});
+
+test("native READ requires explicit bounded half-open ROI and rejects paths or invalid data before send", async () => {
+  const host = await nativeHost(() => {assert.fail("invalid READ must never reach native dispatch");});
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session});
+  try {
+    await client.init();
+    const catalog = (await client.rpc("tools/list")).result.tools, read = catalog.find(tool => tool.name === "dm_native_read");
+    assert.equal(catalog.length, 14); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
+    assert.match(read.description, /16384/); assert.match(read.description, /不生成图片.*不保存文件/);
+    for (const args of [{}, {image_id: 77}, {rect: [0, 0, 1, 1]}, {image_id: "front", rect: [0, 0, 1, 1]},
+      {image_id: "77", rect: [0, 0, 1, 1]}, {image_id: -1, rect: [0, 0, 1, 1]}, {image_id: 77, rect: []},
+      {image_id: 77, rect: [0, 0, 1]}, {image_id: 77, rect: [0, 0, 1, 1, 1]}, {image_id: 77, rect: [0, 0, "1", 1]},
+      {image_id: 77, rect: [0, 0, 1.5, 1]}, {image_id: 77, rect: [-1, 0, 1, 1]}, {image_id: 77, rect: [1, 0, 1, 1]},
+      {image_id: 77, rect: [1, 0, 0, 1]}, {image_id: 77, rect: [0, 0, 129, 128]}, {image_id: 77, rect: [0, 0, 4294967296, 1]},
+      {image_id: 77, rect: [0, 0, 1, 1], request_id: "unsafe id"}, {image_id: 77, rect: [0, 0, 1, 1], path: "output.npy"}]) {
+      assert.equal((await client.tool("dm_native_read", args)).error.code, -32602, JSON.stringify(args));
+    }
+    assert.equal(host.requests.length, 0);
+  } finally {await client.close(); await host.close();}
+});
+
+test("native READ emits only exact snapshot text and same-ID QUERY preserves bytes/calibration/provenance", async () => {
+  const args = [77, 1, 1, 4, 3], expected = readFixture(args), host = await nativeHost(({socket, request, reply}) => {
+    socket.end(JSON.stringify(request.operation === "READ" ? reply("queued") : reply("completed", expected)) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    for (const explicit of [false, true]) {
+      const message = await client.tool("dm_native_read", {image_id: 77, rect: args.slice(1), ...(explicit ? {request_id: "read-saved"} : {})});
+      const output = toolOutput(message), {native_receipt, ...result} = output;
+      assert.deepEqual(result, expected); assert.equal(message.result.content.length, 1, "READ must not create an image content block");
+      assert.equal(native_receipt.result_type, "native_data_snapshot"); assert.deepEqual(native_receipt.normalized_args, args);
+      const recovered = await client.tool("dm_native_result", {request_id: native_receipt.id});
+      assert.deepEqual(toolOutput(recovered), output); assert.equal(recovered.result.content.length, 1);
+      const bytes = Buffer.from(result.values_base64, "base64"); assert.ok(Object.is(bytes.readFloatLE(0), -0)); assert.equal(bytes.readFloatLE(4), -2.5);
+      assert.deepEqual(result.shape, [2, 3]); assert.equal(result.roi_calibration[0].calibrated_value_at_pixel_zero, 0.25);
+      assert.equal(result.roi_calibration[1].calibrated_value_at_pixel_zero, 1); assert.equal(result.source_provenance, null);
+      assert.deepEqual(host.requests.filter(request => request.id === native_receipt.id).map(request => request.operation), ["READ", "QUERY", "QUERY"]);
+      for (const key of ["image_id", "image", "path", "preview_path", "png"]) assert.equal(Object.hasOwn(result, key), false);
+    }
+  } finally {await client.close(); await host.close();}
+});
+
+test("native READ malformed, failed and unknown outcomes cannot claim data handoff or invoke fallback", async () => {
+  const changes = [r => {r.byte_order = "big";}, r => {r.roi_calibration[0].origin++;}, r => {r.source_image_id++;},
+    r => {r.values_base64 = "not canonical base64";}, r => {r.image_id = 99;}];
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.id === "read-failed") return socket.end(JSON.stringify(reply("failed", undefined, {code: "native_read_nonfinite_sample", error: "nonfinite source sample"})) + "\n");
+    if (request.id === "read-unknown") return socket.end(JSON.stringify(reply("unknown")) + "\n");
+    const result = readFixture(); changes[Number(request.id.split("-").at(-1))](result); socket.end(JSON.stringify(reply("completed", result)) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    for (const request_id of ["read-failed", "read-unknown"]) {
+      const message = await client.tool("dm_native_read", {image_id: 77, rect: [1, 1, 4, 3], request_id}), output = toolOutput(message, true);
+      assert.equal(message.result.content.length, 1); assert.equal(output.native_receipt.state, request_id === "read-failed" ? "failed" : "unknown");
+    }
+    for (let index = 0; index < changes.length; index++) {
+      const request_id = "bad-read-mcp-" + index;
+      for (const message of [await client.tool("dm_native_read", {image_id: 77, rect: [1, 1, 4, 3], request_id}), await client.tool("dm_native_result", {request_id})]) {
+        assert.equal(toolOutput(message, true).code, "NATIVE_PROTOCOL"); assert.equal(message.result.content.length, 1);
+      }
+      assert.deepEqual(host.requests.filter(request => request.id === request_id).map(request => request.operation), ["READ", "QUERY"]);
     }
   } finally {await client.close(); await host.close();}
 });

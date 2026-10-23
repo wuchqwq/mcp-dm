@@ -1,10 +1,16 @@
 # Experimental native bridge: build, install and remove
 
-This is a separate NB1 C++ experiment for an explicitly tested DigitalMicrograph
+This is a separate NB2 C++ experiment for an explicitly tested DigitalMicrograph
 build. Keep the default v0.6 Python/TCP configuration unchanged. Do not load the
 experimental plugin in a production acquisition session. Use an idle test host
 and keep source images unchanged while requests run. This code does not control
 the microscope.
+
+The [adapter matrix](ADAPTERS.md) currently supports only the exact Windows x64
+GMS 3.53.4137.0 profile with all five pinned module fingerprints matching.
+Profile selection and each admitted operation have separate bounded real-host
+qualification; see [operation acceptance](OPERATIONS_ACCEPTANCE.md). New clients explicitly
+reject an old NB1 DLL and never downgrade the protocol.
 
 ## Build locally
 
@@ -66,11 +72,19 @@ edit the default v0.6 entry. The installer does not change client configuration.
 
 Check `dm_status` and its actual host `backend`, build identity, process/thread
 receipts and session before numerical work. `mock-native` is synthetic evidence
-only. This native MCP catalog exposes status, datasets, native mean and SUMMARY, result query,
-experimental explicit-ID half-open `dm_crop` and `dm_native_show`. The crop creates a separate
+only. Also inspect compatibility: `SUPPORTED` admits the matching profile;
+`UNSUPPORTED_BUILD`, `ABI_MISMATCH` and `NOT_READY` reject image operations.
+`native_statistics` is the complete four-reduction SUMMARY group, with
+`native_mean` reported separately. The fourteen-tool catalog additionally exposes
+limited arithmetic, Fourier, filters, preview and numeric READ; see the
+[tool table](README.md#public-native-tools) and [data handoff workflow](NATIVE_WORKFLOW.md).
+Explicit-ID half-open `dm_crop` creates a separate
 native image retained by the plugin until normal native STOP/cleanup; it does
 not create a visible DM document. The mean tool is not a replacement for the
 full statistics tool. The strict core acceptance client does not call crop.
+An unavailable adapter capability rejects before image lookup. Do not infer
+support from tool discovery or symbol presence alone. Preview is display-only;
+READ plus the explicit external encoder is NPY data handoff, not native SaveAs.
 
 Qualified real-host name checks use ASCII synthetic names. An independent
 comparison of non-ASCII names between legacy GMS Python bindings and native
@@ -89,6 +103,11 @@ only ends local waiting, and a request may still execute in the host. Query
 recovery applies only to the original running session's retained records.
 After STOP, DM exit/restart or a new session, recovery is not promised; do not
 replay an old operation ID as a new request.
+
+NB2 receipts bind `original_operation`, `normalized_args`, `result_type` and
+`result_version` to the immutable accepted request, including QUERY recovery.
+Unknown IDs have all four fields `null`. Keep the pre-submission record and
+validate the returned operation contract; do not infer it from payload fields.
 
 Raw mean now permits recognized incomplete spatial calibration and reports
 its per-axis issues without applying intensity calibration. Crop still
@@ -124,7 +143,7 @@ fixture, `accept_trial_mcp.py`, independent oracle and saved-STOP sequence.
 Its answers and evidence remain private. No existing client entry is edited
 by these instructions or scripts.
 
-The limited new synthetic session passed `dm_native_show` receipt/identity,
+An earlier limited strict synthetic session passed `dm_native_show` receipt/identity,
 independent visibility, unique-document and post-STOP ownership checks. It
 targets only an already retained crop by exact ID and a saved show request ID,
 without a path or file save. Closing only the delivered document made its image
@@ -143,7 +162,7 @@ force termination or remove a loaded DLL.
 
 1. Disconnect every MCP client and finish or inspect any outstanding operation
    using its saved ID. Do not assume that a client timeout stopped native work.
-2. Save a fresh STOP ID and use the explicit NB1 helper with the previously
+2. Save a fresh STOP ID and use the explicit NB2 helper with the previously
    confirmed target DM PID and a new request-record path:
 
    ```powershell
@@ -154,15 +173,17 @@ force termination or remove a loaded DLL.
    ```
 
    The helper exclusively creates the original request record, flushes and
-   fsyncs it before connecting or sending. It records NB1/session/ID/STOP,
+   fsyncs it before connecting or sending. It records NB2/session/ID/STOP,
    empty arguments, target PID and the exact wire line. Existing evidence or
    failure to persist that record refuses dispatch. Never reconstruct this
    record from a later receipt. For the trial oracle, use the fixed filenames
    `stop-request.json` and `stop-receipt.json` in that trial's evidence directory.
 
    The helper submits once and checks the bounded JSON frame, identity, state,
-   process/thread fields and timings. Require `state=completed` and
-   `result.ipc_stopped=true`. STOP is an IPC acknowledgement on the worker, so
+   process/thread fields and timings. Require `state=completed`,
+   `original_operation=STOP`, `normalized_args=[]`, `result_type=ipc_stop`,
+   `result_version=1` and `result.ipc_stopped=true`.
+   STOP is an IPC acknowledgement on the worker, so
    `exec_tid=0` is expected; it is not a DM API execution receipt. The normal
    MCP catalog does not expose STOP. A missing/invalid receipt is unresolved
    and must be investigated. Allow the host cleanup callback to complete and
@@ -172,7 +193,10 @@ force termination or remove a loaded DLL.
    actual `os.getpid()` and match STOP to the original request record. Missing
    old evidence remains UNVERIFIED. For continuing observations in a preserved
    old session, follow [the unlock checklist](UNLOCK_CHECKLIST.md); its explicit
-   legacy mode can never produce a qualification PASS.
+   `observe_legacy_stop` mode can never produce a qualification PASS.
+   The separate `DM_NATIVE_ORACLE_PROTOCOL=NB1_LEGACY` setting is only for
+   read-only inspection of historical NB1 evidence; the STOP helper never
+   sends NB1 or backfills a missing original record.
 3. Close the test DM normally. STOP closes native IPC; it does not terminate DM,
    unload the DLL or prove that an already running host operation has finished.
 4. With no DigitalMicrograph process left, use the same state directory:

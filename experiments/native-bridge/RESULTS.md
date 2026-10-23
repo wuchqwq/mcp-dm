@@ -5,6 +5,44 @@ observed to fail; **NOT_TESTED** means no accepted execution covers that scope.
 Offline, static and historical results are kept separate from current DM
 acceptance. Private run artifacts and scientific data are not distributed.
 
+## Current feature: native operations and scientific handoff
+
+The following scopes use only newly created synthetic data on the exact pinned
+Windows x64 GMS profile, with an idle host, serial calls and no concurrent source
+edits. They do not qualify real experimental files or another GMS version.
+
+| Scope | Result | What was independently checked |
+| --- | --- | --- |
+| Multi-version selection architecture | PASS, limited | Final real host selects the exact adapter; synthetic unknown-version/fingerprint/symbol/ABI failures reject before vendor calls; only one GMS build is qualified |
+| Native arithmetic | PASS, limited | All six supported operators against independent raw pixels and calibration; no divide or broadcasting |
+| FFT/IFFT and components | PASS, limited | Predetermined real-input fixtures, native positive forward sign/centering, normalized paired inverse, phase/power and explicit vendor frequency calibration; v2 MCP integration checked separately |
+| Four native filters | PASS, limited | Independent small-input kernels, float32 rounding and borders; changed filters do not inherit another operator's PASS |
+| Bounded preview | PASS, display only | Exact source sampling, coordinate mapping, gray8 and PNG decoding; no model visual-understanding claim |
+| Native READ and explicit NPY handoff | PASS, limited | Same actual host PID/session and original IDs; full float32 bit equality including signed zero/subnormals, ROI/axes/signed scale/origin/physical zero/units, journal and file hashes |
+| Explicit external example | PASS, handoff example only | Saved script/parameters/versions/input hashes; external float64 raw mean agrees with an independent exact-rational reference; never a plugin fallback |
+| Source protection | PASS, limited | Original source pixels, names, spatial/intensity calibration, independent result memory and document count before/after the workflow |
+| Result lifecycle | PASS, limited | Explicit arithmetic-result document survives plugin STOP; closing it releases the final reference; later unshown handoff results release after matched original STOP while NPY files persist |
+| Final cleanup and persistence | PASS, limited | Actual-PID post-STOP oracle, normal host exit, exact manifest-owned removal; capture reopened in a new external directory after host exit/removal |
+| Safe errors and recovery | PASS, limited | Actual unsupported type/nonfinite/ID/bounds/filter-size/FFT-size/foreign-IFFT rejection; original-ID QUERY remains unchanged; unsupported tools do not switch backend |
+| Offline engineering regression | PASS | Core and ABI surrogates, version/rejection tests, Windows synthetic pipe, real Node stdio MCP, PNG/NPY tests, default Python compatibility and targeted oracle faults; these are not host ABI evidence |
+| Ordinary Agent/model client | NOT_TESTED | No model-client acceptance substitutes for the strict protocol client |
+| Native SaveAs/Open, other GMS, integer/4D native processing | NOT_TESTED / unavailable | No guessed ABI, dtype conversion or hidden fallback |
+| Non-ASCII legacy name interoperability | NOT_QUALIFIED | Historical failure retained; no heuristic recoding fix |
+
+New numerical qualification used prepared operator builds first, then a separate
+final profile-admission build without an environment override. The latter
+repeated the public MCP handoff and independent host checks. The first READ
+acceptance-client run failed because its shared validator lacked the new READ
+contract; the first Fourier-reference run also failed. Both original failures
+remain preserved; corrected runs wrote new evidence. Historical missing STOP
+identity is still UNVERIFIED and was not reconstructed.
+
+The original 106 oracle fault injections were explicitly rerun, not inferred
+from an older summary. Runtime counting also verified the expanded legacy/NB2
+negative set. Exact logs, per-case errors and source/binary hashes remain local.
+See [operation boundaries](mvp/OPERATIONS_ACCEPTANCE.md),
+[the workflow](mvp/NATIVE_WORKFLOW.md) and [adapter matrix](mvp/ADAPTERS.md).
+
 ## Latest live continuation: SUMMARY and document lifecycle
 
 Limited acceptance on the pinned Windows x64 GMS build used only new synthetic

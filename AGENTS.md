@@ -23,8 +23,10 @@ test oracles may compute reference answers; they are never a runtime fallback.
 Existing v0.6 kernels and optional report/replay paths remain compatibility
 code, not a reason to expand that route for new native processing features.
 Preview encoding and protocol/metadata validation belong in the bridge;
-scientific processing belongs in DM. Native FFT readiness is tracked in
-experiments/native-bridge/mvp/FFT_READINESS.md; FFT is not yet a native tool.
+scientific processing belongs in DM. The limited native Fourier interface and
+its acceptance conditions are tracked in
+experiments/native-bridge/mvp/FFT_READINESS.md. Tool presence alone does not
+qualify an operator, a changed implementation or another host build.
 The MVP candidate_calls module and BATCH_CANDIDATES.md prepare typed synthetic
 call boundaries only. Never count them as production tool support, bind them
 to arbitrary vendor addresses, or add them to the shipping plugin/catalog
@@ -44,19 +46,34 @@ before per-operator ABI, scientific and ownership qualification.
 - `bridge/lossless_tiff.py`: scientific TIFF with dtype/calibration preservation. Do not replace it with a display export or silently downcast.
 - `setup/`: target-GMS offline runtime installer, two-stage real-DM launcher, explicit Codex registration. These are user-run setup operations, not CI prerequisites.
 - `tests/`: synthetic arrays, fake DM API and isolated mock/echo bridges only. No test should require a DM license, private sample or fixed local drive.
-- `lib/native_bridge.mjs`: opt-in NB1 transport for `DM_MCP_BACKEND=native`; strict receipts, one submission followed by same-ID QUERY, no Python fallback.
-- `experiments/native-bridge/mvp/`: fixed-build C++ plugin, explicit POD vendor adapter, synthetic host/tests and manually invoked real-host acceptance. Read its README, INSTALL and the parent RESULTS/ABI_NOTES before native changes. Never build or load the retired `nb_probe.cpp`.
+- `lib/native_bridge.mjs`: opt-in NB2 transport for `DM_MCP_BACKEND=native`; immutable original-operation/result identities, strict typed receipts, one submission followed by same-ID QUERY, no Python fallback.
+- `lib/native_preview.mjs`: bounded PNG encoding of the validated native gray8 display result; it does not process scientific pixels or save files.
+- `experiments/native-bridge/mvp/`: common protocol, pipe, host-thread dispatch and retained-result lifecycle. Version selection lives in `adapter_profile.hpp`, `adapter_identity_win.hpp` and `adapter_dispatch.inc`; vendor fingerprints, POD layouts and entrypoints live under `adapters/gms_3_53_4137/`. Only the exact Windows x64 GMS 3.53.4137.0 profile is supported. Read ADAPTERS.md, README, INSTALL and the parent RESULTS/ABI_NOTES before native changes. Never build or load the retired `nb_probe.cpp`.
+- `tools/native_snapshot_handoff.mjs`: explicitly invoked external encoder for a saved, validated native READ response. It exclusively creates a new NPY/schema-1 capture after persisting its own request journal; it never calls DM, submits a request or saves a DM document.
+- `examples/native_handoff_mean.py`: optional user-invoked NumPy example over that saved capture in an independent workspace, with software/script/input provenance. It is absent from the MCP/plugin runtime, never returns data to DM and is never a fallback for a missing DM operator.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has seven tools: status, datasets,
-native mean, dm_native_summary, result query, crop and experimental native show.
+The separate experimental native catalog has fourteen tools: dm_status,
+dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
+dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
+dm_native_complex, dm_native_filter, dm_native_preview and dm_native_read.
 SUMMARY calls DM's built-in GetMinimum/GetMaximum/GetSum/GetMean directly;
-it is not full dm_stats and adds no backend, preview or save feature. Its
+it is not full dm_stats and does not perform preview or file saving. Its
 scope is float32 2D up to 4,194,304 pixels, raw intensity without intensity
 calibration, serialized idle-host execution with snapshot_atomic:false.
-Its target is Windows x64 GMS 3.53.4137.0 with exact
-binary gates. Earlier core idle-host metadata/mean/MCP acceptance and separate native
+The shared selector rejects UNSUPPORTED_BUILD, ABI_MISMATCH and NOT_READY
+before image calls; only SUPPORTED admits the selected profile. Unknown builds
+are inspected using Windows metadata, without probing a vendor ABI. Preserve
+all five exact module fingerprint gates. native_statistics denotes the entire
+four-reduction SUMMARY group; native_mean remains a separate capability.
+New operation admission requires its qualified, available profile group before
+entering the version implementation: native_image_arithmetic, native_fft,
+native_filters, native_preview or native_read. There is no qualification
+environment bypass; setting an old qualification variable cannot enable an
+unavailable group. A missing required symbol disables that group. An available
+symbol or synthetic test alone does not qualify a capability.
+Earlier core idle-host metadata/mean/MCP acceptance and separate native
 crop pixel/copy/calibration acceptance passed using ASCII-named synthetic
 inputs. Crop output release after STOP was independently checked along with
 pipe/window cleanup and continued one-shot Python use. Non-ASCII legacy
@@ -76,7 +93,7 @@ Keep calibration_complete:false and specific per-axis issues; never invent
 units, apply intensity calibration or swallow native/ABI exceptions. Crop
 continues to require valid spatial calibration. Crop and newly added
 side-effect tools require a caller-saved request_id before dispatch; read-only
-status/datasets/mean/SUMMARY tools allow an omitted ID to generate a UUID. Save
+status/datasets/mean/SUMMARY/preview/READ tools allow an omitted ID to generate a UUID. Save
 session/arguments too and recover only with same-session QUERY. Records are
 volatile; STOP, host exit/restart or a new session does not promise recovery.
 
@@ -85,11 +102,11 @@ metadata and safe errors, crop ID recovery/conflicts, and SHOW native receipt
 and image correlation. Other invalid spatial-number cases are offline-only.
 That previously retained host has now completed independent legacy observations,
 normal exit and manifest-owned removal. Its missing original STOP request is
-still UNVERIFIED, never repaired by later observations or cleanup. A new strict
+still UNVERIFIED, never repaired by later observations or cleanup. An earlier strict
 session passed SUMMARY's real host/build gate, strict MCP and independent source
 oracle, including nontrivial intensity calibration, missing spatial units,
 safe errors and unchanged full pixels, both calibrations and document count.
-See experiments/native-bridge/mvp/SUMMARY_ACCEPTANCE.md. The new strict session
+See experiments/native-bridge/mvp/SUMMARY_ACCEPTANCE.md. That strict session
 also independently passed SHOW MCP, before/after-STOP oracles with the original
 STOP request verified, actual crop-document visibility and after-close final
 release: exact output ID invalid, document count restored, other sources unchanged.
@@ -97,16 +114,81 @@ Normal host exit and manifest-owned DLL removal then completed. Keep that limite
 PASS separate from the older session's historical UNVERIFIED STOP identity.
 Never force-close a host or remove a loaded plugin. The standalone candidate_calls
 module remains synthetic-only and absent from the shipping DLL; SUMMARY's real
-adapter integration does not qualify its remaining operation catalog.
+adapter integration and individually qualified extensions do not qualify its
+remaining candidate inventory.
 
-Generic NB1 QUERY does not carry its original operation. An independent
-acceptance client must continue validating against its pre-submission saved
-tool/ID/arguments. Recognition of some SUMMARY result fields is not proof that
-every malformed recovery result can be identified after all operation markers
-are removed. Do not add computation or a backend fallback to fill this gap.
+Current NB2 receipts carry original_operation, normalized_args, result_type
+and result_version from the immutable accepted request, including queued,
+running, completed, failed and same-ID QUERY. Unknown records have all four
+fields explicitly null. Select result validation from this declared identity,
+not guessed payload markers. New clients reject old NB1 DLLs without downgrade.
+DM_NATIVE_ORACLE_PROTOCOL=NB1_LEGACY is only an explicit read-only reader for
+historical NB1 files, not a sender or current qualification. The separate
+observe_legacy_stop observation mode can never produce PASS for missing
+original STOP evidence. New STOP acceptance requires the original request
+record durably persisted before the first connection and the oracle's actual
+PID binding; never backfill that record from a receipt.
+
+The final qualified-profile build passed limited same-host synthetic acceptance
+with its loaded binary identity verified and no qualification environment
+enabled: strict MCP, crop-to-square-to-READ, PNG/NPY handoff, Fourier v2,
+filters and the explicitly invoked external example were independently checked.
+The original pre-submission STOP record and same-process receipt were verified;
+all explicitly recorded unshown outputs were released while original source
+pixels/calibration/names, document count and captured file hashes stayed intact.
+Normal host exit and manifest-owned DLL removal completed. Reopening the saved
+NPY and running the external example again in a new directory after host exit
+also passed. These are bounded synthetic/profile-specific results, not a general
+GMS, data-type or vendor-fault guarantee. Preserve earlier failures and the
+historical missing-STOP UNVERIFIED record separately.
+Real experimental data, other builds, concurrent API use and model viewing
+remain outside the qualified scope until independently accepted.
+
+Keep the added native operation contracts narrow:
+Only each operation's listed dtypes/layouts are eligible; unsupported inputs
+remain errors, without silent conversion or a backend fallback.
+
+- UNARY is negate/abs/square; BINARY is add/subtract/multiply, not divide.
+  Both create separate bounded float32 2D results and require compatible
+  descriptors/calibration and finite native results. All image-producing
+  operations share the bounded retained-result pool; they do not edit sources.
+- New FFT/complex submissions require native_fourier_operation version 2;
+  version 1 remains explicitly recognizable for historical QUERY only.
+  The qualified scope is limited to ordinary-packing power-of-two dimensions
+  4..256, full-complex output and complete spatial calibration. Forward uses
+  positive exponent, no normalization and fftshift data; inverse uses negative
+  exponent divided by width*height and resets spatial origin to zero. Inverse
+  accepts only this plugin's retained FFT, and components only its retained
+  FFT/IFFT. Phase is radians; power is squared magnitude, not amplitude.
+  Use frequency_grid for mathematical bin/DC coordinates; preserve the native
+  half-bin calibration offset separately. Never relabel the native calibrated
+  DC as zero or claim inverse restores the source origin/intensity calibration.
+- FILTER exposes only smooth/sobel/laplace/sharpen through DM operators:
+  ordinary float32 2D, dimensions 5..256, bounded finite source/output, preserved
+  spatial calibration. Do not invent another kernel or infer edge behavior.
+- PREVIEW reads bounded native points into at most 128x128 gray8 pixels and
+  returns an MCP PNG image block plus text, also after QUERY. It is nearest
+  integer-index sampling without averaging or enlargement; display-only,
+  not a quantitative result or scientific export.
+- READ requires an explicit half-open rect: source float32 2D ordinary packing
+  up to 4,194,304 pixels, ROI up to 16,384 samples/65,536 raw bytes. Validate
+  canonical base64, finite little-endian float32, row-major [y,x] shape, exact
+  source/ROI identity, translated signed calibration and immutable creation
+  provenance when present. Preserve signed zero. Known missing/invalid spatial
+  calibration is reported, not invented; READ does not require optional stats
+  bindings, create a native image, return a PNG or write a path/file.
+
+Only explicit saved READ data may feed the external handoff CLI. Persist the
+caller handoff ID/parameters and fsync the complete journal before creating a
+new output directory. Same ID/parameters returns the existing verified receipt;
+conflicts, incomplete journals or changed files never trigger automatic retry
+or overwrite. Bind the NPY/metadata hashes and original NB2 READ session/ID/args
+and process/thread receipt. Do not describe this bridge-owned NPY encoding or
+the separate explicit NumPy example as DM SaveAs or native scientific processing.
 
 Experimental dm_native_show requires its own saved ID and accepts only an
-existing plugin-retained crop, with no path or data-copy/file-save interface.
+existing plugin-retained qualified result by exact ID, with no path or
+data-copy/file-save interface.
 Its limited visible-document/lifetime acceptance is recorded independently of
 its native completed receipt. A shown document can hold the output after plugin
 STOP until the user closes it or the host exits; do not confuse that with a plugin
@@ -119,7 +201,7 @@ protocol and host-oracle sequence. Protocol receipts do not prove UI visibility.
 
 1. Keep source data read-only and never overwrite existing exports/sidecars. Record provenance and checksums when real data are used. A source slice may map writable DM memory; do not modify it.
 2. Specify axes explicitly. NumPy and DM dimension order differ. Never infer an energy or diffraction axis solely from filename, image brightness or largest dimension.
-3. Use physical zero plus index times signed scale. DM raw origin conventions differ; preserve all axes and shift crop calibration correctly. Unknown units, nonfinite calibration or ambiguous axes must fail explicitly for operations using physical coordinates. A raw native intensity mean instead reports recognized unusable spatial calibration without applying it; crop still fails on that calibration.
+3. Use physical zero plus index times signed scale. DM raw origin conventions differ; preserve all axes and shift crop/READ ROI calibration correctly. Unknown units, nonfinite calibration or ambiguous axes must fail explicitly for operations using physical coordinates. Raw native mean/SUMMARY and READ instead report recognized unusable spatial calibration without applying it; crop and physical Fourier interpretation still require usable calibration.
 4. Integer reductions need an appropriate exactness/overflow bound; float64 does not represent arbitrary uint64 exactly. Report the arithmetic used. No silent 8/16-bit conversion.
 5. Rectangle/bounds upper endpoints are exclusive. Two-dimensional ROI tools reject invalid types and out-of-bounds rectangles; never reintroduce rounding/clipping or crop-result selection by recency/user names. The default Python crop result handoff requires exactly one new image with the per-operation nonce; native crop binds its independently owned new image ID to the immutable request receipt. Spectral and virtual-detector selections use documented channel/pixel centres, with lower-inclusive/upper-exclusive windows. No hidden interpolation, area weighting or energy-bin multiplication.
 6. Large 4D sources must be accessed in bounded chunks. Validate shape/dtype and memory budget **before** allocation and reads. Never coerce/reshape/copy the entire cube as a shortcut. Account for native DM image copies as well as Python buffers. A full memmap alone does not prove bounded working-set residency.

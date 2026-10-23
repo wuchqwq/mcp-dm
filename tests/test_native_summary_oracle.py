@@ -299,7 +299,7 @@ class NativeSummaryOracleTests(unittest.TestCase):
         (self.acceptance_dir / "requests.jsonl").write_text(
             "".join(json.dumps(record) + "\n" for record in self.ledger), encoding="utf-8")
 
-    def run_script(self, script=VERIFY, state=None, session=SESSION):
+    def run_script(self, script=VERIFY, state=None, session=SESSION, protocol="NB1_LEGACY"):
         state = dict(state or {})
         state["calls_path"] = str(self.directory / "fake-calls.json")
         state_path = self.directory / "fake-state.json"
@@ -308,6 +308,10 @@ class NativeSummaryOracleTests(unittest.TestCase):
         env.pop("PYTHONPATH", None)
         env.update(DM_NATIVE_SESSION=session, DM_NATIVE_EVIDENCE_DIR=str(self.directory),
                    PYTHONNOUSERSITE="1", PYTHONDONTWRITEBYTECODE="1")
+        if protocol is None:
+            env.pop("DM_NATIVE_ORACLE_PROTOCOL", None)
+        else:
+            env["DM_NATIVE_ORACLE_PROTOCOL"] = protocol
         for key in ("DM_NATIVE_SUMMARY_TRUTH", "DM_NATIVE_SUMMARY_ACCEPTANCE_DIR"):
             env.pop(key, None)
         child = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()),
@@ -323,6 +327,42 @@ class NativeSummaryOracleTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertIn("error", report)
         self.assertNotIn(b"oracle PASS", child.stdout)
+
+    def upgrade_nb2(self):
+        types = {"STATUS": "status", "DATASETS": "datasets", "SUMMARY": "native_summary"}
+        for record in self.ledger:
+            record.update(protocol="NB2", wire=record["wire"].replace("NB1 ", "NB2 ", 1))
+        originals = {record["id"]: record for record in self.ledger}
+        for check in self.acceptance["checks"]:
+            native = check["output"]["native_receipt"]
+            record = originals[native["id"]]
+            native.update(protocol="NB2", original_operation=record["op"], normalized_args=record["args"],
+                          result_type=types[record["op"]], result_version=1)
+        self.save_acceptance()
+
+    def test_nb2_default_and_explicit_legacy_identity_validation(self):
+        state = self.prepare()
+        child, report, calls = self.run_script(state=state, protocol=None)
+        self.assert_fail(child, report)
+        self.assertIn("SUMMARY pre-submit ledger binding mismatch", report["error"])
+        self.output.unlink()
+        self.upgrade_nb2()
+        child, report, calls = self.run_script(state=state, protocol=None)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        self.assertEqual(report["protocol"], "NB2")
+        self.output.unlink()
+        original = copy.deepcopy(self.acceptance)
+        for key, value in (("original_operation", "MEAN"), ("normalized_args", [999]),
+                           ("result_type", "native_mean"), ("result_version", 2)):
+            with self.subTest(key=key):
+                self.acceptance = copy.deepcopy(original)
+                self.acceptance["checks"][2]["output"]["native_receipt"][key] = value
+                self.save_acceptance()
+                child, report, calls = self.run_script(state=state, protocol="NB2")
+                self.assert_fail(child, report)
+                self.assertEqual(report["error"], "NB2 original operation/arguments/result schema mismatch")
+                self.assertEqual(calls, [])
+                self.output.unlink()
 
     def test_fixture_records_actual_host_hand_known_truth_and_independent_files(self):
         child, report, calls = self.run_script(CREATE)

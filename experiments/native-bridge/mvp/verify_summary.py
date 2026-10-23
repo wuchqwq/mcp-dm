@@ -21,6 +21,26 @@ OPERATORS = ["GMSImageProcessing::GetMinimum", "GMSImageProcessing::GetMaximum",
 BACKEND = "digitalmicrograph-native"
 
 
+def _protocol():
+    mode = os.environ.get("DM_NATIVE_ORACLE_PROTOCOL", "NB2")
+    if mode not in ("NB2", "NB1_LEGACY"):
+        raise RuntimeError("Unsupported native oracle protocol mode")
+    return "NB1" if mode == "NB1_LEGACY" else "NB2"
+
+
+def _operation_identity(receipt, operation, args):
+    if _protocol() == "NB1":
+        return  # Explicit read-only historical validation; never a sender fallback.
+    types = {"STATUS":"status", "DATASETS":"datasets", "INFO":"image_info", "MEAN":"native_mean",
+             "SUMMARY":"native_summary", "CROP":"image_crop", "SHOW":"image_delivery", "STOP":"ipc_stop"}
+    if (not isinstance(receipt, dict) or receipt.get("protocol") != "NB2" or receipt.get("original_operation") != operation
+            or type(receipt.get("normalized_args")) is not list or receipt["normalized_args"] != args
+            or any(type(value) is not int or not 0 <= value <= 0xffffffff for value in receipt["normalized_args"])
+            or receipt.get("result_type") != types[operation]
+            or type(receipt.get("result_version")) is not int or receipt["result_version"] != 1):
+        raise RuntimeError("NB2 original operation/arguments/result schema mismatch")
+
+
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
@@ -98,10 +118,10 @@ def metadata(actual, expected):
                     "SUMMARY metadata calibration number mismatch")
 
 
-def receipt(output, request_id, report, state="completed"):
+def receipt(output, request_id, report, state="completed", operation=None, args=None):
     require(isinstance(output, dict), "Invalid SUMMARY output")
     value = output.get("native_receipt")
-    require(isinstance(value, dict) and value.get("protocol") == "NB1"
+    require(isinstance(value, dict) and value.get("protocol") == _protocol()
             and value.get("session") == report["session"] and value.get("id") == request_id
             and value.get("request_id") == request_id and value.get("state") == state
             and type(value.get("host_pid")) is int and value["host_pid"] == os.getpid()
@@ -115,6 +135,8 @@ def receipt(output, request_id, report, state="completed"):
     if state == "completed":
         require(output.get("backend") == BACKEND and not any(k in value for k in ("error", "code")),
                 "SUMMARY completed backend/error mismatch")
+    if operation is not None:
+        _operation_identity(value, operation, args)
     return value
 
 
@@ -176,7 +198,7 @@ def evidence(truth, acceptance, records):
             require(set(arguments) == {"request_id"} and label in recovered
                     and output == recovered[label] and request_id == output["native_receipt"]["id"],
                     "SUMMARY QUERY not identical to original submission")
-            receipt(output, request_id, acceptance)
+            receipt(output, request_id, acceptance, operation="SUMMARY", args=[images[label]["id"]])
             summary(output, images[label])
             continue
         require(request_id not in used, "SUMMARY duplicate submitted request ID")
@@ -186,7 +208,7 @@ def evidence(truth, acceptance, records):
         expected_arguments = {"request_id": request_id}
         if op == "SUMMARY":
             expected_arguments["image_id"] = args[0]
-        wire = "NB1 %s %s %s%s\n" % (truth["session"], request_id, op,
+        wire = "%s %s %s %s%s\n" % (_protocol(), truth["session"], request_id, op,
                 " " + " ".join(str(value) for value in args) if args else "")
         require((op != "SUMMARY" or integer(arguments.get("image_id")))
                 and isinstance(record, dict) and type(record.get("host_pid")) is int
@@ -195,17 +217,17 @@ def evidence(truth, acceptance, records):
                 and isinstance(record.get("arguments"), dict)
                 and (op != "SUMMARY" or integer(record["arguments"].get("image_id")))
                 and arguments == expected_arguments and record == {
-            "protocol": "NB1", "session": truth["session"], "id": request_id, "op": op,
+            "protocol": _protocol(), "session": truth["session"], "id": request_id, "op": op,
             "args": args, "host_pid": os.getpid(), "tool": tool,
             "arguments": expected_arguments, "wire": wire}, "SUMMARY pre-submit ledger binding mismatch")
         if label in errors:
-            native = receipt(output, request_id, acceptance, "failed")
+            native = receipt(output, request_id, acceptance, "failed", op, args)
             require(check.get("expected_error") == errors[label]
                     and native.get("code") == "native_error" and native.get("error") == errors[label]
                     and output.get("error") == errors[label] and not any(k in output for k in SCALARS),
                     "SUMMARY expected failure mismatch")
         else:
-            receipt(output, request_id, acceptance)
+            receipt(output, request_id, acceptance, operation=op, args=args)
             if op == "STATUS":
                 require(output.get("ready") is True and output.get("binary_gate") is True
                         and output.get("supported_build") == "3.53.4137.0-x64"
@@ -370,6 +392,7 @@ def main():
     path = os.path.join(directory, "summary-independent.json")
     with open(path, "x", encoding="utf-8") as output:
         report = {"schema": 1, "status": "FAIL", "session": os.environ.get("DM_NATIVE_SESSION"),
+                  "protocol": _protocol(), "protocol_mode": os.environ.get("DM_NATIVE_ORACLE_PROTOCOL", "NB2"),
                   "host_pid": os.getpid(),
                   "kind": "synthetic-only", "python_is_listener": False, "backend": BACKEND,
                   "scope": "same-host SUMMARY receipts, raw scalars and all-source invariance",

@@ -1,5 +1,16 @@
 # Native candidate integration plan
 
+## Current documentation reconciliation
+
+Main's PR #4 documentation structure (known `3026cbe`) is the human/agent
+documentation baseline: short researcher READMEs, README.agent.md and the
+preserved long-form REFERENCE.md/en. Synchronizing main **into this feature**
+must keep those pages and the feature's SHOW, NB2, version profiles, qualified
+operators and independent handoff acceptance. Never copy the feature's old
+long homepages over the researcher pages or repeat already merged core/crop-ID
+features. Current feature scope is in [HANDOFF.md](HANDOFF.md); all comparisons
+below are historical snapshots. No feature-to-main merge or release is granted.
+
 ## Latest continuation boundary
 
 The later fetch still found main at `64b5124` and the pre-SUMMARY remote feature

@@ -44,7 +44,9 @@ def image_metadata(image):
         "coordinate_rule": "physical(i)=calibrated_value_at_pixel_zero+i*scale"}
 
 def native_receipt(request_id, failed=False):
-    result = {"protocol": "NB1", "session": truth["session"], "id": request_id,
+    result = {"protocol": "NB2", "session": truth["session"], "id": request_id,
+        "original_operation": operation, "normalized_args": native_args,
+        "result_type": {"STATUS":"status", "DATASETS":"datasets", "SUMMARY":"native_summary"}[operation], "result_version":1,
         "request_id": request_id, "state": "failed" if failed else "completed", "host_pid": truth["host_pid"],
         "worker_tid": 202, "exec_tid": 203, "timings_us": {"queue": 0, "execute": 1}}
     if mode == "wrong_pid": result["host_pid"] += 1
@@ -84,6 +86,10 @@ def summary(image, request_id):
     if mode == "bad_exec": output["native_receipt"]["exec_tid"] = 298
     if mode == "bad_completed_state": output["native_receipt"]["state"] = "running"
     if mode == "bad_completed_error": output["native_receipt"]["error"] = "stray error"
+    if mode == "bad_original_operation": output["native_receipt"]["original_operation"] = "MEAN"
+    if mode == "bad_normalized_args": output["native_receipt"]["normalized_args"] = [999]
+    if mode == "bad_result_type": output["native_receipt"]["result_type"] = "native_mean"
+    if mode == "bad_result_version": output["native_receipt"]["result_version"] = 2
     if mode == "after_errors_bad" and summary_calls == 7: output["sum"] += 1
     if mode == "bad_raw_units" and image["label"] == "RAW_UNITS":
         output["image"]["calibration"][0]["issue"] = "missing"
@@ -106,7 +112,8 @@ for line in sys.stdin:
     if method == "initialize":
         result = {"protocolVersion": "2024-11-05", "serverInfo": {"name": "digitalmicrograph", "version": "0.6.0"}}
     elif method == "tools/list":
-        names = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show"]
+        names = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
+                 "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read"]
         schema = {"type": "object", "additionalProperties": False, "required": ["image_id"],
             "properties": {"image_id": {"type": "integer", "minimum": 0, "maximum": 4294967295}, "request_id": {"type": "string"}}}
         if mode == "bad_schema": schema["required"] = []
@@ -128,7 +135,7 @@ for line in sys.stdin:
             native_args = [arguments["image_id"]] if operation == "SUMMARY" else []
             assert record["id"] == request_id and record["op"] == operation and record["args"] == native_args
             assert record["session"] == truth["session"] and record["host_pid"] == truth["host_pid"]
-            expected_wire = "NB1 %s %s %s%s\n" % (truth["session"], request_id, operation, " "+" ".join(map(str,native_args)) if native_args else "")
+            expected_wire = "NB2 %s %s %s%s\n" % (truth["session"], request_id, operation, " "+" ".join(map(str,native_args)) if native_args else "")
             assert record["wire"] == expected_wire
             with (evidence/"peer-ledger-checks.jsonl").open("a", encoding="utf-8") as log: log.write(json.dumps(record)+"\n")
             if tool == "dm_status":
@@ -149,7 +156,9 @@ for line in sys.stdin:
                     error = "image_not_found" if image is None else "native_summary_requires_float32_2d" if image["label"]=="UINT16" else "native_summary_nonfinite_result"
                     failed = native_receipt(request_id, True)
                     failed.update(code="native_error", error=error)
-                    if mode == "bad_failure_state": failed["state"] = "unknown"
+                    if mode == "bad_failure_state":
+                        failed.update(state="unknown", exec_tid=0, original_operation=None, normalized_args=None, result_type=None, result_version=None)
+                        failed.pop("code"); failed.pop("error")
                     if mode == "bad_failure_pid": failed["host_pid"] += 1
                     if mode == "bad_failure_error": failed["error"] = "different_error"
                     result = text_output({"error": error, "native_receipt": failed}, True)
@@ -305,6 +314,13 @@ class NativeSummaryAcceptanceTests(unittest.TestCase):
                 unused, evidence, report = self.run_case(expected_error=error, mutate_truth=mutation)
                 self.assertIsNone(report)
                 self.assertFalse(evidence.exists())
+
+    def test_nb2_operation_args_and_schema_are_bound_before_scalar_acceptance(self):
+        for mode, error in (("bad_original_operation", "NB2 operation/result schema identity mismatch"),
+                ("bad_normalized_args", "NB2 original operation/arguments differ from submitted request"),
+                ("bad_result_type", "NB2 operation/result schema identity mismatch"),
+                ("bad_result_version", "NB2 operation/result schema identity mismatch")):
+            with self.subTest(mode=mode): self.run_case(mode, error)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ Existing client configuration remained unchanged.
 Offline tests use an explicitly synthetic host and do not
 load Gatan code; their PASS remains separate from real-host acceptance.
 
-**Current revision: limited synthetic real-host acceptance passed.** A new
+**Historical limited synthetic real-host acceptance passed.** An earlier
 strict session passed native SUMMARY, crop/QUERY/duplicate/conflict and SHOW,
 with independent full-pixel, calibration, source and unique-document checks.
 SHOW remained visible after STOP released plugin references; closing only its
@@ -26,20 +26,34 @@ The preserved older session was also observed and cleaned normally, but its
 missing original STOP request leaves its historical qualification UNVERIFIED.
 See [HANDOFF.md](HANDOFF.md) and [RESULTS.md](../RESULTS.md) for scope limits.
 
+NB2/profile selection, small-input arithmetic/Fourier/filter/preview and the
+explicit READ-to-NPY workflow have separate synthetic real-host evidence.
+Consult [operation acceptance](OPERATIONS_ACCEPTANCE.md) for the exact scope
+and the distinction between prepared and final production-admission builds.
+The [adapter matrix](ADAPTERS.md) lists the exact
+Windows x64 GMS 3.53.4137.0 profile; no other build is supported. Status reports
+`SUPPORTED`, `UNSUPPORTED_BUILD`, `ABI_MISMATCH` or `NOT_READY`. Five exact
+module fingerprint gates remain required before vendor calls.
+`native_statistics` means the complete four-reduction SUMMARY group;
+`native_mean` is a separate capability, not a partial statistics group.
+
 The ordinary Python backend stays the default. Selecting
 `DM_MCP_BACKEND=native` selects this experimental backend and its own tool
 catalog; it never starts or falls back to the resident Python bridge.
 
 Future processing extensions call DM's own operators; the bridge handles
 parameters, ownership and result delivery. It does not implement a parallel
-analysis engine. [FFT readiness](FFT_READINESS.md) records static findings and
-unresolved acceptance conditions; native FFT is not implemented or advertised.
+analysis engine. Arithmetic, [FFT and components](FFT_READINESS.md), filters,
+preview and bounded numeric READ are explicit tools in the fourteen-tool native
+catalog. Each still requires the selected adapter's qualified capability.
+Follow [the researcher workflow](NATIVE_WORKFLOW.md) for scientific handoff;
+the saved-response encoder and external example never run as hidden fallbacks.
 
 The [batch candidate inventory](BATCH_CANDIDATES.md) prepares typed calls and
 synthetic ownership tests for further DM operators. That module remains
 outside the product plugin. The four SUMMARY reductions now have a separate
-qualified adapter path; remaining operators still require individual integration
-and acceptance.
+qualified adapter path. New candidate operators still require individual
+ABI, scientific, source-protection and lifecycle qualification before admission.
 
 ## Public native tools
 
@@ -51,7 +65,14 @@ and acceptance.
 | `dm_native_summary` | DM's minimum, maximum, sum and mean for an explicit-ID 2D float32 image, at most 4,194,304 pixels; raw intensity, no stddev/variance |
 | `dm_native_result` | Query the retained receipt using its original operation ID |
 | `dm_crop` | Explicit-ID half-open crop into a separate plugin-retained image; limited strict MCP and independent pixel/source acceptance passed |
-| `dm_native_show` | Exact plugin-crop delivery to a visible DM document; saved request ID required; limited visibility, document ownership after STOP and final release passed |
+| `dm_native_show` | Exact qualified plugin-result delivery to a visible DM document; saved request ID required; document lifetime is separate from file persistence |
+| `dm_native_unary` | Native negate, absolute value and square of float32 2D |
+| `dm_native_binary` | Native add, subtract and multiply; same shape and calibration, no broadcasting |
+| `dm_native_fft` | Small real forward FFT and paired inverse of the retained full-complex result; explicit Fourier v2 conventions |
+| `dm_native_complex` | Real, imaginary, phase in radians or power (squared magnitude) of qualified retained Fourier results |
+| `dm_native_filter` | Small float32 smooth, Sobel, Laplace and sharpen with documented vendor borders |
+| `dm_native_preview` | Bounded sampled display PNG and source-coordinate mapping; not numeric export |
+| `dm_native_read` | Explicit half-open float32 ROI, at most 16,384 samples/64 KiB, raw little-endian bytes and calibration; no file write |
 
 Current P0 policy separates raw intensity from spatial calibration. A known
 missing unit, zero/nonfinite spatial scale or unusable spatial origin does not
@@ -64,14 +85,14 @@ native/ABI failures remain errors. The empty-unit case passed separate
 actual-host mean/metadata checks; other invalid spatial-number cases currently
 have offline surrogate coverage only.
 
-This is not the complete `dm_stats` interface. Export, preview, arbitrary
+This is not the complete `dm_stats` interface. Native SaveAs/Open, arbitrary
 script execution, spectrum/4D tools and hardware controls are not exposed in
 the native catalog. A cropped image is retained by bounded plugin-owned
 references until native STOP/cleanup. No visible document, displayed image or
 model visual acceptance is implied by the crop ID alone.
 
 `dm_native_show(image_id, request_id)` calls the native display path only for an existing
-plugin-retained crop by its exact ID, without making another data copy or
+qualified plugin-retained result by its exact ID, without making another data copy or
 accepting a file path. It requires a separately saved request ID. This
 native completed receipt, same-image recovery, actual visibility and unique
 document ownership passed separate limited synthetic checks. The document
@@ -108,7 +129,7 @@ failure or nonfinite result can still reject the operation.
 Use [TRIAL_ACCEPTANCE.md](TRIAL_ACCEPTANCE.md) for synthetic input creation,
 strict stdio MCP checks, independent pixel/calibration oracles and the saved
 STOP/document-lifetime sequence. Protocol receipts, actual visibility and
-source preservation require their own evidence. The limited new-session checks
+source preservation require their own evidence. The earlier limited strict-session checks
 passed; historical missing evidence is not repaired by that later PASS.
 Use [SUMMARY_ACCEPTANCE.md](SUMMARY_ACCEPTANCE.md) for its independent scalar,
 nontrivial intensity-calibration and all-source checks. Four native reductions
@@ -120,7 +141,7 @@ claimed.
 Each connection carries one ASCII request ending in LF:
 
 ```text
-NB1 <32-lowercase-hex-session> <request-id> <operation> [uint32 arguments]
+NB2 <32-lowercase-hex-session> <request-id> <operation> [uint32 arguments]
 ```
 
 The complete request is at most 512 bytes including LF. IDs match
@@ -130,13 +151,34 @@ overflow are checked exactly. Supported transport forms are `STATUS`,
 `SHOW image_id`, `QUERY` and `STOP`. Rectangular upper bounds are exclusive. INFO is a direct
 acceptance/client operation, not a separate public MCP tool. Native crop
 support remains build-specific and experimental despite its limited acceptance.
+The closed internal operation set also includes `UNARY image_id opcode`,
+`BINARY lhs_id rhs_id opcode`, `FILTER image_id filter_kind`, `FFT image_id`,
+`IFFT image_id`, `REAL image_id`, `IMAG image_id`, `VENDOR_ARG image_id`,
+`VENDOR_NORM image_id`, `PREVIEW image_id max_width max_height` and
+`READ image_id x0 y0 x1 y1`. These fixed forms back the public tools above;
+they are not an arbitrary script or symbol interface.
 
 Each response is one UTF-8 JSON value ending in LF, bounded to 128 KiB including
 LF. It includes `protocol`, `session`, `id`, `state`, `host_pid`, `worker_tid`,
-`exec_tid`, and queue/execute timings in `timings_us`. `result` appears only for
+`exec_tid`, queue/execute timings in `timings_us`, and the four immutable identity
+fields `original_operation`, `normalized_args`, `result_type`, `result_version`.
+For an accepted record, every queued/running/completed/failed receipt and QUERY
+uses its original operation and normalized argument array, with result contract
+version 1, except Fourier v2 for new submissions (v1 only for historical
+recovery). QUERY does not replace that operation with `QUERY`. Unknown IDs and
+unadmitted requests carry `null` in all four identity fields; an ID conflict
+reports the existing record's identity. Clients validate that identity before
+dispatching to an operation-specific result validator, without guessing from
+payload fields. `result` appears only for
 `completed`; `error` and `code` appear only for `failed`. Oversized results are
 rejected explicitly instead of truncated. Negative and fractional means retain
 their native double representation; nonfinite values are rejected.
+
+New clients and the plugin speak NB2 only. An old NB1 DLL or request is
+explicitly rejected; there is no protocol downgrade or backend fallback.
+Read-only historical oracles may explicitly select
+`DM_NATIVE_ORACLE_PROTOCOL=NB1_LEGACY` to inspect existing NB1 evidence. This
+does not send NB1 requests or qualify the current NB2 implementation.
 
 The named pipe is session-specific, permits the current Windows user, and
 rejects remote clients. A worker only handles transport/state. Native work is
@@ -151,7 +193,7 @@ fails. `QUERY` does not create a record. The session retains up to 1023 ordinary
 operation records plus one STOP receipt, without eviction.
 
 `dm_crop` requires a caller-saved `request_id` before submission; newly added
-side-effect tools, including the P1 show candidate, follow the same rule.
+side-effect tools, including experimental native show, follow the same rule.
 `dm_native_result` requires the original ID. Existing read-only status,
 datasets, mean and read-only summary calls permit generated IDs, but
 the operator trial supplies explicit IDs for every call. Save the original
@@ -229,7 +271,7 @@ Python transport tests. Neither compilation nor these tests installs a plugin,
 starts DM or proves real-host execution. `fake_host.exe` and the adapter tests
 use synthetic callbacks, not Gatan modules.
 
-The Windows E2E test connects the actual stdio MCP server, NB1 named pipe,
+The Windows E2E test connects the actual stdio MCP server, NB2 named pipe,
 message window and C++ retained-state core. C++ emits an execution-start
 event before the test cancels the MCP wait. A fresh Node client then queries
 the saved ID, including after delayed completion, and C++ creation counters
@@ -251,10 +293,12 @@ scripts themselves and does not execute an oracle in DM.
 
 The trial oracles compare native receipt identity with their actual process
 PID and bind STOP to an original request record persisted before submission.
-Missing old records remain UNVERIFIED. The explicit legacy observation mode
-uses separate outputs and cannot produce PASS; it does not relax process,
-pixel, calibration or document checks. Follow [the unlock checklist](UNLOCK_CHECKLIST.md)
-for the preserved session, and [the integration plan](INTEGRATION_PLAN.md)
+Missing old records remain UNVERIFIED. The separate
+`DM_NATIVE_ORACLE_MODE=observe_legacy_stop` observation mode uses separate
+outputs and cannot produce PASS; it does not relax process, pixel, calibration
+or document checks. This missing-record policy is separate from the explicit
+NB1_LEGACY protocol reader. [The unlock checklist](UNLOCK_CHECKLIST.md)
+preserves historical continuation steps; use [the integration plan](INTEGRATION_PLAN.md)
 before a future main reconciliation. The Unicode diagnostic independently
 records bytes/text and exceptions without guessing a codec or qualifying UI
 behavior.

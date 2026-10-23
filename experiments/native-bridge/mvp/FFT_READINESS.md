@@ -1,74 +1,77 @@
-# DM 原生 FFT 接通前清单
+# DM 原生 Fourier：已验范围与剩余边界
 
-目标是让 Agent 调用 **DM 自身的 FFT 和相关处理**。MCP/C++ 负责参数校验、
-宿主线程调用、结果身份与引用管理、状态查询和交接；不另写 Python/C++ FFT、
-求幅值或滤波引擎。独立验收用的手算参考不成为产品计算路径。
+原生 Fourier 已接入指定构建适配器，科学计算由 DM 的 Real_FFT、IFFT、Real、
+Imag、Arg 和 Norm 完成。MCP/C++ 不另写 FFT、幅值、功率或滤波算法，也不回退
+到旧 Python FFT。当前十四工具目录和显式使用方法见
+[原生工作流](NATIVE_WORKFLOW.md)，逐项证据见 [操作验收](OPERATIONS_ACCEPTANCE.md)。
 
-**当前原生 FFT 尚未实现，也未经真实 DM 验收。** 原生目录仍为 status、
-datasets、mean、result、crop、show 六个工具。本页不新增工具、协议操作或
-schema，不改变默认 v0.6 Python 后端。旧 Python FFT 的去均值、绝对值和
-fftshift 约定可保留作历史兼容性对照，不能作为 DM FFT 的既定语义或数值真值；
-既有 Python 参考测试通过不表示原生 FFT 已通过。
+第一新合成宿主的 prepared 调用、独立数学、源保护、输出独立性、预览及
+SHOW/STOP/最终关闭生命周期已限定通过，并正常退出，exit code 0。数学证明
+使用常数、4×8 单点冲激、单频与 4×4 非对称图，共 22 个 Fourier/分量输出，
+不是从预览亮度或旧 Python 输出猜约定。该批记录是 v1。第二合成宿主另外通过
+当前公开 MCP 的 v2 FFT/IFFT/REAL 与固定参考、四种 filter、READ/NPY 逐 bit
+交接及显式外部均值；其独立源保护、内存核对、同 PID STOP 释放、正常 exit 0
+和 manifest 清理也通过。最终 production DLL 随后在第三宿主独立通过当前
+MCP 链和 `qualification_mode:production` 的同 PID oracle，功能链记为
+LIMITED_SYNTHETIC_REAL_HOST_PASS；加载产物身份已单独绑定。第三宿主自己的
+原始 STOP、九个未显示输出释放、九源/文档/capture 保持已独立通过，随后正常
+exit 0 并完成 manifest 移除；退出后的新外部运行仍可核验原 NPY 并重现均值。
+当前 profile 已提升五组限定资格，production 不再读取 preparation 环境开关，
+也不以目录名称或环境变量绕过能力检查。
 
-## 调用前必须明确的条件
+## 目前的窄门
 
-静态审计已识别实数、复数及 packed 相关厂商入口的不同约束、返回/引用形状，
-以及厂商 packed→complex 转换和频率标定转移路径。它们不是可互换别名；
-这些证据不构成可调用或实机 PASS，完整适配契约仍为 **NOT_QUALIFIED**。
+- FFT：显式 float32 2D、ordinary packing、finite、完整有效空间标定；每轴
+  为 4–256 的二次幂，最多 65,536 像素。Real_FFT 的返回路径由 DM 自身转换为
+  full complex，结果按 complex64 元数据处理，不把 packed 数据猜成普通数组。
+- IFFT：只接受本插件仍持有的 FFT 结果；当前数学证据是 real-input 的
+  Hermitian 频谱配对，不接受任意外部复数图或声称测完所有非 Hermitian 输入。
+- 分量：只接受本插件仍持有的 FFT/IFFT 结果，生成独立 float32；phase 为弧度，
+  power 为平方幅值。ID 和 immutable creation record 决定来源，不解析名字或前台图。
+- 共享结果池最多 32 项／16 MiB，单结果最多 4 MiB；已知验证临时图计入入场预算。
+  厂商内部 FFT 工作区未完全界定，小输入限制不是整个宿主工作集的上界。
 
-| 条件 | 接通前须确认的内容 |
-|---|---|
-| DM 算子与 ABI | 确认指定构建上的真实 FFT 入口、参数/返回类型、线程要求、引用所有权及失败释放路径。只有名称或可调用地址不足以证明契约；不得在静态证据不足时试探加载。 |
-| 输入类型与轴 | 明确首轮接受的二维尺寸和 dtype、是否接受复数、非有限值的拒绝规则，以及 DM 轴序与对外交接轴序。显式选择源 ID，不跟随前台或最新窗口；不暗中转成 8/16 位或 float32。 |
-| 复数与 packing | 查清结果是完整 complex、半谱还是 DM 特有 packed 格式；核对元素大小、实虚部布局、stride、逻辑尺寸、DC/Nyquist 和共轭对称边界。不能把它当现有实标量图像读取，也不能猜成最后一维长度 2 的数组。 |
-| 数值含义 | 记录正负号、幅值归一化、DC 位置、中心化发生在数据还是显示层，以及奇偶尺寸的索引规则。区分 complex、幅值、功率与对数显示；若需要派生结果，调用已确认的 DM 算子并记录处理链。去均值、加窗、padding 不得隐式加入。 |
-| 频率标定 | 核对各轴采样间距、符号、单位及 DM 的频谱原点；验证频率步长与 `1/(N*dx)` 的关系，并区分 cycles/unit 与 radians/unit。源 origin 对相位及输出标定的影响须另核对。缺单位或无效标定不得猜成 nm 或倒易 nm；须在接通前决定仅返回无物理单位的频点是否允许，否则明确拒绝物理频率结果。 |
-| 工作量预算 | 在调用和分配前限制输入、逻辑输出、packed/complex 实际字节、派生显示图、临时区及累计保留结果。FFT 的临时内存不能按现有 crop 大小预算推断；若厂商临时区不可界定，只能限制并验收小输入，不能宣称总工作集有界。等待 deadline 也不是 DM 计算终止保证。 |
-| 独立输出与源保护 | 明确 DM 调用是否修改输入；需要工作副本时由 DM 创建并核对独立内存。输出须有与源不同且绑定本次操作的新 ID、完整类型/轴标定和明确持有者。失败时释放未提交引用，不按名称或创建时间认领结果。只在空闲宿主串行执行，不能承诺原子快照或并发编辑保护。 |
-| 请求与恢复 | FFT 若创建结果即属副作用操作，未来接入前必须沿用提交前保存的 request_id、session 和原参数。单次提交后只 QUERY 同 ID；取消、超时或断连不表示 DM 已停止。相同 ID 不重复创建，冲突参数拒绝；STOP、退出和新 session 不保证恢复。 |
+正常失败会释放尚未提交的 owned reference；成功提交的结果由插件持有至
+正常 STOP/cleanup。客户端取消不等于厂商计算取消；有副作用的提交前先保存
+session、request_id 和参数，状态不确定时只 QUERY 同 ID，不自动重发。
 
-现有 mean/crop 对类型、预算和标定的支持范围不能自动扩展到 FFT 结果。
-计算成功也必须检查真实 backend、构建门、宿主/执行线程、源/输出 ID 和
-completed 回执；queued、running、unknown 及任何错误都不是成功。
+## v2 明确的数值与坐标
 
-## 离线阶段可以完成什么
+Forward 使用正指数、未归一化，DC 数据位于居中数组索引；没有去均值、加窗或
+padding。配对 inverse 使用负指数并除以 width×height。REAL/IMAG 为原生实虚部，
+Arg 为 `atan2(imag,real)` 弧度（含 signed-zero 分支），Norm 为 `real²+imag²`，
+不是幅值。不能把旧默认后端 `dm_fft` 的历史语义套在此处。
 
-- 整理 DM 调用、complex/packing 和引用生命周期的静态证据，将未确认项
-  保留为阻塞；不通过加载 DLL 或调用真实宿主来补证据。
-- 准备小型、可手算的合成验收用例：常数、单点脉冲、单一频率和不对称尺寸，
-  包含奇偶尺寸、带符号标定及缺单位情况。参考值用于区分归一化、中心和轴序，
-  不照抄旧 Python FFT 输出，也不扩成第二套生产分析引擎。
-- 准备类型/packing、整数溢出、预算超限、无效 ID、未知状态及错误交接的
-  检查设计。沿用合成宿主验证预存 ID、单次提交、同 ID 查询和冲突拒绝的
-  传输规则；这些离线结果只证明相应边界，不证明 DM FFT 数值或 ABI 正确。
+对长度 N、源带符号间距 d，native 频率 scale 为 float32 `1/(N*d)`，保留方向。
+原生 raw origin 是 `(N+1)/2`，其物理零点保留实际读回值；DC 索引是 N/2，
+因此 native 校准坐标有半 bin 偏移。v2 同时返回：
 
-本页仅记录准备条件，未声称上述 FFT 用例、调用适配或测试已经完成。
+- 实际 DM 元数据和 native DC 值，不改标定。
+- `frequency_grid` 的数学 bin 坐标 `f(i)=(i-dc_index)*physical_frequency_step`。
 
-## 真实 DM 仍须验收的内容
+不可把 native raw origin、物理零点与数学 DC 混为一谈。IFFT 恢复 signed scale
+和空间单位，但将原点设为 0，不恢复源偏移；`inverse_restores_source_origin:false`。
+Fourier 输出强度标定为 origin 0、scale 1、空单位，分量复制其父结果标定，
+不应用源 intensity calibration。首批输入的非平凡强度标定用于独立区分 raw 处理。
 
-1. 使用新的、获准的空闲测试会话和小合成图，先核对构建、线程及源身份。
-   比较 DM 输出与独立手算参考，并与明确参数的 DM 直接操作对照；直接操作
-   一致不能单独替代数学参考。逐项核对 complex/packing、归一化、中心、
-   轴序、奇偶边界及频率标定，不从屏幕亮度推断原始数值。
-2. 保存源像素/标定的调用前后证据，检查结果独立性、全部输出值及元数据，
-   测量限定输入的内存峰值。小图通过不推广到任意大图、其它 dtype 或构建。
-3. 验证预存 ID 后的迟到结果、断连恢复和冲突拒绝，只产生同一个输出；
-   独立检查失败路径与 STOP 后引用释放。客户端取消不能作为执行取消证明。
-4. 另行验收结果的显示、交接和最终释放：正常关闭交付文档后，在 DM 仍运行
-   时核对最后引用，再正常退出并按所有权记录清理。保留各阶段原始证据，
-   不借用早前 crop 或当前 SHOW 回执的 PASS。
+数学 reference 是验收工具，不进入插件。首批所有对照值准确吻合，仍只证明
+4×4／4×8 的固定合成矩阵，未给任意尺寸、其它单位/packing/dtype 或大图精度
+背书。缺失或无效空间标定在进入 Fourier 前拒绝，不猜 nm 或倒易 nm。
 
-## 当前结果交付阻塞
+## 交付与待验事项
 
-`dm_native_show` 当前只接受本插件持有的 **crop**，不能用于任意源图或未来
-FFT 图像；它本身的独立可见性、文档数量与 STOP 后持有验收仍为 HOLD。
-不能把 FFT 结果冒充 crop 来绕过限制。FFT 输出的持有、显示支持和文档
-生命周期必须另获确认，尚未提供这些能力。
+SHOW 可交付本插件持有的合格结果；本次独立可见性和文档持有试验选择了一个
+arithmetic 结果，未逐一显示所有 Fourier 输出。STOP 后显示文档可保留其结果，
+关闭该文档才释放最后引用；其余未显示结果在正常 STOP 后失效。旧缺原始 STOP
+记录的历史试验仍为 UNVERIFIED。
 
-原生目录没有 MCP 图像预览或科学文件导出；SHOW 回执不表示模型看到了图，
-也不表示文件已保存。Native SaveAs 的 ABI 和禁止覆盖语义尚未资格确认。
-因此，只有 FFT 数值回执也不能宣称“Agent 已完成可查看、可保存的 FFT 处理”。
-结果 ID、DM 可见文档、模型图像和持久化文件分别记录 PASS / FAIL / NOT_TESTED。
+Preview 已实现有界显示采样及 PNG content；它不等于定量导出或模型理解图像。
+复数图需先明确选择 real、imaginary、phase 或 power 再预览。READ 和显式 NPY
+编码针对有界实数数值，第二宿主已通过独立 bitwise 验收；不是 full-complex
+文件保存或 native SaveAs。当前 v2 复现入口是工作流中的
+`accept_handoff_mcp.py --qualification-mode production` 加同 PID oracle，
+不是第一宿主历史 prepared v1 harness。
+原生 SaveAs/Open 的路径、格式、禁止覆盖和失败语义仍未资格确认。
 
-当前限制见 [原生说明](README.md)；后续宿主核对遵循
-[原生验收流程](TRIAL_ACCEPTANCE.md)。默认后端与原生实验的证据范围保持分开。
+其它 GMS 版本、Unicode、任意复数输入和大尺寸不得自动继承 PASS。增加版本
+必须独立绑定 ABI、模块身份、数值、标定及生命周期，见 [版本步骤](ADAPTERS.md)。

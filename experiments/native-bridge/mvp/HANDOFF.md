@@ -1,5 +1,80 @@
 # Native MVP continuation handoff
 
+## Current: qualified native processing and bounded scientific handoff
+
+The feature now has fourteen native MCP tools. DM performs negate/abs/square,
+add/subtract/multiply, limited real FFT/paired inverse and real/imaginary/phase/
+power derivation, and smooth/Sobel/Laplace/sharpen. Preview returns a bounded
+display PNG; READ returns an explicit float32 ROI and spatial calibration.
+The exact tool, dtype, dimension, lineage and lifecycle limits are in
+[the workflow](NATIVE_WORKFLOW.md) and [operation acceptance](OPERATIONS_ACCEPTANCE.md).
+No arbitrary scripts, new scientific engine, Python fallback or native SaveAs
+were added. The default v0.6 backend and client configuration are unchanged.
+
+Version-specific layouts, call signatures, exports, RVAs, fingerprints and
+qualification are isolated in `adapters/gms_3_53_4137/`. Common transport,
+requests, ownership and MCP remain shared. Only the exact Windows x64 GMS
+3.53.4137.0 profile is qualified. Unknown builds, identity mismatches and unsafe
+initialization reject before entering vendor image code; missing optional
+capabilities do not disable safe unrelated groups. The final build uses profile
+qualification and complete symbol bindings, with no environment-variable bypass.
+See [the compatibility matrix and new-version procedure](ADAPTERS.md).
+
+The final production-admission build passed a new idle synthetic session:
+actual backend/profile readiness, strict Node stdio MCP, source preview,
+explicit crop, native square, bounded READ, exact float32 NPY reopening and
+explicit external raw-mean example. A separate oracle in that actual host PID
+bound the original pre-submission requests, live source/result objects, signed
+spatial calibration, independent memory and file hashes. Signed zero and
+subnormal bits survived the READ/NPY chain. Fourier v2 and all four filters had
+their own direct raw-array mathematical comparisons. Safe errors and unchanged
+original-ID QUERY were checked separately. This is limited synthetic real-host
+evidence, not experimental-data or ordinary model-client acceptance.
+
+The explicit saved-response encoder reuses `input.npy`, `input.json` and
+`capture.json`; it is data handoff, not DM SaveAs. It persists the caller's
+handoff ID before file creation, refuses overwrite/conflicts and never repairs
+an incomplete request automatically. Raw intensity is not calibrated; unread
+intensity coefficients remain null/NOT_READ. The optional external example
+preserves its script, parameters, input hashes and results in a new directory.
+It is never started by the native runtime.
+
+The first expanded session separately verified visible delivery of an exact
+arithmetic result: document ownership after original STOP, unshown output
+release, and last-reference release after closing only that document. Later
+handoff sessions verified their original STOP IDs, unshown result release,
+unchanged sources/documents and captured files. All test hosts exited normally;
+manifest removal deleted only the project's owned DLL. Captured NPY reopened
+successfully again after final host exit and removal. No loaded DLL was replaced.
+
+NB2 adds immutable `original_operation`, `normalized_args`, `result_type` and
+`result_version`, including QUERY. Current clients require the matching NB2 DLL;
+there is no downgrade. New Fourier submissions use v2. Old v1 preparation
+scripts/records are retained as historical evidence; the current reproducible
+procedure is `accept_handoff_mcp.py` plus `verify_handoff.py` and
+`verify_handoff_stopped.py`. The initial READ-client contract failure and initial
+Fourier-reference failure remain preserved as FAIL attempts; successful reruns
+use new outputs. Missing historical STOP records remain UNVERIFIED.
+
+Offline core, adapter/READ surrogates, profile selection/rejection, Windows pipe,
+Node MCP/PNG/NPY, default Python compatibility and independent oracle negative
+controls passed. The original 106 negative controls were actually rerun and
+remain effective; newer NB2/STOP/handoff controls are additional. Detailed run
+artifacts remain private. No real experiment data processing was performed.
+
+Still unsupported or unqualified: native SaveAs/Open, direct full-complex
+scientific export, uint32/integer native processing, native spectrum/4D,
+variance/stddev, other GMS builds, concurrent source edits and non-ASCII legacy
+name interoperability. Ordinary Agent/model-client acceptance is NOT_TESTED.
+Next, prioritize a separately proven dtype/data-handoff extension before
+attempting the user's uint32 ADF data; do not silently cast or use a thumbnail.
+
+The researcher homepages from main's documentation change must be retained,
+together with README.agent.md and REFERENCE.md/en. Technical feature details
+belong here and in those guides, not in a restored old long-form homepage.
+This feature is for review; do not merge into main, release, change the default
+backend or restart a closed historical session without a new explicit task.
+
 ## Latest: qualified SUMMARY and completed document handoff
 
 The new prepared synthetic session passed the pinned build/native readiness

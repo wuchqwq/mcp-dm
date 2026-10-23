@@ -8,10 +8,50 @@ inside DM. Runtime acceptance belongs in RESULTS.md.
 Resolve exported symbols with `GetModuleHandleW` and `GetProcAddress`. Do not load a
 second copy of a host module. Require the allowlisted host/module identities,
 architecture, and all required symbols before acquiring an image reference.
+The adapter selection, compatibility states and per-capability negotiation are
+documented in [adapter compatibility](mvp/ADAPTERS.md). Only the exact pinned
+Windows x64 3.53.4137.0 profile is registered; other builds are not qualified.
 The SDK compatibility export alone does not identify the image ABI.
 The SHOW candidate additionally needs non-exported typed entrypoints; its
 separate full-binary and executable-entry gates are described below. This is
 not permission to guess another build's addresses or revive the old PE resolver.
+
+## Version isolation and additional typed operations
+
+The common dispatcher and Windows identity reader contain no vendor object
+layout or call address. The current implementation, POD contracts and exact
+profile live in `mvp/adapters/gms_3_53_4137/`. Common request records, transport
+and object lifecycle are not duplicated for each version. Full fingerprints
+remain mandatory; optional capability groups have independent entry lists.
+
+The qualified image-producing calls use an explicit one-pointer `NativeRef`
+hidden result destination, checked return address, new image identity and paired
+strong-reference release. Unary wrappers take one source reference; binary
+wrappers take two. There is no bridge scientific kernel. Packing is a separate
+four-byte structure returned through its destination pointer: it is **not** a
+scalar integer-return getter. This is checked before any ordinary-packing pixel
+or Fourier path.
+
+The real-value getter returns `double` and consumes only the proven 2D index
+prefix: dimension count at byte 0, signed X at byte 8, signed Y at byte 16.
+This is not a complete definition of the vendor's multidimensional class.
+Only ordinary-packed float32 2D is admitted. READ rejects nonfinite or inexact
+float32 conversion, preserves signed zero and writes explicit little-endian
+bytes; preview performs display scaling only. Neither path maps a generic pixel
+buffer or supports arbitrary dtype/layout. See the per-version contracts and
+[operation qualification](mvp/OPERATIONS_ACCEPTANCE.md) for the tested limits.
+
+Real_FFT is followed by its reviewed native unpack path to obtain a full
+complex image. IFFT/component admission binds the exact retained parent object
+and immutable creation metadata. Fourier v2 reports the measured sign,
+normalization, centering and vendor calibration separately from mathematical
+frequency-bin coordinates; the bridge does not rewrite pixels or calibration
+to approximate another library's convention.
+
+SaveAs and Open remain blocked. Partial string-construction evidence is not
+enough to call either interface: format preservation, exclusive output, source
+filename mutation and error/ownership contracts still need decisive evidence.
+The explicit saved-READ NPY encoder is a separate data handoff, not DM SaveAs.
 
 ## Image identity and ownership
 

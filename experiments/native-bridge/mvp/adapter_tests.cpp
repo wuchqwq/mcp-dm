@@ -1,6 +1,6 @@
 // Deterministic ownership/ABI-shim guard tests. No vendor DLL is loaded.
 // Including the implementation injects C-shaped surrogates only in this EXE.
-#include "dm_adapter.cpp"
+#include "adapters/gms_3_53_4137/implementation.inc"
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -9,7 +9,7 @@
 namespace {
 struct FakeImage {
     LONG64 references = 1;
-    std::uint32_t id = 17, width = 11, height = 7, code = 2, dimensions = 2;
+    std::uint32_t id = 17, width = 11, height = 7, code = 2, dimensions = 2, packing = 1;
     float origin[2] = {5, 5}, scale[2] = {-0.25f, 0.5f};
     std::wstring unit[2] = {L"nm", L"nm"};
     std::vector<float> pixels;
@@ -27,6 +27,9 @@ double expected_mean = -24.375;
 std::array<double, 3> expected_summary{-101.125, 92.75, -42.5};
 std::vector<std::string> summary_trace;
 bool summary_tracking = false;
+bool operation_tracking = false;
+std::string operation_fault, packing_fault, preview_fault;
+int operation_calls = 0, point_calls = 0;
 int summary_throw_index = -1, summary_gate_after_index = -1;
 void record_summary(unsigned index) {
     static const char* names[] = {"minimum", "maximum", "sum", "mean"};
@@ -74,6 +77,14 @@ NativeRef* find_fake(NativeRef* out, std::uint32_t id) {
     if (found != registry.end()) { InterlockedIncrement64(&found->second->references); out->image = found->second; }
     return out;
 }
+NativeRef* find_throw_fake(NativeRef* out, std::uint32_t id) {
+    find_fake(out, id);
+    throw std::runtime_error("surrogate find failure after owned reference");
+}
+NativeRef* find_return_fake(NativeRef* out, std::uint32_t id) {
+    find_fake(out, id);
+    return nullptr;
+}
 NativeRef* index_fake(NativeRef* out, std::uint32_t index) {
     out->image = nullptr;
     if (index >= registry.size()) return out;
@@ -84,6 +95,10 @@ std::uint32_t count_fake() { return static_cast<std::uint32_t>(registry.size());
 std::uint32_t id_fake(const void* image) { return static_cast<const FakeImage*>(image)->id; }
 std::uint32_t ndim_fake(const void* image) { return static_cast<const FakeImage*>(image)->dimensions; }
 std::uint32_t dtype_fake(const void* image) { return static_cast<const FakeImage*>(image)->code; }
+nb::NativePacking353* packing_fake(const void* image, nb::NativePacking353* out) {
+    out->value = static_cast<const FakeImage*>(image)->packing;
+    return packing_fault == "return_pointer" ? nullptr : out;
+}
 std::uint32_t dimension_fake(const void* image, std::int32_t dim) {
     const auto* data = static_cast<const FakeImage*>(image); return dim == 0 ? data->width : data->height;
 }
@@ -100,24 +115,114 @@ double mean_fake(const NativeRef* ref) {
     if (summary_tracking) record_summary(3);
     if (mean_throws) throw std::runtime_error("surrogate native mean failure");
     const auto* image = static_cast<const FakeImage*>(ref->image);
-    if (!image->generated) { check(ref->image == &fake); return expected_mean; }
+    if (!operation_tracking && !image->generated) { check(ref->image == &fake); return expected_mean; }
     double sum = 0;
     for (float value : image->pixels) sum += value;
     return sum / image->pixels.size();
 }
 double minimum_fake(const NativeRef* ref) {
+    if (operation_tracking) {
+        const auto& pixels = static_cast<const FakeImage*>(ref->image)->pixels;
+        check(!pixels.empty());
+        float value = pixels[0];
+        for (const auto pixel : pixels) { if (!std::isfinite(pixel)) return pixel; if (pixel < value) value = pixel; }
+        return value;
+    }
     check(ref && ref->image == &fake); record_summary(0); return expected_summary[0];
 }
 double maximum_fake(const NativeRef* ref) {
+    if (operation_tracking) {
+        const auto& pixels = static_cast<const FakeImage*>(ref->image)->pixels;
+        check(!pixels.empty());
+        float value = pixels[0];
+        for (const auto pixel : pixels) { if (!std::isfinite(pixel)) return pixel; if (pixel > value) value = pixel; }
+        return value;
+    }
     check(ref && ref->image == &fake); record_summary(1); return expected_summary[1];
 }
 double sum_fake(const NativeRef* ref) {
+    if (operation_tracking) {
+        double value = 0;
+        for (const auto pixel : static_cast<const FakeImage*>(ref->image)->pixels) value += pixel;
+        return value;
+    }
     check(ref && ref->image == &fake); record_summary(2); return expected_summary[2];
 }
 void delete_fake(void* pointer) {
     ++destructions;
     auto* image = static_cast<FakeImage*>(pointer);
-    if (image->generated) { registry.erase(image->id); delete image; }
+    if (image->generated) {
+        const auto entry = registry.find(image->id);
+        if (entry != registry.end() && entry->second == image) registry.erase(entry);
+        delete image;
+    }
+}
+// These callbacks are numerical/ownership surrogates confined to this test EXE.
+// FFT/filter copies below exercise call shape and guards, never vendor science.
+NativeRef* operation_fake(NativeRef* out, const NativeRef* left, const NativeRef* right, unsigned kind) {
+    ++operation_calls;
+    auto* source = static_cast<FakeImage*>(left->image);
+    if (operation_fault == "empty") return out;
+    if (operation_fault == "alias" || operation_fault == "right_alias") {
+        out->image = operation_fault == "right_alias" ? right->image : left->image;
+        InterlockedIncrement64(&static_cast<FakeImage*>(out->image)->references);
+        return out;
+    }
+    auto image = std::make_unique<FakeImage>(*source);
+    image->references = 1; image->generated = true; image->id = next_image_id++;
+    const auto* rhs = right ? static_cast<const FakeImage*>(right->image) : nullptr;
+    for (std::size_t i = 0; i < image->pixels.size(); ++i) {
+        const auto a = source->pixels[i];
+        if (kind == 1) image->pixels[i] = -a;
+        if (kind == 2) image->pixels[i] = std::fabs(a);
+        if (kind == 3) image->pixels[i] = a * a;
+        if (kind == 4) image->pixels[i] = a + rhs->pixels.at(i);
+        if (kind == 5) image->pixels[i] = a - rhs->pixels.at(i);
+        if (kind == 6) image->pixels[i] = a * rhs->pixels.at(i);
+    }
+    if (kind == 7 || kind == 8) {
+        image->code = 3;
+        for (unsigned axis = 0; axis < 2; ++axis) {
+            const auto size = axis == 0 ? image->width : image->height;
+            image->scale[axis] = 1.0f / (static_cast<float>(size) * source->scale[axis]);
+            image->origin[axis] = kind == 7 ? (static_cast<float>(size) + 1.0f) / 2.0f : 0.0f;
+            image->unit[axis] = kind == 7 ? L"1/" + source->unit[axis] : source->unit[axis].substr(2);
+        }
+    }
+    if (kind == 9) image->code = 2;
+    if (operation_fault == "dtype") image->code = 10;
+    if (operation_fault == "packing") image->packing = 2;
+    if (operation_fault == "size") ++image->width;
+    if (operation_fault == "calibration") image->origin[0] += 1;
+    if (operation_fault == "source_changed") source->origin[0] += 1;
+    if (operation_fault == "fft_source_changed" && kind == 7) source->origin[0] += 1;
+    if (operation_fault == "fft_frequency_scale" && kind == 7)
+        image->scale[0] = std::nextafter(image->scale[0], 0.0f);
+    if (operation_fault == "nonfinite") image->pixels[0] = std::numeric_limits<float>::infinity();
+    last_output_id = image->id;
+    registry.emplace(image->id, image.get()); out->image = image.release();
+    if (operation_fault == "throw") throw std::runtime_error("surrogate operation failure");
+    return operation_fault == "return_pointer" ? nullptr : out;
+}
+NativeRef* negate_fake(NativeRef* out, const NativeRef* source) { return operation_fake(out, source, nullptr, 1); }
+NativeRef* abs_fake(NativeRef* out, const NativeRef* source) { return operation_fake(out, source, nullptr, 2); }
+NativeRef* square_fake(NativeRef* out, const NativeRef* source) { return operation_fake(out, source, nullptr, 3); }
+NativeRef* add_fake(NativeRef* out, const NativeRef* a, const NativeRef* b) { return operation_fake(out, a, b, 4); }
+NativeRef* subtract_fake(NativeRef* out, const NativeRef* a, const NativeRef* b) { return operation_fake(out, a, b, 5); }
+NativeRef* multiply_fake(NativeRef* out, const NativeRef* a, const NativeRef* b) { return operation_fake(out, a, b, 6); }
+NativeRef* fft_fake(NativeRef* out, const NativeRef* source) { return operation_fake(out, source, nullptr, 7); }
+NativeRef* ifft_fake(NativeRef* out, const NativeRef* source) { return operation_fake(out, source, nullptr, 8); }
+NativeRef* component_fake(NativeRef* out, const NativeRef* source) { return operation_fake(out, source, nullptr, 9); }
+NativeRef* filter_fake(NativeRef* out, const NativeRef* source) { return operation_fake(out, source, nullptr, 0); }
+double point_fake(const void* pointer, const nb::NativeDataIndex2D353* index) {
+    ++point_calls;
+    auto* image = const_cast<FakeImage*>(static_cast<const FakeImage*>(pointer));
+    check(index->dimensions == 2 && index->padding == 0 && index->x >= 0 && index->y >= 0);
+    check(static_cast<std::uint64_t>(index->x) < image->width && static_cast<std::uint64_t>(index->y) < image->height);
+    if (preview_fault == "throw") throw std::runtime_error("surrogate point failure");
+    if (preview_fault == "source_changed") image->origin[0] += 1;
+    if (preview_fault == "nonfinite") return std::numeric_limits<double>::quiet_NaN();
+    return image->pixels.at(static_cast<std::size_t>(index->y) * image->width + index->x);
 }
 NativeRef* crop_fake(const void* pointer, NativeRef* out, const nb::NativeDataSlice353* slice) {
     ++crop_calls;
@@ -240,6 +345,14 @@ void inject_fake() {
     api.calibration = calibration_fake; api.name = name_fake;
     api.mean = mean_fake; api.destroy = delete_fake; api.deallocate = free_fake;
     api.minimum = minimum_fake; api.maximum = maximum_fake; api.sum = sum_fake;
+    api.packing = packing_fake; api.real_value = point_fake;
+    api.negate = negate_fake; api.abs = abs_fake; api.square = square_fake;
+    api.add = add_fake; api.subtract = subtract_fake; api.multiply = multiply_fake;
+    api.real_fft = fft_fake; api.ifft = ifft_fake;
+    api.real_component = component_fake; api.imag_component = component_fake;
+    api.arg = component_fake; api.norm = component_fake;
+    api.smooth_filter = filter_fake; api.sobel_filter = filter_fake;
+    api.laplace_filter = filter_fake; api.sharpen_filter = filter_fake;
     api.get_document = get_document_fake; api.show_document = show_document_fake;
     api.destroy_document_holder = delete_document_holder_fake; api.destroy_window = delete_window_fake;
     host_thread = GetCurrentThreadId(); gate_error.clear(); fatal_abi = false;
@@ -585,9 +698,9 @@ void show_tests() {
         check(error == expected);
     };
     rejected({}, "native_show_requires_one_image_id");
-    rejected({0}, "native_show_requires_plugin_crop");
-    rejected({fake.id}, "native_show_requires_plugin_crop");
-    rejected({99}, "native_show_requires_plugin_crop");
+    rejected({0}, "native_show_requires_plugin_result");
+    rejected({fake.id}, "native_show_requires_plugin_result");
+    rejected({99}, "native_show_requires_plugin_result");
     check(document_calls == factory_before && fake.references == 1);
     execute_native({"work_copy", "CROP", {fake.id,0,0,2,2}});
     const auto output_id = last_output_id;
@@ -692,6 +805,280 @@ void show_tests() {
         check(failed);
     }
 }
+void production_operation_tests() {
+    check(retained_results.empty() && host_documents.empty() && host_windows.empty());
+    fake = FakeImage{};
+    fake.width = 3; fake.height = 2; fake.pixels = {-2, -0.5f, 0, 3, 2, -1};
+    FakeImage right;
+    right.id = 18; right.width = 3; right.height = 2; right.pixels = {4, -1, 2, 0.25f, -0.5f, 1.5f};
+    registry.emplace(right.id, &right);
+    inject_fake(); operation_tracking = true; summary_tracking = false;
+    SetEnvironmentVariableA("DM_NATIVE_QUALIFY_OPERATIONS", nullptr);
+    const auto reject = [&](const char* op, std::vector<std::uint32_t> args, const char* expected, int calls = 0) {
+        const auto before_calls = operation_calls;
+        const auto before_registry = registry.size(), before_retained = retained_results.size();
+        const auto before_bytes = retained_result_bytes;
+        std::string actual;
+        try { execute_native({"candidate_failure", op, std::move(args)}); }
+        catch (const std::runtime_error& error) { actual = error.what(); }
+        if (actual != expected) throw std::runtime_error(std::string("candidate expected ") + expected + ", received " + actual);
+        check(operation_calls == before_calls + calls);
+        check(registry.size() == before_registry && retained_results.size() == before_retained && retained_result_bytes == before_bytes);
+        check(fake.references == 1 && right.references == 1);
+    };
+    const auto status = execute_native({"production_status", "STATUS", {}});
+    check(nb::valid_json(status));
+    for (const auto* name : {"unary_float32_2d", "binary_float32_2d", "fourier_small_2d",
+                            "filter_small_float32_2d", "sampled_preview_float32_2d", "bounded_read_float32_2d",
+                            "show_plugin_result_visible_document"})
+        check(status.find(nb::quote(name)) != std::string::npos);
+    check(status.find("candidate_execution_enabled") == std::string::npos &&
+          status.find("candidate_capabilities") == std::string::npos);
+    // Process environment is irrelevant to production qualification. Even "1"
+    // cannot change available groups or bypass their profile/dispatch contract.
+    for (const auto* value : {"true", "01", "1 ", "11", "1"}) {
+        SetEnvironmentVariableA("DM_NATIVE_QUALIFY_OPERATIONS", value);
+        check(execute_native({"environment_independent_status", "STATUS", {}}) == status);
+        reject("UNARY", {17,99}, "native_unary_opcode_unsupported");
+    }
+    SetEnvironmentVariableA("DM_NATIVE_QUALIFY_OPERATIONS", nullptr);
+    reject("UNARY", {17}, "native_arithmetic_argument_count");
+    reject("UNARY", {17,4}, "native_unary_opcode_unsupported");
+    reject("BINARY", {17,18,4}, "native_divide_not_qualified");
+    reject("BINARY", {17,18,0}, "native_binary_opcode_unsupported");
+    api.negate = nullptr;
+    reject("UNARY", {17,1}, "native_arithmetic_symbol_unavailable");
+    api.negate = negate_fake;
+    api.find_id = find_throw_fake;
+    reject("UNARY", {17,1}, "surrogate find failure after owned reference");
+    api.find_id = find_return_fake;
+    reject("UNARY", {17,1}, "native_find_result_mismatch");
+    api.find_id = find_fake;
+    api.minimum = nullptr;
+    reject("UNARY", {17,1}, "native_arithmetic_finite_check_unavailable");
+    api.minimum = minimum_fake;
+    fake.code = 10; reject("UNARY", {17,1}, "native_arithmetic_requires_float32_2d"); fake.code = 2;
+    fake.packing = 2; reject("UNARY", {17,1}, "native_arithmetic_requires_ordinary_packing"); fake.packing = 1;
+    right.width = 4; reject("BINARY", {17,18,1}, "native_binary_shape_mismatch"); right.width = 3;
+    right.origin[1] += 1; reject("BINARY", {17,18,1}, "native_binary_spatial_calibration_mismatch"); right.origin[1] -= 1;
+    right.unit[1] = L"pm"; reject("BINARY", {17,18,1}, "native_binary_spatial_calibration_mismatch"); right.unit[1] = L"nm";
+    fake.pixels[0] = std::numeric_limits<float>::quiet_NaN();
+    reject("UNARY", {17,1}, "native_arithmetic_source_nonfinite"); fake.pixels[0] = -2;
+    for (const auto& fault : std::vector<std::pair<std::string, const char*>>{
+        {"empty", "native_arithmetic_no_output_reference"}, {"alias", "native_arithmetic_output_identity_invalid"},
+        {"return_pointer", "native_arithmetic_no_output_reference"}, {"throw", "surrogate operation failure"},
+        {"dtype", "native_arithmetic_output_descriptor_mismatch"}, {"packing", "native_arithmetic_output_descriptor_mismatch"},
+        {"size", "native_arithmetic_output_descriptor_mismatch"}, {"calibration", "native_arithmetic_output_spatial_calibration_mismatch"},
+        {"nonfinite", "native_arithmetic_output_nonfinite"}, {"source_changed", "native_arithmetic_source_metadata_changed"}}) {
+        operation_fault = fault.first;
+        reject("UNARY", {17,1}, fault.second, 1);
+        if (operation_fault == "source_changed") fake.origin[0] -= 1;
+    }
+    operation_fault = "right_alias";
+    reject("BINARY", {17,18,1}, "native_arithmetic_output_identity_invalid", 1);
+    operation_fault.clear();
+    const std::vector<std::vector<float>> golden{{2,0.5f,0,-3,-2,1}, {2,0.5f,0,3,2,1}, {4,0.25f,0,9,4,1},
+        {2,-1.5f,2,3.25f,1.5f,0.5f}, {-6,0.5f,-2,2.75f,2.5f,-2.5f}, {-8,0.5f,0,0.75f,-1,-1.5f}};
+    std::uint32_t first_result = 0;
+    for (unsigned index = 0; index < golden.size(); ++index) {
+        const bool binary = index >= 3;
+        const auto opcode = binary ? index - 2 : index + 1;
+        const NativeRequest request{"candidate_" + std::to_string(index), binary ? "BINARY" : "UNARY",
+            binary ? std::vector<std::uint32_t>{17,18,opcode} : std::vector<std::uint32_t>{17,opcode}};
+        const auto before_calls = operation_calls;
+        const auto result = execute_native(request);
+        check(nb::valid_json(result) && operation_calls == before_calls + 1);
+        const auto output_id = last_output_id;
+        if (!index) first_result = output_id;
+        check(output_id != 17 && output_id != 18 && registry.at(output_id)->pixels == golden[index]);
+        const auto& retained = retained_results.at(output_id);
+        check(retained.request_id == request.id && retained.operation == request.op && retained.bytes == 24);
+        check(retained.kind == (binary ? ResultKind::Binary : ResultKind::Unary));
+        check(retained.source_ids == (binary ? std::vector<std::uint32_t>{17,18} : std::vector<std::uint32_t>{17}));
+        check(result.find("\"intensity_calibration_applied\":false") != std::string::npos);
+        check(result.find("\"visible_dm_document\":false") != std::string::npos);
+        check(fake.references == 1 && right.references == 1 && registry.at(output_id)->references == 1);
+    }
+    check(fake.pixels == std::vector<float>({-2,-0.5f,0,3,2,-1}));
+    check(right.pixels == std::vector<float>({4,-1,2,0.25f,-0.5f,1.5f}));
+    execute_native({"mixed_crop", "CROP", {17,0,0,1,1}});
+    check(retained_results.size() == 7 && retained_result_bytes == 148);
+    check(retained_results.at(last_output_id).kind == ResultKind::Crop);
+
+    // A synthetic FFT copies payloads only. Its acceptance here proves typed
+    // calls, descriptor guards, temporary cleanup and retention, not FFT math.
+    const auto arithmetic_width = fake.width, arithmetic_height = fake.height;
+    const auto arithmetic_pixels = fake.pixels;
+    fake.width = 257;
+    reject("FFT", {17}, "native_fft_input_over_budget"); fake.width = 3;
+    reject("FFT", {17}, "native_fft_requires_power_of_two_dimensions_4_to_256");
+    fake.width = 6; fake.height = 4;
+    reject("FFT", {17}, "native_fft_requires_power_of_two_dimensions_4_to_256");
+    fake.width = 4; fake.height = 4; fake.pixels.assign(16, 1.25f);
+    // Unsupported/unowned complex sources fail before invoking even Find.
+    api.find_id = find_throw_fake;
+    reject("IFFT", {17}, "native_ifft_requires_plugin_retained_fft");
+    reject("REAL", {17}, "native_fft_component_requires_plugin_transform");
+    reject("IMAG", {first_result}, "native_fft_component_requires_plugin_transform");
+    api.find_id = find_fake;
+    api.real_fft = nullptr;
+    reject("FFT", {17}, "native_fft_symbol_unavailable"); api.real_fft = fft_fake;
+    const auto scale_before_fft = fake.scale[0];
+    fake.unit[0].clear();
+    reject("FFT", {17}, "native_crop_requires_valid_calibration"); fake.unit[0] = L"nm";
+    invalid_scale = true;
+    reject("FFT", {17}, "native_crop_requires_valid_calibration"); invalid_scale = false;
+    fake.scale[0] = std::numeric_limits<float>::denorm_min();
+    reject("FFT", {17}, "native_fft_frequency_scale_unrepresentable");
+    const auto raw_origin_before_fft = fake.origin[0]; fake.origin[0] = 0;
+    fake.scale[0] = std::numeric_limits<float>::max();
+    reject("FFT", {17}, "native_fft_frequency_scale_unrepresentable");
+    fake.scale[0] = scale_before_fft; fake.origin[0] = raw_origin_before_fft;
+    for (const auto& fault : std::vector<std::pair<std::string, const char*>>{
+        {"alias", "native_fft_output_alias"}, {"empty", "native_fft_no_output_reference"},
+        {"return_pointer", "native_fft_no_output_reference"}, {"throw", "surrogate operation failure"},
+        {"dtype", "native_fft_output_descriptor_mismatch"}, {"packing", "native_fft_output_descriptor_mismatch"},
+        {"size", "native_fft_output_descriptor_mismatch"}}) {
+        operation_fault = fault.first; reject("FFT", {17}, fault.second, 1);
+    }
+    operation_fault.clear();
+    operation_fault = "calibration";
+    reject("FFT", {17}, "native_fft_frequency_calibration_mismatch", 3);
+    operation_fault = "fft_frequency_scale";
+    reject("FFT", {17}, "native_fft_frequency_calibration_mismatch", 3);
+    operation_fault = "fft_source_changed";
+    reject("FFT", {17}, "native_fft_source_metadata_changed", 3);
+    fake.origin[0] -= 1;
+    operation_fault.clear();
+    const auto before_fft_registry = registry.size();
+    const auto fft = execute_native({"synthetic_fft", "FFT", {17}});
+    check(nb::valid_json(fft) && registry.size() == before_fft_registry + 1);
+    const auto fft_id = retained_results.rbegin()->first;
+    check(registry.at(fft_id)->code == 3 && registry.at(fft_id)->packing == 1);
+    check(fft.find("\"dtype\":\"complex64\"") != std::string::npos);
+    check(fft.find("\"native_summary_supported\":false") != std::string::npos);
+    check(fft.find("\"normalization\":\"none\",\"centering\":\"fftshift_data\",\"phase_units\":\"not_applicable\"") != std::string::npos);
+    check(fft.find("\"transform_signs\":{\"forward\":\"+\",\"inverse\":\"-\"}") != std::string::npos);
+    check(fft.find("\"frequency_grid\":{\"native_calibration_has_half_bin_offset\":true") != std::string::npos);
+    check(fft.find("\"frequency_at_index_zero\":2,\"native_calibrated_value_at_pixel_zero\":2.5,\"native_calibration_dc_value\":0.5") != std::string::npos);
+    check(fft.find("\"input_index_origin\":\"zero-based pixel indices\",\"source_spatial_origin_used\":false") != std::string::npos);
+    check(fft.find("\"intensity_calibration_applied\":false,\"inverse_restores_source_origin\":false") != std::string::npos);
+    const auto before_components = registry.size();
+    const auto real = execute_native({"synthetic_component", "REAL", {fft_id}});
+    check(nb::valid_json(real) && registry.size() == before_components + 1);
+    check(registry.at(retained_results.rbegin()->first)->code == 2);
+    const auto real_id = retained_results.rbegin()->first;
+    check(real.find("\"normalization\":\"inherited_parent_transform\",\"centering\":\"fftshift_data\"") != std::string::npos);
+    reject("IFFT", {real_id}, "native_ifft_requires_plugin_retained_fft");
+    reject("REAL", {real_id}, "native_fft_component_requires_plugin_transform");
+    auto* retained_fft = registry.at(fft_id);
+    retained_fft->origin[0] += 1;
+    reject("REAL", {fft_id}, "native_fft_retained_metadata_changed"); retained_fft->origin[0] -= 1;
+    FakeImage replacement_fft = *retained_fft; replacement_fft.references = 1;
+    registry[fft_id] = &replacement_fft;
+    reject("REAL", {fft_id}, "native_fft_retained_identity_mismatch");
+    check(replacement_fft.references == 1); registry[fft_id] = retained_fft;
+    // An owned component alias must release only the extra returned ref.
+    operation_fault = "alias";
+    reject("REAL", {fft_id}, "native_fft_component_check_alias", 1);
+    operation_fault.clear();
+    check(registry.at(fft_id)->references == 1);
+    operation_fault = "calibration";
+    reject("REAL", {fft_id}, "native_fft_component_calibration_mismatch", 3);
+    operation_fault.clear();
+    const auto arg_result = execute_native({"synthetic_arg", "VENDOR_ARG", {fft_id}});
+    check(arg_result.find("\"representation\":\"phase_radians\"") != std::string::npos);
+    check(arg_result.find("\"phase_units\":\"radians\"") != std::string::npos);
+    const auto norm_result = execute_native({"synthetic_norm", "VENDOR_NORM", {fft_id}});
+    check(norm_result.find("\"representation\":\"squared_magnitude\"") != std::string::npos);
+    operation_fault = "calibration";
+    reject("IFFT", {fft_id}, "native_ifft_spatial_calibration_mismatch", 5);
+    operation_fault.clear();
+    const auto inverse = execute_native({"synthetic_inverse", "IFFT", {fft_id}});
+    check(nb::valid_json(inverse) && registry.at(retained_results.rbegin()->first)->code == 3);
+    const auto inverse_id = retained_results.rbegin()->first;
+    check(inverse.find("\"normalization\":\"1/(width*height)\",\"centering\":\"spatial_origin_zero\"") != std::string::npos);
+    check(inverse.find("\"frequency_grid\":null") != std::string::npos);
+    reject("IFFT", {inverse_id}, "native_ifft_requires_plugin_retained_fft");
+    const auto inverse_real = execute_native({"synthetic_inverse_real", "REAL", {inverse_id}});
+    check(inverse_real.find("\"centering\":\"spatial_origin_zero\"") != std::string::npos);
+    check(inverse_real.find("\"frequency_grid\":null") != std::string::npos);
+    check(fake.width == 4 && fake.height == 4 && fake.pixels == std::vector<float>(16, 1.25f));
+    fake.width = arithmetic_width; fake.height = arithmetic_height; fake.pixels = arithmetic_pixels;
+
+    reject("FILTER", {17,1}, "native_filter_requires_dimensions_at_least_5");
+    const auto small_width = fake.width, small_height = fake.height;
+    const auto small_pixels = fake.pixels;
+    fake.width = 5; fake.height = 5; fake.pixels.assign(25, -1.5f);
+    for (std::uint32_t kind = 1; kind <= 4; ++kind) {
+        const auto result = execute_native({"synthetic_filter_" + std::to_string(kind), "FILTER", {17,kind}});
+        check(nb::valid_json(result) && result.find("\"operation\":\"FILTER\"") != std::string::npos);
+        check(registry.at(last_output_id)->pixels == fake.pixels);
+    }
+    reject("FILTER", {17,5}, "native_filter_kind_unsupported");
+    operation_fault = "calibration";
+    reject("FILTER", {17,1}, "native_filter_output_calibration_mismatch", 1);
+    operation_fault = "nonfinite";
+    reject("FILTER", {17,1}, "native_filter_nonfinite_output", 1);
+    operation_fault.clear();
+    fake.width = small_width; fake.height = small_height; fake.pixels = small_pixels;
+
+    const auto preview_registry = registry.size(), preview_retained = retained_results.size();
+    const auto preview_calls = point_calls;
+    const auto preview = execute_native({"synthetic_preview", "PREVIEW", {17,128,128}});
+    check(nb::valid_json(preview) && preview.find("\"gray8_hex\":\"004d66ffcc33\"") != std::string::npos);
+    check(preview.find("\"width\":3,\"height\":2") != std::string::npos && point_calls == preview_calls + 6);
+    check(preview.find("\"quantitative\":false") != std::string::npos);
+    check(registry.size() == preview_registry && retained_results.size() == preview_retained);
+    reject("PREVIEW", {17,0,1}, "native_preview_dimensions_out_of_range");
+    reject("PREVIEW", {17,129,1}, "native_preview_dimensions_out_of_range");
+    const auto preview_small = execute_native({"synthetic_preview_small", "PREVIEW", {17,2,1}});
+    check(preview_small.find("\"gray8_hex\":\"00ff\"") != std::string::npos);
+    for (const auto& fault : std::vector<std::pair<std::string, const char*>>{
+        {"nonfinite", "native_preview_nonfinite_sample"}, {"throw", "surrogate point failure"},
+        {"source_changed", "native_preview_source_metadata_changed"}}) {
+        preview_fault = fault.first;
+        const auto origin_before = fake.origin[0];
+        reject("PREVIEW", {17,2,1}, fault.second);
+        fake.origin[0] = origin_before;
+    }
+    preview_fault.clear();
+
+    // All result types consume the exact same count budget as old crop.
+    while (retained_results.size() < nb::kCropRetainedCount)
+        execute_native({"fill_shared_pool", "UNARY", {17,1}});
+    reject("UNARY", {17,1}, "native_result_retention_capacity");
+    fake.width = 4; fake.height = 4; fake.pixels.assign(16, 1.25f);
+    reject("FFT", {17}, "native_fft_retention_capacity");
+    fake.width = 5; fake.height = 5; fake.pixels.assign(25, -1.5f);
+    reject("FILTER", {17,2}, "native_filter_retention_capacity");
+    fake.width = small_width; fake.height = small_height; fake.pixels = small_pixels;
+    const auto documents_before = document_calls;
+    execute_native({"show_unary", "SHOW", {first_result}});
+    execute_native({"show_same_unary", "SHOW", {first_result}});
+    check(document_calls == documents_before + 2 && host_documents.size() == 1);
+    auto* shown = registry.at(first_result);
+    check(shown->references == 2);
+    shutdown_native();
+    check(retained_results.empty() && retained_result_bytes == 0 && shown->references == 1);
+    check(registry.size() == 3 && fake.references == 1 && right.references == 1);
+    close_surrogate_documents();
+    check(registry.size() == 2 && !registry.count(first_result));
+    registry.erase(right.id);
+    operation_tracking = false;
+    SetEnvironmentVariableA("DM_NATIVE_QUALIFY_OPERATIONS", nullptr);
+    inject_fake();
+    api.mean = nullptr;
+    reject("MEAN", {17}, "native_mean_not_available");
+    check(metadata(&fake, false).find("\"native_mean_supported\":false") != std::string::npos);
+    inject_fake();
+    packing_fault = "return_pointer";
+    SetEnvironmentVariableA("DM_NATIVE_QUALIFY_OPERATIONS", "1");
+    reject("UNARY", {17,1}, "native_packing_result_mismatch");
+    check(fatal_abi);
+    packing_fault.clear(); fatal_abi = false;
+    SetEnvironmentVariableA("DM_NATIVE_QUALIFY_OPERATIONS", nullptr);
+}
 }
 int main() {
     try {
@@ -743,6 +1130,7 @@ int main() {
         summary_tests();
         crop_tests();
         show_tests();
+        production_operation_tests();
         std::cout << "PASS adapter surrogate: " << assertions << " assertions; no DM loaded\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

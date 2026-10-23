@@ -33,6 +33,18 @@ The report/replay worker remains optional. Preview needs only NumPy/Pillow in an
 
 ## Build-pinned native experiment
 
+Current feature status: fourteen native tools now include bounded arithmetic,
+Fourier, filters, sampled preview and numeric READ. An explicit saved-response
+NPY handoff and external example passed a complete synthetic real-host workflow,
+including source protection and persistence after normal cleanup. Adapter
+selection is extensible, but only the exact Windows x64 GMS 3.53.4137.0 profile
+is qualified. See [the current handoff](experiments/native-bridge/mvp/HANDOFF.md)
+and [operation limits](experiments/native-bridge/mvp/OPERATIONS_ACCEPTANCE.md).
+Next priorities are separately qualified dtype/data-handoff extensions and
+ordinary client acceptance; native SaveAs/Open, other builds and native 4D
+remain unsupported. The earlier notes below are historical progression, not
+the latest catalog or an instruction to reopen a closed session.
+
 The default v0.6 backend stays unchanged. The opt-in native backend targets
 Windows x64 GMS 3.53.4137.0 and exposes status, datasets, native mean, retained
 result queries, experimental crop and the SHOW candidate. Earlier limited idle-host acceptance of the core

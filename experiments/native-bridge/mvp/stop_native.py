@@ -36,8 +36,8 @@ def main():
         parser.error("request-record already exists; never reconstruct or overwrite an original STOP request")
     if evidence_path and os.path.lexists(evidence_path):
         parser.error("evidence already exists; no STOP was sent")
-    wire = "NB1 %s %s STOP\n" % (args.session, args.request_id)
-    request = {"protocol": "NB1", "session": args.session, "id": args.request_id,
+    wire = "NB2 %s %s STOP\n" % (args.session, args.request_id)
+    request = {"protocol": "NB2", "session": args.session, "id": args.request_id,
                "op": "STOP", "args": [], "host_pid": args.expected_host_pid, "wire": wire}
     # Do not move Pipe construction above this exclusive write, flush, fsync
     # and close. A failed/partial save must leave the host untouched.
@@ -52,8 +52,10 @@ def main():
         with open(evidence_path, "x", encoding="utf-8") as file:
             json.dump(reply, file, indent=2, allow_nan=False)
     result = reply.get("result")
-    if (reply.get("protocol") != "NB1" or reply.get("session") != args.session
+    if (reply.get("protocol") != "NB2" or reply.get("session") != args.session
             or reply.get("id") != args.request_id or reply.get("state") != "completed"
+            or reply.get("original_operation") != "STOP" or reply.get("normalized_args") != []
+            or reply.get("result_type") != "ipc_stop" or type(reply.get("result_version")) is not int or reply["result_version"] != 1
             or not isinstance(result, dict) or set(result) != {"ipc_stopped"}
             or result["ipc_stopped"] is not True):
         raise SystemExit("FAIL: STOP was not acknowledged: " + json.dumps(reply))

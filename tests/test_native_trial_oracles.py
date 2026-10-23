@@ -281,10 +281,14 @@ class NativeTrialOracleTests(unittest.TestCase):
         _dump(self.state_path, self.state)
 
     def run_script(self, script="verify_trial.py", success=True, phase="before_stop", expected_error=None,
-                   mode="strict"):
+                   mode="strict", protocol="NB1_LEGACY"):
         _dump(self.state_path, self.state)
         env = dict(os.environ, DM_NATIVE_SESSION=SESSION, DM_NATIVE_EVIDENCE_DIR=str(self.directory),
                    PYTHONNOUSERSITE="1", PYTHONDONTWRITEBYTECODE="1", DM_NATIVE_ORACLE_MODE=mode)
+        if protocol is None:
+            env.pop("DM_NATIVE_ORACLE_PROTOCOL", None)
+        else:
+            env["DM_NATIVE_ORACLE_PROTOCOL"] = protocol
         # The runner injects sys.modules before target imports. Do not add a
         # real GMS module directory to PYTHONPATH even if inherited locally.
         env.pop("PYTHONPATH", None)
@@ -336,6 +340,76 @@ class NativeTrialOracleTests(unittest.TestCase):
         self.state["documents"].pop()
         closed = self.run_script("verify_trial_closed.py", phase="after_close")
         self.assertTrue(closed["released_after_document_close"])
+
+    def upgrade_nb2(self):
+        for key, operation, args, result_type in (("status", "STATUS", [], "status"),
+                ("crop", "CROP", [11] + self.truth["crop_rect"], "image_crop"),
+                ("delivery", "SHOW", [CROP_ID], "image_delivery"), ("repeated_show", "SHOW", [CROP_ID], "image_delivery")):
+            output = self.summary["checks"][0]["output"] if key == "status" else self.summary[key]
+            output["native_receipt"].update(protocol="NB2", original_operation=operation, normalized_args=args,
+                                            result_type=result_type, result_version=1)
+        stop_path = self.directory / "stop-receipt.json"
+        if stop_path.exists():
+            stop = json.loads(stop_path.read_text(encoding="utf-8"))
+            stop.update(protocol="NB2", original_operation="STOP", normalized_args=[], result_type="ipc_stop", result_version=1)
+            _dump(stop_path, stop)
+            request = self._stop_request()
+            request.update(protocol="NB2", wire=request["wire"].replace("NB1 ", "NB2 ", 1))
+            _dump(self.directory / "stop-request.json", request)
+        self.save_records()
+        post_path = self.directory / "trial-independent-after_stop.json"
+        if post_path.exists():
+            post = json.loads(post_path.read_text(encoding="utf-8"))
+            post.update(protocol="NB2", protocol_mode="NB2")
+            _dump(post_path, post)
+            self.refresh_post_fingerprints()
+
+    def test_nb2_positive_before_after_stop_and_closed_and_legacy_requires_opt_in(self):
+        self.prepare()
+        self.run_script(success=False, expected_error="Invalid status native receipt", protocol=None)
+        self.upgrade_nb2()
+        before = self.run_script(protocol=None)
+        self.assertEqual(before["protocol"], "NB2")
+        self.prepare(after_stop=True)
+        self.upgrade_nb2()
+        after = self.run_script(phase="after_stop", protocol="NB2")
+        self.assertTrue(after["stop_request_verified"])
+        self.state["images"] = [image for image in self.state["images"] if image["id"] != CROP_ID]
+        self.state["documents"].pop()
+        closed = self.run_script("verify_trial_closed.py", phase="after_close", protocol="NB2")
+        self.assertEqual(closed["protocol_mode"], "NB2")
+
+    def test_nb2_operation_args_type_version_and_stop_identity_reject_precisely(self):
+        for phase in ("before_stop", "after_stop", "after_close"):
+            for key, value in (("original_operation", "SHOW"), ("normalized_args", [999]),
+                               ("result_type", "native_mean"), ("result_version", 2)):
+                with self.subTest(phase=phase, key=key):
+                    self.prepare(after_stop=phase != "before_stop", closed=phase == "after_close")
+                    self.upgrade_nb2()
+                    self.summary["crop"]["native_receipt"][key] = value
+                    self.save_records()
+                    self.refresh_post_fingerprints()
+                    self.run_script("verify_trial_closed.py" if phase == "after_close" else "verify_trial.py",
+                        success=False, phase=phase, expected_error="NB2 original operation/arguments/result schema mismatch", protocol="NB2")
+        for closed in (False, True):
+            self.prepare(after_stop=True, closed=closed)
+            self.upgrade_nb2()
+            stop_path = self.directory / "stop-receipt.json"
+            stop = json.loads(stop_path.read_text(encoding="utf-8"))
+            stop["original_operation"] = "STATUS"
+            _dump(stop_path, stop)
+            self.refresh_post_fingerprints()
+            self.run_script("verify_trial_closed.py" if closed else "verify_trial.py", success=False,
+                phase="after_close" if closed else "after_stop", expected_error="NB2 original operation/arguments/result schema mismatch", protocol="NB2")
+        for key, value in (("protocol", "NB1"), ("session", OTHER_SESSION), ("state", "queued"), ("id", "different")):
+            with self.subTest(closed_header=key):
+                self.prepare(closed=True)
+                self.upgrade_nb2()
+                self.summary["crop"]["native_receipt"][key] = value
+                self.save_records()
+                self.refresh_post_fingerprints()
+                self.run_script("verify_trial_closed.py", success=False, phase="after_close",
+                    expected_error="NB2 closed native receipt correlation/state mismatch", protocol="NB2")
 
     def test_crop_pixels_dtype_shape_and_actual_shared_memory(self):
         for fault in ("zero_sum_pixels", "dtype", "shape", "shared_view"):

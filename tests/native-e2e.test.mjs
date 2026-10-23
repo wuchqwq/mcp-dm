@@ -1,4 +1,4 @@
-// Fully synthetic Windows E2E: real Node MCP -> real NB1 named pipe -> real
+// Fully synthetic Windows E2E: real Node MCP -> real NB2 named pipe -> real
 // C++ Core/message window/fake_adapter. No Gatan DLL, DM process or UI is used.
 // Set DM_NATIVE_TEST_CXX to a local clang++ (never downloaded), or explicitly
 // provide DM_NATIVE_FAKE_HOST_EXE built from the current fake sources.
@@ -161,7 +161,7 @@ function toolOutput(message, isError = false) {
 
 function receipt(output, session, requestId, host, state = "completed") {
   const value = output.native_receipt;
-  assert.equal(value.protocol, "NB1"); assert.equal(value.session, session);
+  assert.equal(value.protocol, "NB2"); assert.equal(value.session, session);
   assert.equal(value.id, requestId); assert.equal(value.request_id, requestId); assert.equal(value.state, state);
   assert.equal(value.host_pid, host.pid); assert.ok(Number.isInteger(value.worker_tid) && value.worker_tid > 0);
   if (state === "completed" || state === "running") assert.equal(value.exec_tid, host.host_tid);
@@ -179,7 +179,7 @@ async function stop(session, pid) {
     const connect = () => {
     if (done) return;
     const attempt = net.createConnection(`\\\\.\\pipe\\dm_mcp_native_${session}`); socket = attempt;
-    attempt.once("connect", () => {if (!done) {wrote = true; attempt.write(`NB1 ${session} ${id} STOP\n`, "ascii");}});
+    attempt.once("connect", () => {if (!done) {wrote = true; attempt.write(`NB2 ${session} ${id} STOP\n`, "ascii");}});
     attempt.on("data", chunk => {
       if (done) return;
       data = Buffer.concat([data, chunk]);
@@ -188,8 +188,10 @@ async function stop(session, pid) {
       try {
         assert.equal(data.indexOf(10), data.length - 1);
         const reply = JSON.parse(data.toString("utf8"));
-        assert.equal(reply.protocol, "NB1"); assert.equal(reply.session, session); assert.equal(reply.id, id);
+        assert.equal(reply.protocol, "NB2"); assert.equal(reply.session, session); assert.equal(reply.id, id);
         assert.equal(reply.host_pid, pid); assert.equal(reply.state, "completed"); assert.equal(reply.exec_tid, 0);
+        assert.equal(reply.original_operation, "STOP"); assert.deepEqual(reply.normalized_args, []);
+        assert.equal(reply.result_type, "ipc_stop"); assert.equal(reply.result_version, 1);
         assert.deepEqual(reply.result, {ipc_stopped: true}); finish(null, reply);
       } catch (error) {finish(error);}
     });
