@@ -171,3 +171,10 @@ static interface findings from missing numerical, complex-data, ownership and
 delivery acceptance. No FFT tool or production binding has been added. Pending
 desktop/lifetime checks retain their HOLD; do not use the preserved stopped
 session to explore new operators or replace its loaded DLL.
+
+The [batch candidate inventory](BATCH_CANDIDATES.md) is the next offline-code
+handoff: typed POD call shapes, explicit blocked categories and synthetic
+reference-ownership tests. Candidate code has no vendor resolver and is not
+part of the real plugin, NB1 operations or MCP catalog. Start the later host
+continuation with the preserved-session checklist, then integrate and accept
+qualified candidates one at a time; the existing trial remains HOLD.

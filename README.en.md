@@ -62,6 +62,11 @@ operators. Independent calculations are test oracles only; existing v0.6
 behavior remains compatible. [FFT readiness](experiments/native-bridge/mvp/FFT_READINESS.md)
 is offline interface/acceptance preparation, not an added native tool.
 
+The [batch candidate handoff](experiments/native-bridge/mvp/BATCH_CANDIDATES.md)
+adds typed C++ call boundaries and synthetic reference tests. Candidates are
+not connected to DM, linked into the product DLL or exposed through NB1/MCP;
+they do not increase the supported native tool catalog.
+
 Earlier limited real-host acceptance with ASCII-named synthetic inputs passed
 loading/host callbacks, metadata/signed calibration, native mean and strict
 stdio MCP. Separate crop acceptance checked every pixel, independent memory,

@@ -34,6 +34,11 @@ parameters, ownership and result delivery. It does not implement a parallel
 analysis engine. [FFT readiness](FFT_READINESS.md) records static findings and
 unresolved acceptance conditions; native FFT is not implemented or advertised.
 
+The [batch candidate inventory](BATCH_CANDIDATES.md) prepares typed calls and
+synthetic ownership tests for further DM operators. These candidates are not
+linked into the product plugin or exposed as native MCP tools; all remain
+NOT_QUALIFIED pending individual integration and acceptance.
+
 ## Public native tools
 
 | Tool | Scope |
@@ -201,6 +206,7 @@ From the repository root:
 .\experiments\native-bridge\mvp\build.ps1 -Cxx clang++.exe -OfflineOnly
 .\experiments\native-bridge\mvp\build\core_tests.exe
 .\experiments\native-bridge\mvp\build\adapter_tests.exe
+.\experiments\native-bridge\mvp\build\candidate_calls_tests.exe
 python -B .\experiments\native-bridge\mvp\test_transport.py
 $env:DM_NATIVE_FAKE_HOST_EXE = (Resolve-Path .\experiments\native-bridge\mvp\build\fake_host.exe).Path
 node --test tests/native-bridge.test.mjs tests/native-mcp.test.mjs tests/native-e2e.test.mjs

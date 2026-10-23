@@ -25,6 +25,10 @@ code, not a reason to expand that route for new native processing features.
 Preview encoding and protocol/metadata validation belong in the bridge;
 scientific processing belongs in DM. Native FFT readiness is tracked in
 experiments/native-bridge/mvp/FFT_READINESS.md; FFT is not yet a native tool.
+The MVP candidate_calls module and BATCH_CANDIDATES.md prepare typed synthetic
+call boundaries only. Never count them as production tool support, bind them
+to arbitrary vendor addresses, or add them to the shipping plugin/catalog
+before per-operator ABI, scientific and ownership qualification.
 
 ## Architecture and ownership
 

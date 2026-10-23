@@ -51,6 +51,8 @@ Node 服务无 npm 运行依赖；DM 桥仅用 Python 标准库和 NumPy。DM/GM
 
 后续原生扩展由 **DM 执行科学数据处理**，MCP/C++ 负责图像选择、参数校验、接口调用和结果交接。不会另建 Python/C++ 分析引擎来补缺失的 DM 接口；独立计算仅可用于测试核对。现有 v0.6 保持兼容。下一项 [FFT 接通准备](experiments/native-bridge/mvp/FFT_READINESS.md) 仍是离线接口与验收准备，尚未加入原生工具目录。
 
+[批量离线候选与续接清单](experiments/native-bridge/mvp/BATCH_CANDIDATES.md) 已提供一批 DM 操作的类型明确的 C++ 调用边界和合成引用测试；候选未连接真实 DM，也未进入产品 DLL、NB1 或 MCP 工具目录，不能计为已迁移功能。
+
 早前已用 ASCII 名称的合成输入通过目标 DM 的有限范围验收：加载与宿主回调、元数据/有符号标定、原生均值、严格 stdio MCP，以及原生裁剪的逐像素独立核对、独立内存和源数据不变。STOP 后已独立确认裁剪输出引用释放、实验管道/窗口消失且普通一次性 Python 继续可用；随后 DM 正常退出，并仅移除本实验拥有的 DLL，恢复安装前目录状态，未改客户端配置。**模型看图、真实实验数据、其它构建与并发图像调用仍为 NOT_TESTED**；非 ASCII 名称与旧 GMS Python binding 的互认对比未通过，单列为 **NOT_QUALIFIED**，未加入猜测性的编码转换。使用空闲宿主并串行请求；超时后查询原 `request_id`，不自动重发。原生异常不具备进程隔离保证。
 
 本轮 P0 将 raw mean 与空间标定解耦：已识别的缺单位或不可用空间标定仍允许支持类型的原始均值，返回 `calibration_complete:false` 和每轴问题；crop 仍严格要求标定。`dm_crop` 的 `request_id` 必填，须在提交前连同 session/参数保存；超时后只在原 session 用 `dm_native_result` 查询，STOP 或跨重启不承诺恢复。新增副作用工具遵循同样规则；旧只读工具保留兼容性，试用统一显式保存 ID。真实严格 MCP 已通过缺单位均值/元数据、安全错误及裁剪 ID 恢复与冲突检查；其它无效空间数值目前仅有离线覆盖。

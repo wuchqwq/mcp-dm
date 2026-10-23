@@ -64,6 +64,13 @@ calibration semantics, and the result-delivery requirements. Finding an export
 does not qualify its ABI or add a public tool. Do not replace the loaded DLL or
 use the pending host for exploratory calls; current SHOW/lifecycle HOLD remains.
 
+The [batch candidate handoff](experiments/native-bridge/mvp/BATCH_CANDIDATES.md)
+prepares typed calls for native arithmetic, complex components, FFT families,
+filters, phase correlation and scalar statistics. Synthetic ownership tests
+cover only this call boundary. The candidates remain outside the real plugin
+and public catalog; per-operator integration and host acceptance are still
+required. Resume by closing the preserved trial before exploring new operators.
+
 Earlier native crop separately passed actual MCP and an independent one-shot GMS
 Python oracle for explicit IDs, half-open bounds, every pixel, separate memory,
 signed calibration, unchanged sources and duplicate-request identity. Its
