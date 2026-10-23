@@ -51,14 +51,28 @@ jobs:
         run: node selftest.mjs
         env:
           DM_TEST_PYTHON: python
+      - name: Prepare pinned LLVM-MinGW in runner temporary directory
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'llvm-mingw-20250528-ucrt-x86_64.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'llvm-mingw-isolated'
+          curl.exe --fail --location --retry 2 --max-time 180 --output $archive 'https://github.com/mstorsjo/llvm-mingw/releases/download/20250528/llvm-mingw-20250528-ucrt-x86_64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Official pinned compiler download failed' }
+          if ((Get-Item $archive).Length -ne 152403389) { throw 'Compiler archive size differs from pinned release metadata' }
+          Get-FileHash -Algorithm SHA256 $archive | Format-List
+          New-Item -ItemType Directory -Path $destination | Out-Null
+          & 7z.exe x $archive "-o$destination" -y | Select-Object -Last 8
+          if ($LASTEXITCODE -ne 0) { throw 'Compiler archive extraction failed' }
+          $bin = Join-Path $destination 'llvm-mingw-20250528-ucrt-x86_64\bin'
+          $cxx = Join-Path $bin 'clang++.exe'
+          if (-not (Test-Path $cxx)) { throw 'Pinned clang++ missing' }
+          & $cxx --version
+          "NATIVE_VALIDATION_CXX=$cxx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Compile and test synthetic native core
         shell: pwsh
         run: |
-          $gxx = Get-Command g++.exe -ErrorAction SilentlyContinue
-          if (-not $gxx -and (Test-Path 'C:\mingw64\bin\g++.exe')) { $cxx = 'C:\mingw64\bin\g++.exe' }
-          elseif ($gxx) { $cxx = $gxx.Source }
-          else { throw 'No installed MinGW compiler; no DM or toolchain installation attempted' }
-          & .\experiments\native-bridge\mvp\build.ps1 -Cxx $cxx -OfflineOnly
+          & .\experiments\native-bridge\mvp\build.ps1 -Cxx $env:NATIVE_VALIDATION_CXX -OfflineOnly
           if ($LASTEXITCODE -ne 0) { throw 'Offline build failed' }
           & .\experiments\native-bridge\mvp\build\core_tests.exe
           if ($LASTEXITCODE -ne 0) { throw 'Core tests failed' }
