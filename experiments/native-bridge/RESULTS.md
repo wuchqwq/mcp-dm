@@ -119,6 +119,37 @@ record used by the later closed-document oracle. They do not replace the
 independent pixel/calibration checks or make previous records newly accepted.
 Detailed failed runs and corrected reruns remain private.
 
+## Oracle identity and diagnostic closeout
+
+The strengthened oracles require the native PID to equal the actual Python
+process executing the check; a consistent status/crop/SHOW/STOP bundle from
+another host is insufficient. STOP's legal request ID, operation, empty
+arguments, session, target PID and exact NB1 wire line must match the original
+pre-submission record. The existing helper exclusively writes and flushes/
+fsyncs that record before pipe construction or sending. Later receipt files
+cannot recreate missing submission evidence.
+
+Incomplete historical STOP identity remains UNVERIFIED. An explicitly selected
+legacy observation mode can collect the existing independent pixel/document
+and final-release checks under separate filenames, always UNVERIFIED. Strict
+qualification never accepts those files as PASS prerequisites; wrong identity
+or an existing invalid request record still fails in observation mode.
+
+The Unicode probe retains getter type, exact byte hex or text code points,
+surrogates and encoding/getter exceptions without guessing a conversion.
+RECORDED only means diagnostics were retained; Unicode remains NOT_QUALIFIED.
+These are offline code/test scopes, not newly accepted DM observations.
+
+| Closeout scope | Status | Boundary |
+|---|---|---|
+| Actual-process and saved STOP identity | PASS, offline | Self-consistent foreign-host bundles, mismatched original requests and ambiguous duplicate keys are rejected; helper tests observe persistence before simulated transport |
+| Existing oracle fault coverage | PASS, offline | Original negative methods retain their intended errors; expanded tests also prove strict/observation isolation and independent scientific checks |
+| Typed Unicode diagnostic retention | PASS, offline; interoperability NOT_QUALIFIED | Fake getters exercise exact bytes/text, surrogate and exception retention; no real probe or UI comparison |
+| Current real-host delivery, cleanup and WorkBuddy | HOLD / NOT_TESTED | No desktop, DM process interaction or loaded-DLL change was performed by this closeout |
+
+See [the unlock checklist](mvp/UNLOCK_CHECKLIST.md) for remaining human steps
+and [the integration plan](mvp/INTEGRATION_PLAN.md) for main/feature differences.
+
 ## Initial real-host failures and corrected acceptance
 
 The first real-host run produced a correct native mean receipt but its overall

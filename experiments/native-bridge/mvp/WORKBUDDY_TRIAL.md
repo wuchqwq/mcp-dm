@@ -11,6 +11,9 @@ Show 完成回执和图像身份对应。实际可见文档、文档数量、本
 窗口消失已通过；测试宿主仍开着，DLL 仍加载、manifest 仍为 installed。
 原生 IPC 已停；先保留私有记录，完成后置独立核对及文档关闭后的最后引用检查，
 再正常退出及按所有权移除。
+当前严格 oracle 还要求回执 PID 等于执行它的 DM 实际 `os.getpid()`，STOP ID
+对应提交前落盘的原始请求。旧会话若缺 `stop-request.json`，不能事后补写；
+可按[解锁清单](UNLOCK_CHECKLIST.md)做始终 UNVERIFIED 的独立观察，保留 HOLD。
 不要强杀或移除正在加载的 DLL；不能用看不到图的 Show 回执宣称视觉验收通过。
 
 使用空闲、串行的指定构建测试会话，仅操作本轮自己创建的合成图。
@@ -76,6 +79,21 @@ python -B .\experiments\native-bridge\mvp\accept_trial_mcp.py --answers $answers
 产生的输出。当前真实 Show 只有原生回执/身份核对通过，独立显示/寿命检查仍为
 NOT_TESTED；恢复桌面条件后再完成后置核对，不重发已执行的 Show 或裁剪。
 
+新严格会话在 STOP 前先完成 `verify_trial.py` 的 before_stop；断开客户端后，
+只运行一次原 helper，发送前由它独占创建并 flush/fsync 原请求记录：
+
+```powershell
+$stopRequestId = 'stop-' + [guid]::NewGuid().ToString('N')
+$stopRequestRecord = Join-Path $trialDirectory 'stop-request.json'
+$stopReceipt = Join-Path $trialDirectory 'stop-receipt.json'
+python -B .\experiments\native-bridge\mvp\stop_native.py --session $env:DM_NATIVE_SESSION --request-id $stopRequestId --expected-host-pid $testDmPid --request-record $stopRequestRecord --evidence $stopReceipt
+```
+
+目标 PID 来自本次已核对的状态，不能填 helper 的进程 PID。若连接/等待失败，
+保留已写请求和未知状态，不自动再次 STOP、不换 ID 补记录。严格 oracle 必须
+在原 DM 内运行；外部 Python 或另一宿主的自洽回执不能替代它。新会话应清除
+`DM_NATIVE_ORACLE_MODE`，不能继承旧会话的观察模式。
+
 `verify_trial.py` 的 `after_stop` 通过后，仅在 UI 正常关闭本次交付的 crop
 文档，保留其它源文档。DM 仍运行时在其内一次性执行
 [verify_trial_closed.py](verify_trial_closed.py)：核对交付 ID 已失效、文档数量
@@ -89,6 +107,8 @@ NOT_TESTED；恢复桌面条件后再完成后置核对，不重发已执行的 
 summary 和 STOP 文件的 SHA256；`after_close` 须匹配这些原始文件，不能借用
 另一次核对记录。这些指纹只绑定验收记录，逐像素和物理标定检查仍独立执行。
 保留旧失败和尚未执行的实机记录，不手工补写指纹使旧 PASS 适配新脚本。
+当前记录还包含实际宿主 PID、oracle 模式和原 STOP 请求的指纹/核验结果；
+严格与旧会话观察使用不同输出文件，观察结果不能作为严格 after_close 的前置。
 
 完成预检的正常清理后，为 WorkBuddy 按上文重新准备 session、合成目标和
 私有答案。不要把预检创建的图像/文档或旧会话 ID 混进普通 Agent 的结果，

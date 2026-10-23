@@ -57,6 +57,8 @@ P1 可见文档候选 `dm_native_show` 仅针对本插件持有的裁剪副本�
 
 离线完整链路已连接真实 Node MCP、Windows 管道和 C++ 合成宿主，验证取消后换客户端查询仍恢复同一裁剪对象；验收脚本另有故障注入测试。两者均不执行 DM，不解除上述实机 HOLD；运行方法及证据范围见原生实验说明和验收矩阵。
 
+后置核对进一步绑定实际进程 PID 与提交前保存的 STOP 请求；缺旧证据仅能做 UNVERIFIED 观察。解锁后按[最短操作清单](experiments/native-bridge/mvp/UNLOCK_CHECKLIST.md)完成显示、引用寿命与正常清理；main 与 feature 的后续差异整合见[方案](experiments/native-bridge/mvp/INTEGRATION_PLAN.md)，本轮不合并 main。
+
 安装和回退见 [原生实验说明](experiments/native-bridge/mvp/README.md)、[验收矩阵](experiments/native-bridge/RESULTS.md)、[安装/移除](experiments/native-bridge/mvp/INSTALL.md) 与 [WorkBuddy 操作者试用包](experiments/native-bridge/mvp/WORKBUDDY_TRIAL.md)。STOP 只停实验 IPC；正常关闭 DM 后，按安装所有权记录移除本实验 DLL 即可回到未改动的默认后端。以下环境与启动说明仍以默认 Python 后端为准。
 
 ## 当前验证范围

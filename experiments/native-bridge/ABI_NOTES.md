@@ -292,10 +292,15 @@ Non-ASCII interoperation remains **NOT_QUALIFIED**. Future synthetic tests
 must record UI-entered characters separately from Python-set names, preserve
 legacy getter result type/raw bytes as well as text code points, and compare
 the native/MCP result for the exact image ID. Units need their own comparison.
-The prepared legacy probe currently assumes text getters; handle and preserve
-a possible `bytes` result explicitly before that diagnostic is used for new
-Unicode qualification. Static inspection does not replace the pending UI
-comparison, and no Unicode probe was executed in this offline continuation.
+The legacy probe now records typed getter observations: text and exact code
+points, or raw byte hex/length with decoding explicitly not attempted. Even
+valid UTF-8 byte sequences remain bytes. Lone surrogates, getter exceptions
+and unexpected types are retained as diagnostic failures; encoding exceptions
+also retain the original input and byte/character range. Its status is only
+RECORDED or FAIL, with qualification always NOT_QUALIFIED. Offline fake-getter
+tests qualify this retention behavior, not the stored host characters. No real
+Unicode probe was executed in this offline continuation, and the independent
+UI/native/MCP comparison remains pending.
 
 ## Minimum runtime verification order
 

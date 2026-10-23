@@ -145,13 +145,22 @@ or remove a loaded DLL. Earlier accepted cleanup is not this trial's cleanup.
 
 1. Disconnect every MCP client and finish or inspect any outstanding operation
    using its saved ID. Do not assume that a client timeout stopped native work.
-2. Save a fresh STOP ID and use the explicit NB1 helper:
+2. Save a fresh STOP ID and use the explicit NB1 helper with the previously
+   confirmed target DM PID and a new request-record path:
 
    ```powershell
    $stopRequestId = 'stop-' + [guid]::NewGuid().ToString('N')
+   $stopRequestRecord = Join-Path $stateDir ($stopRequestId + '.request.json')
    $stopEvidence = Join-Path $stateDir ($stopRequestId + '.json')
-   python -B .\experiments\native-bridge\mvp\stop_native.py --session $env:DM_NATIVE_SESSION --request-id $stopRequestId --evidence $stopEvidence
+   python -B .\experiments\native-bridge\mvp\stop_native.py --session $env:DM_NATIVE_SESSION --request-id $stopRequestId --expected-host-pid $testDmPid --request-record $stopRequestRecord --evidence $stopEvidence
    ```
+
+   The helper exclusively creates the original request record, flushes and
+   fsyncs it before connecting or sending. It records NB1/session/ID/STOP,
+   empty arguments, target PID and the exact wire line. Existing evidence or
+   failure to persist that record refuses dispatch. Never reconstruct this
+   record from a later receipt. For the trial oracle, use the fixed filenames
+   `stop-request.json` and `stop-receipt.json` in that trial's evidence directory.
 
    The helper submits once and checks the bounded JSON frame, identity, state,
    process/thread fields and timings. Require `state=completed` and
@@ -161,6 +170,11 @@ or remove a loaded DLL. Earlier accepted cleanup is not this trial's cleanup.
    and must be investigated. Allow the host cleanup callback to complete and
    confirm the experimental pipe/window are gone; an acknowledgement alone
    does not establish every cleanup postcondition.
+   The one-shot trial oracles additionally bind the receipt PID to their own
+   actual `os.getpid()` and match STOP to the original request record. Missing
+   old evidence remains UNVERIFIED. For continuing observations in a preserved
+   old session, follow [the unlock checklist](UNLOCK_CHECKLIST.md); its explicit
+   legacy mode can never produce a qualification PASS.
 3. Close the test DM normally. STOP closes native IPC; it does not terminate DM,
    unload the DLL or prove that an already running host operation has finished.
 4. With no DigitalMicrograph process left, use the same state directory:

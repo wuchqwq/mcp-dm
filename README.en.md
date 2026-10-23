@@ -98,6 +98,12 @@ a client change. Separate fault injection tests the acceptance scripts.
 Neither test executes DM or clears the current real-host HOLD; commands and
 evidence boundaries are in the native guide and validation matrix.
 
+Post-run oracles also bind receipts to their actual process PID and STOP to
+the saved pre-submission request. Incomplete historical evidence can only
+produce UNVERIFIED observations. Use the [unlock checklist](experiments/native-bridge/mvp/UNLOCK_CHECKLIST.md)
+for later display/lifetime/normal-cleanup checks and the [differential plan](experiments/native-bridge/mvp/INTEGRATION_PLAN.md)
+for future main integration; no main merge is performed by this closeout.
+
 See the [native guide](experiments/native-bridge/mvp/README.md),
 [validation matrix](experiments/native-bridge/RESULTS.md) and
 [installation/removal](experiments/native-bridge/mvp/INSTALL.md) and

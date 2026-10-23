@@ -14,6 +14,16 @@ and cropped mean. SHOW completed for the explicit crop ID; same-ID recovery
 and another show ID correlated to that image. These are native API/protocol
 receipts, not independent visual or full-pixel acceptance.
 
+Offline closeout now requires the oracle's actual process PID and the original
+pre-submission STOP request record. A mutually consistent record from another
+host is insufficient. Missing historical `stop-request.json` remains
+UNVERIFIED; never backfill it from the receipt. The explicit
+`observe_legacy_stop` mode collects checks under separate observation filenames
+and can never produce PASS. Start with [the unlock checklist](UNLOCK_CHECKLIST.md)
+for preserved-session observations, document closure and normal cleanup.
+For the later main integration, follow [the differential plan](INTEGRATION_PLAN.md),
+preserving main's reviewed core and feature's Show/acceptance additions.
+
 Desktop acceptance is pending because desktop interaction was unavailable.
 This revision's independent full-pixel/source-invariance oracle, visible UI,
 document count, post-STOP document ownership, new Unicode UI comparison and

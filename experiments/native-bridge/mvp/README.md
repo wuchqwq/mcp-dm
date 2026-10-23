@@ -220,6 +220,8 @@ python -B .\experiments\native-bridge\mvp\test_transport.py
 $env:DM_NATIVE_FAKE_HOST_EXE = (Resolve-Path .\experiments\native-bridge\mvp\build\fake_host.exe).Path
 node --test tests/native-bridge.test.mjs tests/native-mcp.test.mjs tests/native-e2e.test.mjs
 python -B -m unittest discover -s tests -p 'test_native_trial_oracles.py' -v
+python -B -m unittest discover -s tests -p 'test_native_stop_helper.py' -v
+python -B -m unittest discover -s tests -p 'test_native_unicode_probe.py' -v
 ```
 
 Omit `-OfflineOnly` to build `dm_native_bridge.dll` as well. Build output paths
@@ -247,6 +249,16 @@ subprocesses with a synthetic DM API. Positive controls must pass; changed
 pixels, calibration, record identity and document counts must fail at their
 intended checks without writing a PASS report. This checks the acceptance
 scripts themselves and does not execute an oracle in DM.
+
+The trial oracles compare native receipt identity with their actual process
+PID and bind STOP to an original request record persisted before submission.
+Missing old records remain UNVERIFIED. The explicit legacy observation mode
+uses separate outputs and cannot produce PASS; it does not relax process,
+pixel, calibration or document checks. Follow [the unlock checklist](UNLOCK_CHECKLIST.md)
+for the preserved session, and [the integration plan](INTEGRATION_PLAN.md)
+before a future main reconciliation. The Unicode diagnostic independently
+records bytes/text and exceptions without guessing a codec or qualifying UI
+behavior.
 
 See [the validation matrix](../RESULTS.md), [ABI contracts](../ABI_NOTES.md),
 [installation and rollback](INSTALL.md), and the concise
