@@ -1,0 +1,134 @@
+# Agent guide: install and use mcp-dm
+
+[中文项目介绍](README.md) · [English overview](README.en.md) · [技术参考](REFERENCE.md) · [Technical reference](REFERENCE.en.md) · [Coding instructions](AGENTS.md)
+
+This is the entry point for an agent helping a researcher install or use the MCP. For code changes, also read AGENTS.md and the relevant implementation/tests. Do not treat instructions for using tools as permission to modify the repository, install dependencies, upload data or change unrelated client settings.
+
+## 1. User goal and division of work
+
+The researcher may normally work through DM's GUI and use external Python for specialized analysis. Do not require them to learn DM scripting or force every request through a capture/report pipeline.
+
+- Use the connected backend's actual tools for supported DM operations.
+- When additional analysis is requested, explicitly hand off an authorized, bounded numerical export to the agent's external workspace. Keep the exported input read-only; save the script, parameters and new outputs there.
+- Label external computations as external. Never use them to make an unsupported native operation look successful, and never silently switch backends.
+- Do not add another scientific calculation engine to the native bridge. Data conversion, preview encoding and provenance handling are engineering support, not permission to invent unqualified scientific algorithms.
+- Returning an externally generated image to DM requires an independently supported import path. Do not claim an automatic round trip merely because an export succeeded.
+
+Reports and replay are optional. A profile request needs a correct profile, not a mandatory full report.
+
+## 2. Resolve the installed checkout and backend first
+
+Inspect the actual checkout, branch and configuration. Do not reset or overwrite a user's checkout to match this document. The live tool catalog and status describe the connected implementation, not capabilities mentioned in a different branch's README.
+
+| Backend | Mainline scope at this documentation change | Required handling |
+|---|---|---|
+| Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
+| Opt-in native | Five tools: `dm_status`, `dm_datasets`, `dm_native_mean`, `dm_native_result`, `dm_crop` | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
+| Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
+
+Native main targets Windows x64 GMS 3.53.4137.0 with exact binary gates. Do not relax a fingerprint check or reuse an unqualified ABI for another build. A missing optional feature is not an instruction to enable arbitrary scripts.
+
+The previous long-form READMEs are preserved as REFERENCE.md and REFERENCE.en.md, with their installation instructions, numerical conventions and historical validation boundaries intact. Historical feature-branch HOLD notes there describe that integration snapshot; for subsequent development, consult the actual feature checkout's current handoff rather than reopening a closed historical session.
+
+## 3. Default-backend setup
+
+### Inspect before writing
+
+Check Windows x64, the chosen repository path, Node >=18, the existing DM installation and its GMS-managed Python. The host bridge is Python 3.7 / NumPy 1.18 API-compatible; do not replace GMS's runtime with an external interpreter. `import DigitalMicrograph` is a host operation, not an external-Python health check.
+
+Read the client's existing MCP configuration before changing it. Preserve unrelated entries. If `digitalmicrograph` already exists, identify its checkout/backend and obtain an intentional choice instead of overwriting it. Registering a client does not start DM.
+
+The detailed default-backend environment/startup instructions are in [REFERENCE.md](REFERENCE.md) and [REFERENCE.en.md](REFERENCE.en.md). They cover Gatan's existing offline Python installer when the vendor component is genuinely absent. Do not install or upgrade that component simply because an external Python import fails.
+
+### Start the bridge
+
+From the repository root, after the environment and user permission are established:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup\start_bridge.ps1
+```
+
+Use the documented executable/path options for non-default installations. Do not kill DM, launch competing hosts or replace the bridge just to resolve a connection failure. The default listener uses loopback TCP on port 8765.
+
+If a synthetic fixture is needed, create it before the resident bridge starts. The bridge occupies DM's ordinary Python execution slot. To run another host Python script, disconnect clients, stop the bridge normally with `setup/start_bridge.ps1 -Stop`, confirm exit, run the one-shot script, then restart. Do not inject a second script into an occupied slot. Existing images do not require fixture creation.
+
+### Register the client
+
+Adapt [mcp.json.example](mcp.json.example), replacing `__ABS_REPO_PATH__` with the absolute checkout path. Use an absolute Node path when the client cannot see the shell's PATH. Keep `DM_MCP_ALLOW_DMSCRIPT=0`. JSON examples are not Codex TOML.
+
+For an explicitly requested Codex registration, use the repository's [register_codex.ps1](setup/register_codex.ps1), after inspecting any existing entry. Follow the reference guide for timeout settings; do not duplicate tables or discard existing disabled tools. Refresh the client's MCP connection after configuration changes as needed.
+
+### Optional preview environment
+
+Use external Python 3.10+ and a new environment outside GMS:
+
+```powershell
+python -m venv .analysis-env
+.\.analysis-env\Scripts\python.exe -m pip install -r requirements-preview.txt
+$analysisPython = (Resolve-Path .\.analysis-env\Scripts\python.exe).Path
+```
+
+Configure this interpreter via the documented `AnalysisPython` option or the preview configuration example in the reference. Do not recreate/overwrite an existing environment or MCP entry blindly. Matplotlib/requirements-analysis.txt is optional and needed only for the report workflow, not the lightweight preview or core measurements.
+
+### Prove the connection
+
+Check three separate stages: configuration, tool discovery, actual execution. Call `dm_status`, verify the intended real backend, then use `dm_datasets`. A mock response, installed DLL, existing pipe or discovered tool alone does not prove a real-DM operation worked.
+
+Check both JSON-RPC errors and MCP `isError`. Use a small synthetic first task when numerical behavior must be validated. Do not state that real experimental data or model vision is qualified merely because protocol calls succeeded.
+
+## 4. Operate on the correct data
+
+Resolve the target once to an explicit image ID. Ask for a selection when ambiguous rather than guessing by window recency or brightness. An ID binds an object, not an immutable snapshot. Work on an idle host without simultaneous source edits.
+
+For 2D ROIs, use source-image `[x0,y0,x1,y1]`, zero-based, upper-exclusive. Reject invalid or out-of-range regions; do not round or clip to make a call succeed. DM dimensions are x,y,... while exported NumPy shapes reverse that order. Preserve dtype and distinguish display pixels from scientific values.
+
+Physical coordinates follow `calibrated_value_at_pixel_zero + index * signed_scale`. The raw DM origin is a separate field. Missing calibration must be reported, not invented; use each connected tool's declared requirements rather than assuming all backends share one rule.
+
+`dm_metadata` reads a requested subtree. Inspect path status, `complete` and `issues`; an unavailable or budget-limited read does not establish that a field is absent.
+
+## 5. Common task paths
+
+| Request | Default-backend path | Important boundary |
+|---|---|---|
+| Inspect open data | `dm_status` → `dm_datasets`, then `dm_metadata` as needed | Return the explicit image identity and available calibration. |
+| Compare ROIs | Separate `dm_stats` calls with explicit coordinates | This is a statistics summary, not a complete histogram. |
+| Profile/FFT | `dm_profile` or `dm_fft` | Preserve sampling/frequency conventions. FFT peaks do not identify a phase. |
+| Check a proposed selection | `dm_2d_capture` → `dm_2d_preview` | Same bounded captured input; overlay source coordinates. PNG is display-only. |
+| External analysis | `dm_export` or `dm_2d_capture` → agent-owned external script | Read exported numerical values plus sidecar/calibration; never calculate from the preview PNG. |
+| Optional report/replay | `dm_2d_analyze` → `dm_2d_result` | Use new output directories and retain provenance. Not required for ordinary measurements. |
+
+Native tools are a separate catalog. On main, crop returns a retained hidden image ID; it does not promise visible display, preview, a saved file or automatic external transfer. For the native setup and rollback procedure read [the native guide](experiments/native-bridge/mvp/README.md) and [INSTALL.md](experiments/native-bridge/mvp/INSTALL.md). Later feature-branch Show and summary capabilities require that branch's own evidence and configuration.
+
+Do not equate a document visible in DM with an MCP image received by the model, or either with a permanent scientific file.
+
+## 6. Data handoff and provenance
+
+Use a new output path; never overwrite a source, export or sidecar. Check the numerical format supports the required dtype and shape. Retain axis roles/order, units, both origin conventions where available, signed scales, source region, source identity, operation parameters and available input/output hashes.
+
+For external work, use a separate environment, the exported data and a saved script. State the library/method and whether intensity calibration was applied. Do not claim the plugin natively supports a specialized algorithm because the agent wrote one. Ask before adding dependencies or sharing private data beyond the user's authorization.
+
+Reopening an exported file and comparing its pixels/calibration is stronger evidence than merely receiving a path. Record which checks actually ran. Do not promise every format or scientific dataset has been validated.
+
+## 7. Timeout, cancellation and cleanup
+
+Cancellation stops waiting; it does not prove DM stopped. Never automatically repeat a dispatched operation with side effects.
+
+For native crop, save and supply `request_id` before dispatch, together with the session and parameters. Query `dm_native_result` with that original ID in the same live session. Preserve `queued`, `running`, `failed` and `unknown` as distinct outcomes. There is no promised recovery after native STOP, host exit or a different session.
+
+Do not transfer native recovery guarantees to the default backend. Use only its documented result mechanism; optional 2D result packages have `dm_2d_result`, but not every default operation has a retained native-style record.
+
+Normal native STOP releases plugin-owned resources, not the whole DM process. Follow the ownership manifest and installation guide for removal after normal host exit; do not hot-replace DLLs or close unrelated documents. On any source/identity inconsistency or native fault, stop the affected path and preserve evidence instead of improvising a retry.
+
+## 8. Boundaries and reporting
+
+No camera, beam, stage or optical controls. Arbitrary DM-Script stays disabled by default. Real EDS/EELS quantification, general 4D layouts and reconstruction are not implied by existing basic tools. Keep calculations, scientific interpretation and required human confirmation separate.
+
+A local bridge may return information that the client sends to a remote model provider. Respect the researcher's data policy; do not upload experimental files, private logs or vendor software by default.
+
+Conclude a task with the target data/ROI, actual backend and computation origin, results and file/object references, source-protection checks actually performed, and unresolved limitations. Do not bury a failed or incomplete step inside a polished success report.
+
+## 9. For agents modifying this repository
+
+Use [AGENTS.md](AGENTS.md), [scope decisions](docs/SCOPE_AUDIT.md) and the actual branch's native documentation. Preserve the human-first README: describe user tasks and availability there; put schemas, ABI details, recovery contracts and test logs in dedicated references. Keep both human-language versions aligned.
+
+Prefer finishing an end-to-end researcher task over adding unused operator names. DM-native capabilities stay native; explicitly requested external analysis stays a separate, provenance-preserving workflow. The [compatibility-generator RFC](https://github.com/wuchqwq/mcp-dm/pull/3) is future work and must not interrupt current native feature development.
