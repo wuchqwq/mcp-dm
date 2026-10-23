@@ -1,0 +1,22 @@
+LIBRARY KERNEL32.dll
+EXPORTS
+    CreateThread
+    CreateNamedPipeA
+    ConnectNamedPipe
+    DisconnectNamedPipe
+    ReadFile
+    WriteFile
+    CreateFileA
+    CloseHandle
+    FlushFileBuffers
+    GetCurrentThreadId
+    QueryPerformanceCounter
+    QueryPerformanceFrequency
+    GetModuleHandleA
+    InitializeCriticalSection
+    EnterCriticalSection
+    LeaveCriticalSection
+    CreateEventA
+    WaitForSingleObject
+    SetEvent
+    Sleep
