@@ -1,3 +1,4 @@
+#error "Retired unsafe historical probe: do not build or load. Use mvp/build.ps1 and read ABI_NOTES.md."
 // nb_probe: minimal native DigitalMicrograph plugin used to test whether an external
 // request can be carried into the host thread and executed there, with an auditable
 // receipt. No CRT, no SDK; kernel32 only.
