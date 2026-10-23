@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "digitalmicrograph-native-experimental": {
+      "command": "node",
+      "args": ["__ABS_REPO_PATH__/server.mjs"],
+      "env": {
+        "DM_MCP_BACKEND": "native",
+        "DM_NATIVE_SESSION": "__32_LOWERCASE_HEX_FROM_EXPLICIT_NATIVE_BUILD_START__",
+        "DM_MCP_TIMEOUT_MS": "30000",
+        "DM_MCP_ALLOW_DMSCRIPT": "0"
+      }
+    }
+  }
+}
