@@ -7,6 +7,10 @@
 extern int fake_initialize_count, fake_shutdown_count, fake_execute_count;
 extern int fake_shutdown_during_execute;
 extern void (*fake_reentrant_hook)();
+extern bool fake_e2e_enabled();
+extern void fake_e2e_ready();
+extern int fake_release_gate(const std::string&, const std::string&);
+extern std::string fake_e2e_lifecycle();
 static nb::Bridge* fake_bridge = nullptr;
 static bool fake_close_refused = false, fake_shutdown_deferred = false;
 static void reenter() {
@@ -16,7 +20,14 @@ static void reenter() {
 static unsigned setting(const char* name) {
     const char* v = std::getenv(name); return v ? static_cast<unsigned>(std::strtoul(v, nullptr, 10)) : 0;
 }
-int main() {
+int main(int argc, char** argv) {
+    // This helper only signals a private synthetic event; it never starts a
+    // bridge or attaches to any existing host/process/window.
+    if (argc == 4 && std::string(argv[1]) == "--release-gate") {
+        try { return fake_release_gate(argv[2], argv[3]); }
+        catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 2; }
+    }
+    if (argc != 1) return 2;
     DWORD handles_before = 0; GetProcessHandleCount(GetCurrentProcess(), &handles_before);
     const char* fail_stage = std::getenv("NB_FAKE_START_FAIL_STAGE");
     nb::Bridge bridge(fail_stage ? fail_stage : "", true); int exit_code = 0;
@@ -40,11 +51,11 @@ int main() {
                 unsigned delay = msg.message == nb::kWorkMessage ? setting("NB_FAKE_DISPATCH_DELAY_MS") :
                     (msg.message == nb::kReadyMessage ? setting("NB_FAKE_READY_DELAY_MS") : 0);
                 if (delay) deferred.emplace_back(GetTickCount64() + delay, msg);
-                else { TranslateMessage(&msg); DispatchMessageW(&msg); }
+                else { TranslateMessage(&msg); DispatchMessageW(&msg); if (msg.message == nb::kReadyMessage) fake_e2e_ready(); }
             }
             for (auto it = deferred.begin(); it != deferred.end();) {
                 if (it->first > GetTickCount64()) { ++it; continue; }
-                DispatchMessageW(&it->second); it = deferred.erase(it);
+                DispatchMessageW(&it->second); if (it->second.message == nb::kReadyMessage) fake_e2e_ready(); it = deferred.erase(it);
             }
         }
         bridge.shutdown();
@@ -59,6 +70,6 @@ int main() {
         ",\"shutdown_deferred\":" << (fake_shutdown_deferred ? "true" : "false") <<
         ",\"owned_resources_released\":" << (bridge.audited_resources_released() ? "true" : "false") <<
         ",\"worker_cleanup_dispatched\":" << (bridge.worker_cleanup_dispatched() ? "true" : "false") <<
-        ",\"handle_delta\":" << static_cast<long>(handles_after) - static_cast<long>(handles_before) << "}" << std::endl;
+        ",\"handle_delta\":" << static_cast<long>(handles_after) - static_cast<long>(handles_before) << fake_e2e_lifecycle() << "}" << std::endl;
     return exit_code;
 }
