@@ -2,16 +2,40 @@
 
 Target: Windows x64 GMS **3.53.4137.0**, with exact executable/module identity
 checks. The default v0.6 Python backend and client configuration remain
-unchanged. Core native work and crop numerical/copy behavior have separate
+unchanged. Earlier core native work and crop numerical/copy behavior have separate
 limited real-DM acceptance with ASCII-named synthetic inputs. Other unaccepted
 scopes must not inherit those passes.
 
+**Current trial: HOLD.** The revised DLL passed actual host/build gates and
+strict stdio MCP checks: calibrated and empty-unit raw means/metadata,
+unsupported/nonfinite/missing-image errors, required crop ID, strict
+missing-unit crop rejection, immutable crop QUERY/duplicate/conflict behavior
+and cropped mean. SHOW completed for the explicit crop ID; same-ID recovery
+and another show ID correlated to that image. These are native API/protocol
+receipts, not independent visual or full-pixel acceptance.
+
+Desktop acceptance is pending because desktop interaction was unavailable.
+This revision's independent full-pixel/source-invariance oracle, visible UI,
+document count, post-STOP document ownership, new Unicode UI comparison and
+last-reference release after closing only the delivered document, and normal
+exit/removal remain NOT_TESTED. STOP was acknowledged and the native
+pipe/window disappeared. The test host remains running with the DLL loaded
+and manifest installed; IPC is stopped. Preserve the private records, complete
+the post-STOP oracle when desktop access is available. Then normally close
+only the delivered crop document and run [verify_trial_closed.py](verify_trial_closed.py)
+while DM still runs: output ID invalid, original document count restored and
+other sources unchanged. Whole-host exit cannot prove final output-reference
+release. Finally close the host normally and remove only the manifest-owned DLL. Do not force termination or
+remove a loaded plugin. WorkBuddy actual calls remain NOT_TESTED.
+
 The native catalog is `dm_status`, `dm_datasets`, `dm_native_mean`,
-`dm_native_result` and experimental `dm_crop`. There is no Python fallback.
+`dm_native_result`, experimental `dm_crop` and the P1 `dm_native_show`
+candidate. There is no Python fallback; show's visual/document acceptance is
+still NOT_TESTED despite its completed native receipt.
 Mean is bounded 2D float32 raw intensity, not full statistics. Crop returns a
 separate image ID held by bounded plugin references until STOP/cleanup; it does
 not promise a visible document, model-visible preview or WorkBuddy acceptance.
-Post-crop STOP release passed an independent check: the hidden output ID became
+Earlier post-crop STOP release passed an independent check: the hidden output ID became
 invalid, its pipe/window disappeared and ordinary Python still ran.
 
 Implemented lifecycle/transport: strict NB1, one immutable in-flight operation,
@@ -21,12 +45,23 @@ partial-startup cleanup, deferred reentrant cleanup and host cleanup after
 STOP. The total record bound is 1024, reserving one slot for STOP. Submit once,
 query the same ID after timeout/unknown, and never automatically replay work.
 
+Current P0 changes: crop's caller-saved request_id is mandatory before
+dispatch; the old read-only tools keep optional-ID compatibility. The
+operator trial saves IDs, session and arguments for every call. QUERY recovery
+is only within that same running session, not after STOP or host restart.
+Raw mean now tolerates recognized incomplete spatial calibration while
+reporting calibration_complete:false and specific issues. Intensity remains
+raw/unapplied; crop retains strict calibration. Offline surrogates passed the
+new policy, including native/ABI failure propagation. The current strict
+actual-host trial accepted the empty-unit case separately; other invalid
+spatial-number cases remain offline-only.
+
 Offline core, ABI-surrogate, Windows synthetic-host, Node/MCP and installer
 checks passed their stated scopes. The fake host and ABI surrogates do not
 load Gatan modules. Keep the initial failures and corrections recorded in
 [RESULTS.md](../RESULTS.md); do not replace them with an aggregate PASS.
 
-Actual idle-host core acceptance passed loading/build gate/message readiness,
+Earlier idle-host core acceptance passed loading/build gate/message readiness,
 numeric INFO, names/dtype/signed-scale calibration, repeated native means,
 strict stdio MCP calls and safe invalid parameters. Ordinary one-shot Python
 after native work succeeded without a resident Python listener, and synthetic
@@ -35,7 +70,7 @@ Python image references, a missing old ID failed cleanly and another mean
 still succeeded. STOP removed the experimental pipe/window; normal DM exit
 then succeeded. These are limited build-specific observations.
 
-Separate crop acceptance passed real stdio MCP creation of a new image ID,
+Earlier separate crop acceptance passed real stdio MCP creation of a new image ID,
 same-request-ID reuse and out-of-bounds rejection. A one-shot GMS Python oracle
 checked all cropped pixels, dtype/shape, independent memory, signed scales,
 physical pixel-zero/unit consistency and unchanged source pixels/calibration.
@@ -63,7 +98,8 @@ general Chinese-name repair claim.
 Calibration has two distinct origin fields: `origin` is raw DM index origin;
 `calibrated_value_at_pixel_zero` is physical zero. Coordinates use the latter
 plus index times signed scale. Enumeration can retain a utility entry with
-`calibration_complete:false`; numerical operations require usable calibration.
+`calibration_complete:false`; crop requires usable calibration, while supported
+raw mean can report that limitation and still return raw intensity.
 An image ID binds an object, not an atomic snapshot of pixels and metadata.
 
 The retired `nb_probe.cpp` is blocked with `#error`. Its PE resolver, numeric-ID
@@ -74,7 +110,8 @@ serialized; no safe hot unload, concurrent image API use, hardware operation,
 arbitrary script tool, other-build compatibility or real-data acceptance is
 claimed. WorkBuddy/model visual acceptance remains **NOT_TESTED**.
 
-Final normal DM exit and manifest-owned DLL removal completed successfully.
+The earlier accepted session's normal DM exit and manifest-owned DLL removal
+completed successfully.
 Only this experimental DLL was removed, the pre-installation inventory was
 restored, and the manifest records removal; no client configuration was
 changed. Next, keep any new client/visual or scientific-data acceptance
@@ -86,3 +123,17 @@ public commits. To roll back, disconnect clients, send explicit native STOP,
 close DM normally, and use the same ownership manifest to remove only this
 experimental DLL. Return to the unchanged default backend. Commands are in
 [INSTALL.md](INSTALL.md).
+
+P1 candidate: dm_native_show(image_id, request_id) for a plugin-retained crop
+only, without another data copy, a file path or a save. A visible document is
+expected to own the crop independently of the plugin; STOP must not close it.
+The native Show receipt and explicit-image correlation passed the current
+strict real-host MCP trial. Actual visibility, document count and post-STOP
+lifetime remain NOT_TESTED; do not inherit the earlier crop oracle. Native SaveAs remains blocked by
+insufficient dm_string ABI and exclusive/no-overwrite evidence. Do not equate
+display with model vision or permanent file delivery.
+
+The operator package is [WORKBUDDY_TRIAL.md](WORKBUDDY_TRIAL.md). Generated
+trial-answers.json stays private and is not supplied to the Agent. The strict
+accept_trial_mcp.py client has a separate protocol scope; actual WorkBuddy
+calls remain NOT_TESTED, and model image viewing is not a trial prerequisite.

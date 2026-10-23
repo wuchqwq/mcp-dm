@@ -5,10 +5,10 @@ observed to fail; **NOT_TESTED** means no accepted execution covers that scope.
 Offline, static and historical results are kept separate from current DM
 acceptance. Private run artifacts and scientific data are not distributed.
 
-## Replacement MVP
+## Earlier accepted MVP baseline
 
 Target: Windows x64 GMS **3.53.4137.0**, with exact binary identity checks.
-The core native path has passed limited real-host acceptance with known
+The earlier core native path passed limited real-host acceptance with known
 synthetic inputs in an idle, prepared session. No real experimental data was
 used. This is a build-specific acceptance, not a general DM compatibility or
 native concurrency guarantee.
@@ -42,6 +42,51 @@ native concurrency guarantee.
 The ordinary-operation record budget is 1023 per session, plus one reserved STOP
 receipt, for a total of at most 1024 retained records. No completed record is
 evicted to admit a new operation.
+
+## Current P0 policy and P1 delivery revision
+
+**Current trial: HOLD.** The new DLL passed its actual host/build gates and
+the strict stdio MCP trial below. Desktop acceptance remains pending because
+desktop interaction was unavailable. The earlier passes above cover their own
+implementation and inputs; they do not certify this revision automatically.
+
+| Revision scope | Status | Boundary |
+|---|---|---|
+| Raw mean with missing spatial units | PASS, limited actual host | Calibrated and empty-unit synthetic inputs matched independent mean truth, metadata and limitation checks; other invalid spatial-number cases have offline coverage only |
+| Safe rejection of unsupported/nonfinite/missing images | PASS, limited actual host | UINT16, nonfinite mean and missing ID returned the expected errors; native/ABI exceptions are not converted into missing-data success |
+| Caller-saved crop request ID and immutable recovery | PASS, strict actual-host MCP; WorkBuddy NOT_TESTED | Missing ID rejected; same-session QUERY/duplicate kept the same crop, conflicting parameters failed, cropped mean matched truth, and missing-unit crop remained rejected |
+| `dm_native_show` native receipt and image identity | PASS, limited actual host | Explicit retained crop ID completed; QUERY/duplicate preserved its receipt and a different show ID still identified that image; no data copy or path/file save |
+| Visible document, document count and independent full-pixel/source oracle for this revision | NOT_TESTED | A native completed receipt does not establish visual delivery or replace the pending one-shot host oracle |
+| Shown-document ownership after STOP | NOT_TESTED | STOP must not close a document; previous hidden-output release evidence does not establish shown-output lifetime |
+| Last output reference after closing only the delivered document | NOT_TESTED | Prepared `verify_trial_closed.py` checks ID invalidation, original document count and unchanged remaining sources while DM still runs; whole-host exit is insufficient |
+| Experimental IPC STOP | PASS, limited actual host | STOP acknowledged and the experimental pipe/window disappeared; this does not prove shown-document ownership or unload the DLL |
+| Normal exit and manifest-owned removal for this revision | NOT_TESTED | Test host remains open, DLL loaded and ownership manifest installed; preserve them until normal continuation and cleanup |
+| New non-ASCII UI/binding comparison | NOT_TESTED / NOT_QUALIFIED | The earlier failed name comparison is retained; no new Unicode qualification |
+| Native SaveAs | Not implemented / NOT_QUALIFIED | `dm_string` ABI and exclusive/no-overwrite semantics lack adequate evidence; no permanent-file delivery claim |
+| Ordinary WorkBuddy trial | NOT_TESTED | Private operator answers and the strict protocol client are separate from an actual model/client run; model viewing is not a prerequisite |
+
+The current native IPC is stopped. Do not remove the loaded DLL or force-close
+the host to turn the pending steps into a cleanup claim. Resume with the
+independent post-STOP pixel/calibration/source and document-ownership checks.
+Then close only the delivered document normally and run the prepared
+[closed-document oracle](mvp/verify_trial_closed.py) while DM still runs, before
+normal host exit and manifest-owned removal. The default backend and
+existing client configuration remain unchanged. File persistence is not
+implemented; receiving a show result without seeing the image is not visual
+acceptance.
+
+Raw mean now keeps `intensity_calibration_applied:false` and raw-pixel intensity
+semantics even when spatial metadata reports `calibration_complete:false`.
+Crop still requires valid spatial calibration. Descriptor/dtype/work-budget
+eligibility does not guarantee a finite mean or suppress native failures.
+Recognized invalid numbers plus absent units report both conditions explicitly.
+
+Request recovery uses volatile records from the same running session. STOP,
+DM exit/restart or a new session does not promise QUERY recovery; saved IDs
+must not be replayed in a new session. Existing read-only tools keep optional
+generated IDs for compatibility, while the operator trial saves IDs for every
+call. See [WORKBUDDY_TRIAL.md](mvp/WORKBUDDY_TRIAL.md) for the answer-free prompt,
+independent private review and current delivery gate.
 
 Two corrected offline runs must not obscure their initial failures:
 

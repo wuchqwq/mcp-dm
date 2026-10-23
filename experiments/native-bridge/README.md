@@ -6,7 +6,7 @@ Python bridge. The existing Python backend remains the default.
 
 The target is Windows x64 GMS **3.53.4137.0**, with exact host/module identity
 checks. Passing those checks is a prerequisite, not a compatibility or runtime
-acceptance claim. The core native path has passed a limited real-DM acceptance
+acceptance claim. The earlier core native path passed a limited real-DM acceptance
 using synthetic inputs on this target: lifecycle/readiness, metadata, native
 mean, strict MCP calls, source preservation and normal cleanup. Native crop also
 passed separate strict MCP and independent pixel/calibration checks with ASCII
@@ -18,16 +18,30 @@ preserving the prior inventory and client configuration. See the separate
 
 ## Current scope
 
-The opt-in native MCP catalog has five tools: `dm_status`, `dm_datasets`,
-`dm_native_mean`, `dm_native_result` and experimental `dm_crop`. The native mean is a raw pixel
+The opt-in native MCP catalog includes `dm_status`, `dm_datasets`,
+`dm_native_mean`, `dm_native_result`, experimental `dm_crop` and the P1
+`dm_native_show` candidate. Its native completed receipt/image correlation
+passed a strict real-host MCP trial; independent visual/document acceptance
+remains NOT_TESTED.
+The native mean is a raw pixel
 intensity mean for a bounded two-dimensional float32 image. It is not the full
 `dm_stats` interface. Unsupported operations and types fail explicitly; the
-native backend never falls back to Python.
+native backend never falls back to Python. Recognized incomplete spatial
+calibration can be reported while raw mean still runs; crop remains strict.
+Crop/show require caller-saved request IDs before dispatch. Recovery is only
+same-session QUERY, not after STOP or a host restart.
 
 Native crop creates a separate image ID held by bounded plugin-owned references
 until native STOP/cleanup. Actual acceptance verified independent cropped data,
 half-open bounds, signed calibration and unchanged sources; this is not a
-visible DM document or a model-visible preview. ASCII names are qualified.
+visible DM document or a model-visible preview by itself. The show candidate
+targets only that plugin-retained crop and does not save a file. Its visible
+document, document count and post-STOP ownership still need separate
+acceptance. The current trial is HOLD pending desktop acceptance and this
+revision's full-pixel/source oracle. IPC STOP and pipe/window cleanup passed,
+but the test host remains open with the DLL loaded and manifest installed;
+normal exit and owned removal are still pending. Earlier crop/cleanup passes
+must not be inherited by this revision. ASCII names are qualified.
 Non-ASCII naming interoperability with legacy GMS Python bindings is
 **NOT_QUALIFIED** after an independent comparison failed; no heuristic encoding
 conversion was added. Real experimental data, WorkBuddy/visual acceptance,

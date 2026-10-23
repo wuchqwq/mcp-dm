@@ -29,12 +29,28 @@ The report/replay worker remains optional. Preview needs only NumPy/Pillow in an
 
 The default v0.6 backend stays unchanged. The opt-in native backend targets
 Windows x64 GMS 3.53.4137.0 and exposes status, datasets, native mean, retained
-result queries and experimental crop. Limited idle-host acceptance of the core
+result queries, experimental crop and the SHOW candidate. Earlier limited idle-host acceptance of the core
 metadata/mean/MCP path and source preservation has passed with synthetic inputs
 without a resident Python listener. Historical probe results and offline
 surrogates do not certify changed native code.
 
-Native crop separately passed actual MCP and an independent one-shot GMS
+Current P0 decouples raw mean from recognized incomplete spatial calibration,
+while crop remains strict. Crop and new side-effect tools require a saved
+request ID/session before dispatch, with same-session QUERY recovery only.
+The current actual-host strict MCP trial passed calibrated/empty-unit raw
+mean metadata, safe errors and immutable crop recovery/conflicts. Other
+invalid spatial-number cases remain offline-only. P1 selects the bounded
+`dm_native_show` native-document route for an existing plugin crop, without a
+data copy or file-save interface; completed receipts and image correlation
+passed. The trial remains HOLD: independent full-pixel/source checks, actual
+display, document count and post-STOP document ownership are NOT_TESTED due
+to pending desktop acceptance. IPC STOP/pipe/window cleanup passed; normal
+host exit and owned DLL removal remain pending with the test host still open.
+Native SaveAs stays deferred for insufficient string ABI and exclusive-write
+evidence. The [operator trial](experiments/native-bridge/mvp/WORKBUDDY_TRIAL.md)
+keeps its private answers separate; actual WorkBuddy calls remain NOT_TESTED.
+
+Earlier native crop separately passed actual MCP and an independent one-shot GMS
 Python oracle for explicit IDs, half-open bounds, every pixel, separate memory,
 signed calibration, unchanged sources and duplicate-request identity. Its
 output lifetime through STOP was separately accepted: the hidden crop ID

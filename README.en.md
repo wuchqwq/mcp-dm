@@ -50,11 +50,12 @@ The Node server has no npm runtime dependencies. The DM bridge uses the standard
 The v0.6 Python/TCP backend remains the default. A separate configuration with
 `DM_MCP_BACKEND=native` selects a build-pinned Windows x64 GMS **3.53.4137.0**
 experiment. It uses no resident Python listener and never falls back to Python.
-Its catalog is `dm_status`, `dm_datasets`, `dm_native_mean`, `dm_native_result`
-and experimental `dm_crop`. Mean is not full statistics; crop returns a
+Its catalog is `dm_status`, `dm_datasets`, `dm_native_mean`, `dm_native_result`,
+experimental `dm_crop` and the `dm_native_show` candidate.
+Mean is not full statistics; crop returns a
 plugin-retained image ID and does not promise a visible document.
 
-Limited real-host acceptance with ASCII-named synthetic inputs passed
+Earlier limited real-host acceptance with ASCII-named synthetic inputs passed
 loading/host callbacks, metadata/signed calibration, native mean and strict
 stdio MCP. Separate crop acceptance checked every pixel, independent memory,
 physical calibration and unchanged sources. A separate STOP check verified
@@ -69,9 +70,32 @@ with legacy GMS Python bindings failed comparison and remains
 host and serialized requests. Query the saved operation ID after a timeout;
 never automatically replay work. Vendor native faults are not process-isolated.
 
+The current P0 policy permits supported raw means with recognized missing or
+unusable spatial calibration, reporting `calibration_complete:false` and
+per-axis issues; crop still requires usable calibration. Crop requires a
+caller-saved `request_id` before dispatch. Save its session/arguments too, and
+recover only by same-session result queries. Recovery after STOP or restart is
+not promised. New side-effect tools use the same rule; existing read-only
+tools keep compatibility, while the trial supplies explicit IDs throughout.
+Strict actual-host MCP passed the missing-unit mean/metadata, safe errors and
+crop recovery/conflict checks. Other invalid spatial-number cases currently
+have offline coverage only.
+
+P1 candidate `dm_native_show` targets only a plugin-retained crop and requires
+a new saved show ID. Actual native completed receipts and image correlation
+passed. **The current trial is HOLD pending desktop acceptance:** visibility,
+document count, post-STOP document ownership, this revision's independent
+full-pixel/source oracle, normal exit and owned removal remain NOT_TESTED.
+STOP acknowledged and removed the pipe/window, but the test host remains open
+with the DLL loaded and manifest installed. Earlier crop/cleanup passes are
+not inherited by this revision. A show receipt without seeing the image is
+not visual acceptance, model vision or file persistence. Native SaveAs remains unavailable pending adequate
+ABI and exclusive/no-overwrite evidence.
+
 See the [native guide](experiments/native-bridge/mvp/README.md),
 [validation matrix](experiments/native-bridge/RESULTS.md) and
-[installation/removal](experiments/native-bridge/mvp/INSTALL.md). STOP ends only
+[installation/removal](experiments/native-bridge/mvp/INSTALL.md) and
+[WorkBuddy operator trial](experiments/native-bridge/mvp/WORKBUDDY_TRIAL.md). STOP ends only
 the experimental IPC. Close DM normally, then remove only the owned test DLL
 using its manifest to return to the unchanged default backend. The setup
 instructions below continue to describe that default Python backend.

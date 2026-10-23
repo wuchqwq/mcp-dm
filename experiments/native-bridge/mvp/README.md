@@ -2,18 +2,28 @@
 
 An opt-in, build-pinned C++ backend for a small set of DigitalMicrograph
 post-acquisition operations. The target is Windows x64 GMS **3.53.4137.0**.
-Exact host/module identities are checked before image operations. Core status,
+Exact host/module identities are checked before image operations. Earlier core status,
 metadata and native mean have passed limited real-DM acceptance with synthetic
 inputs, including strict MCP calls and unchanged-source checks. Native crop
 also passed separate real-host MCP and independent pixel/calibration checks
 with ASCII fixture names. A separate post-STOP check verified release of the
 plugin-retained crop and removal of the experimental pipe/window, with ordinary
 Python still usable.
-The test host subsequently exited normally and manifest-based removal restored
+That earlier test host subsequently exited normally and manifest-based removal restored
 the prior plugin inventory by removing only this experiment's owned DLL.
 Existing client configuration remained unchanged.
 Offline tests use an explicitly synthetic host and do not
 load Gatan code; their PASS remains separate from real-host acceptance.
+
+**Current revision: HOLD pending desktop acceptance.** Actual strict stdio MCP
+passed calibrated/empty-unit raw means, metadata/limitations, safe failures,
+crop ID recovery/conflict checks and native SHOW receipts for the explicit
+crop. Independent visible-document, document-count, full-pixel/source and
+post-STOP ownership checks remain NOT_TESTED. STOP acknowledged and removed
+the native pipe/window; the test host is still running with the DLL loaded
+and manifest installed. Complete the independent post-STOP oracle, normal
+exit and ownership-based removal before declaring this trial complete. See
+[HANDOFF.md](HANDOFF.md) for the continuation state.
 
 The ordinary Python backend stays the default. Selecting
 `DM_MCP_BACKEND=native` selects this experimental backend and its own tool
@@ -27,13 +37,36 @@ catalog; it never starts or falls back to the resident Python bridge.
 | `dm_datasets` | Bounded image enumeration with numeric ID, name, shape, known dtype and dimension calibration |
 | `dm_native_mean` | Raw pixel intensity mean for a bounded 2D float32 image selected by explicit ID |
 | `dm_native_result` | Query the retained receipt using its original operation ID |
-| `dm_crop` | Experimental explicit-ID half-open crop into a separate plugin-retained image; limited real-host numerical/copy acceptance PASS |
+| `dm_crop` | Explicit-ID half-open crop into a separate plugin-retained image; current strict MCP checks passed, current independent full-pixel/source oracle pending; earlier copy acceptance is separate |
+| `dm_native_show` | P1 exact plugin-crop display; saved request ID required, native receipt/identity passed, independent desktop acceptance NOT_TESTED |
+
+Current P0 policy separates raw intensity from spatial calibration. A known
+missing unit, zero/nonfinite spatial scale or unusable spatial origin does not
+by itself prohibit a supported raw mean. The result retains
+`calibration_complete:false` and specific per-axis issues; it still reports
+`intensity_calibration_applied:false`, with `intensity_semantics` set to
+`raw pixel intensity`. Crop continues to require usable spatial calibration. Invalid
+IDs, unsupported dtype/dimensions, work budgets, nonfinite mean results and
+native/ABI failures remain errors. The empty-unit case passed separate
+actual-host mean/metadata checks; other invalid spatial-number cases currently
+have offline surrogate coverage only.
 
 This is not the complete `dm_stats` interface. Export, preview, arbitrary
 script execution, spectrum/4D tools and hardware controls are not exposed in
 the native catalog. A cropped image is retained by bounded plugin-owned
 references until native STOP/cleanup. No visible document, displayed image or
-model visual acceptance is implied by its returned ID.
+model visual acceptance is implied by the crop ID alone.
+
+P1 candidate: `dm_native_show(image_id, request_id)` calls the native display path only for an existing
+plugin-retained crop by its exact ID, without making another data copy or
+accepting a file path. It requires a separately saved request ID. This
+candidate's native completed receipt and same-image recovery were accepted
+through actual MCP. Actual visibility, document count and post-STOP document
+ownership remain **NOT_TESTED**. A completed receipt without seeing the image
+is not visual acceptance, a file save or proof that the model saw it.
+Native saving remains unavailable: the `SaveAsGatan` string ABI and
+exclusive/no-overwrite behavior are not sufficiently established. See the
+[operator trial](WORKBUDDY_TRIAL.md) before treating P1 as delivered.
 
 The accepted real-host name scope is ASCII. An independent comparison of
 non-ASCII names between legacy GMS Python `SetName`/`GetName` and native
@@ -50,9 +83,12 @@ it is not a physical zero. Use `calibrated_value_at_pixel_zero + i * scale`
 for the physical coordinate, preserving the sign of `scale` and the declared
 unit. Enumeration marks incomplete calibration with
 `calibration_complete:false` and per-axis issues, so a hidden utility image
-without units need not prevent other datasets from being listed. Numerical
-operations still require usable calibration. The mean reports raw intensity,
-with no intensity-calibration application.
+without units need not prevent other datasets from being listed. Raw mean can
+remain supported with incomplete spatial calibration, which is reported as a
+limitation rather than converted to invented units. Crop still requires usable
+calibration. The mean never applies intensity calibration.
+`native_mean_supported` reports dtype/dimension/budget eligibility; a native
+failure or nonfinite result can still reject the operation.
 
 ## Short tasks for a connected agent
 
@@ -60,19 +96,26 @@ These prompts use the published tools and need no Skill installation or source
 reading. They are suggested client acceptance tasks, not evidence that
 WorkBuddy or another model client has passed:
 
-1. "Check `dm_status`. Report the actual backend, readiness, build gate and
-   receipt identity. Continue only with `digitalmicrograph-native` ready."
+1. "Save explicit request IDs, then check `dm_status`. Report the actual
+   backend, readiness, build gate and receipt identity. Continue only with
+   `digitalmicrograph-native` ready."
 2. "List datasets and use my specified numeric image ID for a native mean.
-   Report its shape, dtype, complete physical calibration and raw mean; mark
+   Report its shape, dtype, available spatial calibration and raw mean; mark
    unknown units or unsupported inputs explicitly."
 3. "For my specified image ID and half-open rectangle, make a separate native
-   crop. Save its request ID, report the new image ID, and compare its dtype,
+   crop. Save its session and required request ID before submitting, report
+   the new image ID, and compare its dtype,
    dimensions, signed scales and physical pixel-zero shift with the source.
    Do not claim a visible window or an unchanged-source proof from the receipt
    alone. If the wait expires, query that same request ID."
 4. "Check a safe invalid parameter such as a fractional image ID. Confirm an
    explicit error, inspect both RPC and tool-error status, and ensure no
    fallback or successful-image claim is reported."
+
+For the answer-free WorkBuddy prompt, operator steps and separate private
+answer review, use [WORKBUDDY_TRIAL.md](WORKBUDDY_TRIAL.md). Actual WorkBuddy
+calls remain NOT_TESTED; model image viewing is not a prerequisite for this
+tool-use trial.
 
 ## Protocol and lifecycle
 
@@ -86,7 +129,7 @@ The complete request is at most 512 bytes including LF. IDs match
 `[A-Za-z0-9_-]{1,64}`. Fields use one space; argument counts, integer syntax and
 overflow are checked exactly. Supported transport forms are `STATUS`,
 `DATASETS`, `INFO image_id`, `MEAN image_id`, `CROP image_id x0 y0 x1 y1`,
-`QUERY` and `STOP`. Rectangular upper bounds are exclusive. INFO is a direct
+`SHOW image_id`, `QUERY` and `STOP`. Rectangular upper bounds are exclusive. INFO is a direct
 acceptance/client operation, not a separate public MCP tool. Native crop
 support remains build-specific and experimental despite its limited acceptance.
 
@@ -109,10 +152,21 @@ record without executing again; reusing that ID with different parameters
 fails. `QUERY` does not create a record. The session retains up to 1023 ordinary
 operation records plus one STOP receipt, without eviction.
 
+`dm_crop` requires a caller-saved `request_id` before submission; newly added
+side-effect tools, including the P1 show candidate, follow the same rule.
+`dm_native_result` requires the original ID. Existing read-only status,
+datasets and mean calls retain optional generated IDs for compatibility, but
+the operator trial supplies explicit IDs for every call. Save the original
+session, operation, arguments and ID before dispatch rather than depending on
+a response that cancellation might suppress.
+
 A client timeout, cancellation or disconnect stops only the client's wait.
 It does not cancel a native operation or free its record. Treat an unresolved
 outcome as `unknown`, retain its session/ID, and query it; never automatically
 resubmit an operation. `unknown` is not success or proof of cancellation.
+Recovery is only within the same running session and its in-memory retained
+records. After STOP, DM exit/restart or a new session, QUERY recovery is not
+promised; an old ID must not be replayed as a new operation.
 
 STOP ends only the experimental IPC; it does not close DM. The worker posts host cleanup, which
 releases adapter references, window and events after confirming worker exit.
@@ -126,7 +180,7 @@ while a script, acquisition, another plugin or a user edit is modifying images.
 The bridge has no general host activity lock. Vendor native faults are not
 isolated, and C++ catches do not guarantee recovery from access violations.
 
-Separate real-host crop acceptance verified strict MCP creation of a new image
+Earlier separate real-host crop acceptance verified strict MCP creation of a new image
 ID, identical results for a repeated request ID and safe rejection of an
 out-of-bounds ROI. An independent one-shot GMS Python oracle verified every
 cropped pixel, dtype, shape, separate memory, signed calibration and unchanged
@@ -134,8 +188,12 @@ source pixels/calibration. It did not rely on the native mean alone. The
 post-crop STOP ownership check separately confirmed that the hidden crop ID
 became invalid after cleanup and ordinary Python remained usable. This does
 not establish hot-unload safety or general concurrent API behavior.
+That earlier ownership test covered an unshown output. The P1 candidate is intended to let a
+visible DM document retain the crop independently; STOP must not close that
+document. Continued document ownership after STOP still requires its own
+real-host test.
 
-Real-host acceptance verified ordinary one-shot Python after native work,
+Earlier real-host acceptance verified ordinary one-shot Python after native work,
 without a resident Python listener. It also verified rejection of an ID after
 the synthetic document and its remaining Python references were released.
 These observations do not establish concurrent script/native image safety,

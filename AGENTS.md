@@ -32,8 +32,8 @@ honest errors. Do not add an agent framework, scheduler, report platform or
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
 The separate experimental native catalog has status, datasets, native mean,
-result query and crop. Its target is Windows x64 GMS 3.53.4137.0 with exact
-binary gates. Core idle-host metadata/mean/MCP acceptance and separate native
+result query, crop and the P1 show candidate. Its target is Windows x64 GMS 3.53.4137.0 with exact
+binary gates. Earlier core idle-host metadata/mean/MCP acceptance and separate native
 crop pixel/copy/calibration acceptance passed using ASCII-named synthetic
 inputs. Crop output release after STOP was independently checked along with
 pipe/window cleanup and continued one-shot Python use. Non-ASCII legacy
@@ -47,11 +47,40 @@ unknown or timeout, query it and never replay automatically. Native STOP only
 ends this experiment's IPC/owned resources, not DM. Close DM normally before
 manifest-based installation/removal; do not alter existing client entries.
 
+Current native P0: raw intensity mean does not require usable spatial
+calibration when known missing/invalid calibration can be reported explicitly.
+Keep calibration_complete:false and specific per-axis issues; never invent
+units, apply intensity calibration or swallow native/ABI exceptions. Crop
+continues to require valid spatial calibration. Crop and newly added
+side-effect tools require a caller-saved request_id before dispatch; the old
+read-only status/datasets/mean tools retain optional-ID compatibility. Save
+session/arguments too and recover only with same-session QUERY. Records are
+volatile; STOP, host exit/restart or a new session does not promise recovery.
+
+The current strict actual-host trial passed calibrated/empty-unit raw mean
+metadata and safe errors, crop ID recovery/conflicts, and SHOW native receipt
+and image correlation. Other invalid spatial-number cases are offline-only.
+The trial is HOLD pending independent desktop/document and full-pixel/source
+checks, post-STOP document ownership, normal exit and owned removal. IPC STOP
+and pipe/window cleanup passed, but the test host remains open with DLL loaded
+and manifest installed. Preserve that continuation state; do not force-close
+or remove a loaded plugin. Earlier crop/oracle/cleanup passes are not inherited.
+
+P1 candidate dm_native_show requires its own saved ID and accepts only an
+existing plugin-retained crop, with no path or data-copy/file-save interface.
+Its independent visual/document scope remains NOT_TESTED despite its native
+completed receipt. A shown document may hold an
+output after plugin STOP; do not confuse document ownership with a plugin
+leak, or close unrelated documents. No model-viewing or permanent-save claim.
+The SaveAsGatan string/exclusive-write contracts remain unqualified. Keep
+WorkBuddy trial prompts separate from private answers; see the MVP
+WORKBUDDY_TRIAL.md. A strict protocol client is not WorkBuddy acceptance.
+
 ## Mandatory scientific contracts
 
 1. Keep source data read-only and never overwrite existing exports/sidecars. Record provenance and checksums when real data are used. A source slice may map writable DM memory; do not modify it.
 2. Specify axes explicitly. NumPy and DM dimension order differ. Never infer an energy or diffraction axis solely from filename, image brightness or largest dimension.
-3. Use physical zero plus index times signed scale. DM raw origin conventions differ; preserve all axes and shift crop calibration correctly. Unknown units, nonfinite calibration or ambiguous axes must fail explicitly.
+3. Use physical zero plus index times signed scale. DM raw origin conventions differ; preserve all axes and shift crop calibration correctly. Unknown units, nonfinite calibration or ambiguous axes must fail explicitly for operations using physical coordinates. A raw native intensity mean instead reports recognized unusable spatial calibration without applying it; crop still fails on that calibration.
 4. Integer reductions need an appropriate exactness/overflow bound; float64 does not represent arbitrary uint64 exactly. Report the arithmetic used. No silent 8/16-bit conversion.
 5. Rectangle/bounds upper endpoints are exclusive. Two-dimensional ROI tools reject invalid types and out-of-bounds rectangles; never reintroduce rounding/clipping or crop-result selection by recency/user names. The default Python crop result handoff requires exactly one new image with the per-operation nonce; native crop binds its independently owned new image ID to the immutable request receipt. Spectral and virtual-detector selections use documented channel/pixel centres, with lower-inclusive/upper-exclusive windows. No hidden interpolation, area weighting or energy-bin multiplication.
 6. Large 4D sources must be accessed in bounded chunks. Validate shape/dtype and memory budget **before** allocation and reads. Never coerce/reshape/copy the entire cube as a shortcut. Account for native DM image copies as well as Python buffers. A full memmap alone does not prove bounded working-set residency.

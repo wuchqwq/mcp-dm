@@ -5,10 +5,13 @@ below were checked against local export tables and machine code. They are
 **static evidence**, not a claim that the new adapter has executed successfully
 inside DM. Runtime acceptance belongs in RESULTS.md.
 
-Resolve symbols with `GetModuleHandleW` and `GetProcAddress`. Do not load a
+Resolve exported symbols with `GetModuleHandleW` and `GetProcAddress`. Do not load a
 second copy of a host module. Require the allowlisted host/module identities,
 architecture, and all required symbols before acquiring an image reference.
 The SDK compatibility export alone does not identify the image ABI.
+The SHOW candidate additionally needs non-exported typed entrypoints; its
+separate full-binary and executable-entry gates are described below. This is
+not permission to guess another build's addresses or revive the old PE resolver.
 
 ## Image identity and ownership
 
@@ -221,12 +224,50 @@ The returned reference has the same ownership rule as lookup.
 ```
 
 This is the static contract used by the fixed-build MVP's experimental crop.
-Separate actual-host acceptance covered new/repeated object identity, shape,
+Earlier separate actual-host acceptance covered new/repeated object identity, shape,
 dtype, every selected pixel against an independent oracle, signed calibration,
 source invariance, and retained-output release after STOP. It does not certify
 other builds, concurrent image work or every vendor-failure path. Current
 limited runtime evidence and the ASCII-qualified/non-ASCII name boundary are
 recorded in [RESULTS.md](RESULTS.md); static ABI notes alone are not acceptance.
+
+## Visible-document SHOW candidate
+
+SHOW accepts only an exact numeric ID in this plugin session's retained crop
+registry. On the host thread, `FindByID` must agree with both the stored native
+pointer and numeric ID. It then calls the native factory for a document
+containing that image, followed by the document display entrypoint. It never
+selects a front image, user name or most-recent window.
+
+These typed entrypoints have no applicable public DLL exports in the inspected
+build. The candidate binds the fixed-build entries only after complete
+host/module SHA256 and version gates pass, then verifies the entry lies in
+that module's image, an executable section and a committed executable memory
+page. No vendor function addresses, RVA values or private build hashes are
+needed in this document.
+
+Only native pointers and explicit POD layout cross the boundary. The returned
+document holder is 16 bytes: a 64-bit reference count followed by a native
+document pointer. The Window remains opaque except for its separately proven
+fixed-build 64-bit reference counter. Each return is one owned reference. Local
+guards release Window first, then the document holder; only a count reaching
+zero calls its matched vendor final destructor. Never use MinGW `free` or
+`delete`, retain a borrowed pointer, or assume a C++ standard-library ABI.
+
+The plugin retains neither document nor Window. STOP releases its crop
+reference and must not close a shown document. Actual document ownership after
+STOP requires a separate host test from hidden-output release. Empty returns
+fail explicitly; malformed layout latches the adapter disabled without guessed
+destruction. A successful hash/page gate is not vendor crash isolation, and
+MinGW catches do not establish safe handling of MSVC native exceptions.
+
+SHOW can have UI effects before a later failure or timeout. Save its original
+session/ID before dispatch, QUERY that ID and do not automatically call SHOW
+again. The result explicitly denies file saving and model visual verification.
+The candidate's native completed receipt and explicit-image correlation
+passed a limited actual-host MCP check. Independent visibility, document count
+and post-STOP ownership remain **NOT_TESTED**; the current trial is HOLD.
+See [RESULTS.md](RESULTS.md) for the distinct runtime evidence boundaries.
 
 ## Minimum runtime verification order
 
