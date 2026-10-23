@@ -2,7 +2,7 @@
 
 This is an isolated feasibility experiment, **not a replacement Bridge**.
 Production MCP tools, TCP protocol, launcher and configuration are unchanged.
-No microscope hardware, real experimental data, background Python worker,
+No microscope hardware, real experimental data, resident Python worker,
 periodic task or arbitrary-script MCP permission is used.
 
 ## What this tests
@@ -90,33 +90,78 @@ dispatch. Replies bind session, operation ID, nonce and parameter hash. An
 already-seen ID with changed parameters is rejected. Existing outputs are
 never overwritten. There are at most 16 processed requests per experiment.
 
-`run_step.ps1` preserves the one-shot **experimental** CLI forwarding attempt.
-**It is disabled by default:** actual forwarding reached the original host,
-but its helper did not exit and reported a second-instance error. Do not use
-this runner for the normal lifecycle sequence. The explicit
-`-AllowUnvalidatedForwarding` switch is only for separately reviewed further
-transport experiments; no more forwarding was attempted after that failure.
+`run_step.ps1` is now **read-only preflight**, with no process-launch or
+dispatch path. Actual `/ef` forwarding reached the original host, but its
+helper did not exit and reported a second-instance error. The old
+`-AllowUnvalidatedForwarding` argument is accepted only to explain refusal;
+it cannot enable forwarding. Earlier experimental forwarding code remains
+in Git history for review. No additional helper was launched.
 
 ```powershell
 .\experiments\dm-event-listener\run_step.ps1 `
   -SessionDirectory D:\dm-c1-private\run01 -ExpectedDmPid 1234 -Step register
-# Expected: explicit refusal, with no process launched.
+# Expected: JSON refused_not_dispatched; exit 2; no process launched.
 ```
 
-If deliberately enabled, the PID must come from the currently open,
-user-owned DM. The runner refuses
-missing/multiple/unresponsive hosts, an occupied Bridge port, an expired
-session PID and a previously attempted step. It records dispatch attempts and
-does not retry, kill a helper, start a missing DM, or change MCP permissions.
-A helper exit code is not a callback/result verification. Check artifacts and
-the original host PID after every step; stop if a helper remains alive.
+The check records observed processes, responsiveness, window availability and
+the Bridge listening port. None establishes a free Python slot. A matching
+registration receipt is historical evidence, not a live listener query.
+The Python slot remains `unknown` and dispatch is always refused until an
+appropriate transport and admission mechanism have independent acceptance.
 
 **Limitation:** Gatan documents that `/ef` starts DM if none is running.
 The check-to-launch race cannot be eliminated by checking a PID twice.
-This runner therefore cannot claim an existing-instance-only dispatch
-guarantee, and is not proposed as production transport. A modal or another
-user script can also prevent dispatch; absence of a reply is `unknown`.
-Do not run it while DM is busy or a file dialog/error dialog is open.
+The retired forwarding route therefore cannot claim an existing-instance-only
+dispatch guarantee. A modal or another user script can also prevent dispatch;
+absence of a reply is `unknown`.
+
+## Finite busy/admission experiment
+
+`admission_probe.py` prepares three fixed native scripts and Python payloads.
+They write only fresh private receipts, never import DigitalMicrograph or
+access images. Run with an otherwise idle host and Bridge stopped:
+
+```powershell
+python -B experiments/dm-event-listener/admission_probe.py prepare D:\dm-c1-private\admission01
+```
+
+1. Run `01_idle.s` once: a synchronous foreground payload must complete.
+2. Run `02_overlap.s` once: a separate Python script sleeps for 10 seconds
+   on its host-managed background thread, with no DM API calls. The native
+   script waits 0.3 seconds and verifies actual overlap before attempting
+   another synchronous payload inside `try/catch`. The fixed delay alone
+   is not accepted as proof of overlap.
+3. After the bounded script has finished, run `03_after.s` once.
+
+Stop on an error; inspect receipts before continuing. Do not rerun a step.
+The revised generator adds one-shot native markers before any execution;
+Python receipts also use exclusive creation. These new native replay guards
+have not yet been tested in DM. The original host-run scripts and failure
+artifacts are preserved privately without rewriting them.
+
+```powershell
+python -B experiments/dm-event-listener/admission_probe.py verify D:\dm-c1-private\admission01
+```
+
+Verification checks measured overlap, host/session identity, phase ordering
+and bounded completion. Missing entry/completion evidence remains `unknown`.
+Exit 1 means incomplete/unknown acceptance, even if other checks pass.
+This verifier is read-only. `PASS` would describe receipt completeness for
+the reported outcome, not certify a global busy-query API or external wake.
+
+**Observed real-host result:** idle and post-busy payloads completed in the
+same host. During measured overlap, the native call returned, no exception
+was caught, and the attempted Python payload produced no entry receipt.
+Thus catch-based busy detection **failed** and execution outcome remains
+`unknown`; the scripts must not automatically retry. A subsequently reported
+`No measured overlap` guard error and Python traceback are retained separately;
+they do not prove that DM itself provides a busy error code. No reliable
+global slot query or unattended external wake was demonstrated.
+
+UI automation failed to activate the existing window twice, so the host
+sequence was run manually. This is not external-wake acceptance. Current
+safe behavior is to refuse unverified dispatch; it is not a working replacement
+transport. See `FINDINGS.md` for the distinction and remaining evidence.
 
 ## Cleanup and evidence limits
 
@@ -146,7 +191,7 @@ prove host provenance or certify the external wake mechanism.
 Run the fake-DM tests independently:
 
 ```powershell
-python -B -m unittest discover -s experiments/dm-event-listener -p test_probe.py -v
+python -B -m unittest discover -s experiments/dm-event-listener -p "test_*.py" -v
 ```
 
 Also run this suite with the installed GMS-managed Python executable outside

@@ -90,17 +90,80 @@ earlier provisional identity record.
 | 3. Second regular Python script | PASS | New normal foreground Python execution returns expected arithmetic in same host |
 | 4. Survive that second script | PASS | Later independent trigger reaches the original listener; artifact/event ordering checked |
 | 5a. Callback thread | PASS, limited | All observed callbacks match the known registration UI thread; unknown-thread guard is fake-DM tested |
-| 5b. UI latency, overlapping user Python, other event sources | NOT_TESTED | UI usable between steps; short callback timings do not establish concurrent admission or long-callback safety |
+| 5b. UI latency, overlapping listener callbacks, other event sources | NOT_TESTED | The bounded normal-script overlap experiment below does not test listener callback admission while Python is busy |
 | 6. Unregister and release | PASS, bounded observation | Native unregister, dead weak reference, actual post-removal name change, unchanged callback count/source, owned-document release |
 | 7a. External payload plus GUI wake | PASS, limited | External process writes a fresh nonce/request; GUI runs the fixed DM-Script; original host returns a matching reply |
 | 7b. Automatic `/ef` wake lifecycle | FAIL | Request reached original host, but helper stayed alive with a second-instance error; no helper was killed and no forwarding was retried |
 | 7c. Reliable unattended MCP-to-host wake | NOT_TESTED / not established | No supported existing-instance-only, busy-aware wake mechanism was demonstrated |
+| 7d. `try/catch` as normal-Python busy detection | FAIL in measured overlap | Native call returned without caught exception or Python entry receipt; safe execution outcome is unknown |
+| 7e. Ordinary slot recovery after bounded busy | PASS | Idle, background hold and later foreground entry/completion receipts bind the same host/session |
 
 Detailed receipts, timings, native identifiers and failure history are kept
 in a private local report, not redistributed here. `verify_run.py` independently
 checks the bounded receipt chain and complete synthetic numerical oracle;
 it does not turn GUI wake into unattended MCP acceptance. The first failed
 session and repaired session are separate directories.
+
+## Follow-up: external wake and busy admission
+
+The failed `/ef` route is retired in `run_step.ps1`, including its old override.
+The script now performs read-only process/port checks, returns
+`refused_not_dispatched` with Python slot `unknown`, and exits 2. A real check
+with the legacy override confirmed refusal: the responsive primary and prior
+windowless helper were observed, no new DM process was created, and no request
+was sent. A responsive window is not evidence of a free Python execution slot.
+
+The new `admission_probe.py` generates finite, fixed experiments. A host-managed
+background Python script writes a start receipt, sleeps for ten seconds and
+writes completion. It calls no DM APIs. Native DM-Script attempts a second,
+fixed foreground payload during measured overlap, with a `try/catch`, then a
+later independent step tests recovery. The verifier distinguishes actual
+entry, deferred entry, catchable rejection and missing/ambiguous evidence.
+It does not infer that every caught exception means busy.
+
+Real-host observations:
+
+- Idle foreground payload: **PASS**, entry and completion receipts.
+- Bounded background hold: **PASS**, start/completion, about ten seconds.
+- Measured overlap: **PASS** as an experimental condition; the native
+  pre-call marker falls between the background start and end.
+- Catch-based busy detection: **FAIL**. The native post-call marker exists;
+  neither caught-error marker nor attempted Python entry/completion exists.
+  The request's execution outcome is **unknown**, not "safely canceled".
+- Later independent foreground payload: **PASS**, same host and registration
+  UI thread, after the background script completed.
+- The user reported `No measured overlap` in step 2 and a screenshot shows a
+  Python traceback in the marker function. These failure observations and the
+  original generated files are preserved. Their exact invocation sequence and
+  full Python exception text are not independently established; do not silently
+  attribute the guard error to the earlier measured-overlap attempt.
+- Fully unattended external wake, a supported global Python-slot query, and
+  safe listener callback admission during arbitrary user Python: **NOT_TESTED**.
+
+Two window-activation attempts failed, so no further UI automation was attempted.
+The user ran the fixed native scripts manually. This sequence does not improve
+the earlier external-wake claim. No images or hardware were accessed by this
+admission experiment. No host/helper was killed or restarted. No production
+Bridge, launcher, protocol or dependency was changed.
+
+After inspecting the failure, the generator gained one-shot native markers to
+refuse replay before launching the bounded script. Original host-run files were
+not rewritten. These revised native guards are **NOT_TESTED in DM**. Synthetic
+verifier tests cover identity mismatch, incomplete/ambiguous outcomes, measured
+overlap, deferred/overlapping entry and missing/reordered evidence. Both current
+development Python and the installed GMS Python run the experiment suite;
+these are numerical/receipt and fake-DM tests, not additional host acceptance.
+The current experiment suite passed **33 tests in each environment** (the same
+33 tests run twice, including the 18 existing fake-DM lifecycle tests).
+
+The smallest missing evidence remains a supported external entry that runs only
+in the existing host and offers host-side admission or reliable rejection before
+entering Python. Ask the matched SDK/documentation whether such an entry and
+Python execution-ownership mechanism exist, including listener reentrancy and
+teardown guarantees. DM-Script main-thread tasks, OS responsiveness and Windows
+message delivery alone do not establish these properties. No undocumented
+window message hook, unknown-thread DM API or infinite polling fallback is
+introduced. Retain the current Bridge while this is unresolved.
 
 ## C1, B and C2
 

@@ -7,68 +7,36 @@ param(
     [ValidatePattern('^[0-9a-f]{32}$')][string]$RequestId,
     [switch]$AllowUnvalidatedForwarding
 )
-# Quarantined experiment: observed /ef forwarding leaves a helper process alive.
-# Reject a known-missing host; never kill a process, retry a dispatched step,
-# or use the production MCP gate.
-# /ef itself has a check-to-launch race: this is not an existing-instance-only API.
+# Read-only preflight. The failed /ef transport is retired, including its override.
+# No process launch, script dispatch, window input, DM API, or session write.
 $ErrorActionPreference = 'Stop'
-if (-not $AllowUnvalidatedForwarding) {
-    throw 'Disabled by default: real-host /ef forwarding left a helper alive. Read FINDINGS.md; this is not reliable transport.'
-}
 $root = (Resolve-Path -LiteralPath $SessionDirectory).Path
-if ($root -match '["\r\n]' -or $root -match '[^\x20-\x7E]') {
-    throw 'Experiment paths must be ASCII without quotes or line breaks.'
-}
-$pythonSteps = @{
-    register='01_register.py'; second='03_second_script.py'; cleanup='06_cleanup.py';
-    verify='08_verify_cleanup.py'; release='09_release.py'
-}
-$dmSteps = @{after_return='02_after_return.s'; after_second='04_after_second.s'; after_cleanup='07_after_cleanup.s'}
-if ($Step -eq 'external' -and -not $RequestId) { throw 'External step requires RequestId.' }
-$label = if ($Step -eq 'external') { 'external_' + $RequestId } else { $Step }
-$receipt = Join-Path $root ('dispatch_' + $label + '.json')
-if (Test-Path -LiteralPath $receipt) { throw 'Already attempted; status may be unknown. Do not automatically redispatch.' }
-$script = Join-Path $root ('invoke_' + $label + '.s')
-if ($pythonSteps.ContainsKey($Step)) {
-    $py = Join-Path $root $pythonSteps[$Step]
-    if (-not (Test-Path -LiteralPath $py -PathType Leaf)) { throw 'Prepared Python step missing.' }
-    $text = 'ExecutePythonScriptFile("' + $py.Replace('\','/') + '", 0)' + "`n" +
-        'Result("C1 fixed Python step returned\n")' + "`n"
-} else {
-    $name = if ($Step -eq 'external') { 'external_' + $RequestId + '.s' } else { $dmSteps[$Step] }
-    $script = (Resolve-Path -LiteralPath (Join-Path $root $name)).Path
-    $text = $null
-}
-if ($null -ne $text) {
-    $stream = [IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
-    try { $bytes=[Text.Encoding]::UTF8.GetBytes($text); $stream.Write($bytes,0,$bytes.Length) }
-    finally { $stream.Dispose() }
-}
 $hosts = @(Get-Process -Name DigitalMicrograph -ErrorAction SilentlyContinue)
-if ($hosts.Count -ne 1 -or $hosts[0].Id -ne $ExpectedDmPid) { throw 'Expected exactly the user-opened DM PID. No process started.' }
-$primary = $hosts[0]
-if (-not $primary.Responding -or $primary.MainWindowHandle -eq 0) { throw 'DM is not interactive; no dispatch.' }
-# Any listening Bridge is a slot conflict; no unknown-thread API or second Bridge.
-$tcp=[Net.Sockets.TcpClient]::new()
+$observed = @($hosts | ForEach-Object {
+    @{pid=$_.Id; responding=[bool]$_.Responding;
+      has_main_window=($_.MainWindowHandle -ne 0)}
+})
+$reasons = @('ef_transport_retired_after_native_failure', 'python_slot_unknown')
+$bridgeListening = $null
 try {
-    try { $connected=$tcp.ConnectAsync('127.0.0.1',8765).Wait(700) -and $tcp.Connected }
-    catch { $connected=$false }
-    if ($connected) { throw 'Bridge port is occupied. Disconnect clients and normally stop it first.' }
-} finally { $tcp.Dispose() }
-if ($Step -ne 'register') {
-    $state=Get-Content -LiteralPath (Join-Path $root 'registered.json') -Raw | ConvertFrom-Json
-    if ($state.host_pid -ne $ExpectedDmPid) { throw 'Listener belongs to another/expired host process.' }
+    $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $_.LocalPort -eq 8765 })
+    $bridgeListening = ($listeners.Count -gt 0)
+} catch { $reasons += 'bridge_port_query_failed_unknown' }
+if ($hosts.Count -ne 1) { $reasons += 'missing_or_multiple_dm_processes' }
+$expected = @($hosts | Where-Object { $_.Id -eq $ExpectedDmPid })
+if ($expected.Count -ne 1) { $reasons += 'expected_host_missing' }
+elseif (-not $expected[0].Responding -or $expected[0].MainWindowHandle -eq 0) {
+    $reasons += 'expected_host_not_interactive'
 }
-$primary.Refresh()
-if ($primary.HasExited -or -not $primary.Responding) { throw 'Host disappeared; no dispatch.' }
-$attempt = @{step=$Step; host_pid=$ExpectedDmPid; script_sha256=(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash; state='dispatching_unknown_until_receipt'}
-$stream=[IO.File]::Open($receipt,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
-try { $bytes=[Text.Encoding]::UTF8.GetBytes(($attempt | ConvertTo-Json)); $stream.Write($bytes,0,$bytes.Length) }
-finally { $stream.Dispose() }
-# Official /ef forwards a script to the open application. No cold-start fallback.
-# An unavoidable race remains if the user closes DM after the final check.
-$forwarder=Start-Process -FilePath $primary.Path -ArgumentList @('/ef',('"'+$script+'"')) -WindowStyle Hidden -PassThru
-$helperExited=$forwarder.WaitForExit(5000)
-@{step=$Step; expected_host_pid=$ExpectedDmPid; helper_pid=$forwarder.Id;
-  helper_exited=$helperExited; state='dispatched_result_requires_artifact_check'} | ConvertTo-Json
-if (-not $helperExited) { throw 'Forwarding process still exists; stop further dispatch. No process was killed.' }
+if ($bridgeListening -eq $true) { $reasons += 'bridge_port_listening_slot_conflict_or_unknown' }
+if ($AllowUnvalidatedForwarding) { $reasons += 'legacy_override_no_longer_permitted' }
+$registration = Join-Path $root 'registered.json'
+if (Test-Path -LiteralPath $registration -PathType Leaf) {
+    $state = Get-Content -LiteralPath $registration -Raw | ConvertFrom-Json
+    if ($state.host_pid -ne $ExpectedDmPid) { $reasons += 'registration_host_mismatch' }
+    # A matching receipt is historical evidence, never current slot/liveness proof.
+}
+@{state='refused_not_dispatched'; dispatched=$false; step=$Step;
+  observed_hosts=$observed; bridge_port_listening=$bridgeListening;
+  python_slot='unknown'; reasons=$reasons} | ConvertTo-Json -Depth 5
+exit 2
