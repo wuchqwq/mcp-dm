@@ -15,6 +15,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -159,7 +160,10 @@ def _run_fake_host(script, state_path):
     fake.DeleteImage = lambda *args: forbidden("DeleteImage")
     sys.modules["DigitalMicrograph"] = fake
     try:
-        runpy.run_path(str(script), run_name="__main__")
+        # This is an explicit child-only simulation of the hosting process.
+        # Production oracles have no PID environment override.
+        with mock.patch("os.getpid", return_value=state.get("process_pid", 101)):
+            runpy.run_path(str(script), run_name="__main__")
     finally:
         _dump(Path(state_path).with_name("fake-calls.json"), calls)
 
@@ -187,6 +191,10 @@ class NativeTrialOracleTests(unittest.TestCase):
                 "state": "completed", "host_pid": 101, "worker_tid": 202,
                 "exec_tid": 0, "timings_us": {"queue": 0, "execute": 0},
                 "result": {"ipc_stopped": True}}
+
+    def _stop_request(self):
+        return {"protocol": "NB1", "session": SESSION, "id": "stop-synthetic", "op": "STOP",
+                "args": [], "host_pid": 101, "wire": "NB1 %s stop-synthetic STOP\n" % SESSION}
 
     def prepare(self, after_stop=False, closed=False):
         self.case_index += 1
@@ -252,16 +260,19 @@ class NativeTrialOracleTests(unittest.TestCase):
                                           "model_visual_verification": False,
                                           "native_receipt": self._receipt("show-again")}}
         if after_stop or closed:
+            _dump(self.directory / "stop-request.json", self._stop_request())
             _dump(self.directory / "stop-receipt.json", self._stop())
         self.save_records()
         if closed:
             _dump(self.directory / "trial-independent-after_stop.json",
                   {"status": "PASS", "session": SESSION, "phase": "after_stop", "image_id": CROP_ID,
+                   "oracle_mode": "strict", "host_pid": 101, "stop_request_verified": True,
                    "backend": "digitalmicrograph-native", "crop_all_pixels_equal": True,
                    "crop_independent_memory": True, "ordinary_python_success": True,
                    "matching_documents": 1, "total_documents": 5,
                    "truth_sha256": _sha(self.truth_path.read_bytes()),
                    "summary_sha256": _sha(self.summary_path.read_bytes()),
+                   "stop_request_sha256": _sha((self.directory / "stop-request.json").read_bytes()),
                    "stop_receipt_sha256": _sha((self.directory / "stop-receipt.json").read_bytes())})
 
     def save_records(self):
@@ -269,14 +280,16 @@ class NativeTrialOracleTests(unittest.TestCase):
         _dump(self.summary_path, self.summary)
         _dump(self.state_path, self.state)
 
-    def run_script(self, script="verify_trial.py", success=True, phase="before_stop", expected_error=None):
+    def run_script(self, script="verify_trial.py", success=True, phase="before_stop", expected_error=None,
+                   mode="strict"):
         _dump(self.state_path, self.state)
         env = dict(os.environ, DM_NATIVE_SESSION=SESSION, DM_NATIVE_EVIDENCE_DIR=str(self.directory),
-                   PYTHONNOUSERSITE="1", PYTHONDONTWRITEBYTECODE="1")
+                   PYTHONNOUSERSITE="1", PYTHONDONTWRITEBYTECODE="1", DM_NATIVE_ORACLE_MODE=mode)
         # The runner injects sys.modules before target imports. Do not add a
         # real GMS module directory to PYTHONPATH even if inherited locally.
         env.pop("PYTHONPATH", None)
-        target = self.directory / ("trial-independent-" + phase + ".json")
+        prefix = "trial-observation-" if mode == "observe_legacy_stop" else "trial-independent-"
+        target = self.directory / (prefix + phase + ".json")
         if script == "create_trial_fixture.py":
             target = self.truth_path
         prior_json = {path: path.read_bytes() for path in self.directory.rglob("*.json")
@@ -293,8 +306,13 @@ class NativeTrialOracleTests(unittest.TestCase):
             self.assertTrue(target.is_file(), output)
             report = json.loads(target.read_text(encoding="utf-8"))
             if script != "create_trial_fixture.py":
-                self.assertEqual(report["status"], "PASS")
+                self.assertEqual(report["status"], "UNVERIFIED" if mode == "observe_legacy_stop" else "PASS")
                 self.assertEqual(report["session"], SESSION)
+                self.assertEqual(report["host_pid"], self.state.get("process_pid", 101))
+                self.assertEqual(report["oracle_mode"], mode)
+                if mode == "observe_legacy_stop":
+                    self.assertNotIn("PASS", result.stdout.decode("utf-8", "replace"))
+                    self.assertFalse((self.directory / ("trial-independent-" + phase + ".json")).exists())
             return report
         self.assertIsNotNone(expected_error, "Every injection must identify the intended failing check")
         self.assertEqual(result.returncode, 1, output)
@@ -310,6 +328,7 @@ class NativeTrialOracleTests(unittest.TestCase):
         before = self.run_script()
         self.assertTrue(before["crop_all_pixels_equal"])
         np.testing.assert_array_equal(np.load(str(self.directory / "trial-crop.npy")), self.crop_array)
+        _dump(self.directory / "stop-request.json", self._stop_request())
         _dump(self.directory / "stop-receipt.json", self._stop())
         after = self.run_script(phase="after_stop")
         self.assertEqual(after["image_id"], CROP_ID)
@@ -500,6 +519,231 @@ class NativeTrialOracleTests(unittest.TestCase):
                 _dump(post_path, post)
                 self.run_script("verify_trial_closed.py", success=False, phase="after_close",
                                 expected_error="Required same-session post-STOP acceptance is missing")
+
+    def refresh_post_fingerprints(self):
+        observation = self.directory / "trial-observation-after_stop.json"
+        post_path = observation if observation.exists() else self.directory / "trial-independent-after_stop.json"
+        if not post_path.exists():
+            return
+        post = json.loads(post_path.read_text(encoding="utf-8"))
+        for field, path in (("truth_sha256", self.truth_path), ("summary_sha256", self.summary_path),
+                            ("stop_request_sha256", self.directory / "stop-request.json"),
+                            ("stop_receipt_sha256", self.directory / "stop-receipt.json")):
+            post[field] = _sha(path.read_bytes()) if path.exists() else None
+        _dump(post_path, post)
+
+    def test_self_consistent_foreign_host_does_not_match_actual_process(self):
+        for phase in ("before_stop", "after_stop", "after_close"):
+            with self.subTest(phase=phase):
+                self.prepare(after_stop=phase != "before_stop", closed=phase == "after_close")
+                status = self.summary["checks"][0]["output"]
+                status["host_pid"] = 999
+                for output in [status] + [self.summary[key] for key in ("crop", "delivery", "repeated_show")]:
+                    output["native_receipt"]["host_pid"] = 999
+                self.save_records()
+                if phase != "before_stop":
+                    stop = self._stop()
+                    stop["host_pid"] = 999
+                    _dump(self.directory / "stop-receipt.json", stop)
+                    request = self._stop_request()
+                    request["host_pid"] = 999
+                    _dump(self.directory / "stop-request.json", request)
+                if phase == "after_close":
+                    post_path = self.directory / "trial-independent-after_stop.json"
+                    post = json.loads(post_path.read_text(encoding="utf-8"))
+                    post["host_pid"] = 999
+                    _dump(post_path, post)
+                    self.refresh_post_fingerprints()
+                self.run_script("verify_trial_closed.py" if phase == "after_close" else "verify_trial.py",
+                                success=False, phase=phase,
+                                expected_error="Native host PID does not match this process")
+
+    def test_original_stop_request_is_required_and_bound(self):
+        faults = [("missing", None, "UNVERIFIED: original pre-submission STOP request record is missing"),
+                  ("protocol", "other", "Invalid original STOP request record"),
+                  ("session", OTHER_SESSION, "STOP request/receipt identity mismatch"),
+                  ("id", "other-stop", "STOP request/receipt identity mismatch"),
+                  ("op", "QUERY", "Invalid original STOP request record"),
+                  ("args", [1], "Invalid original STOP request record"),
+                  ("host_pid", 999, "STOP request/receipt identity mismatch"),
+                  ("wire", "NB1 %s other-stop STOP\n" % SESSION, "STOP wire/request binding mismatch"),
+                  ("wire", "NB1 %s stop-synthetic QUERY\n" % SESSION, "STOP wire/request binding mismatch"),
+                  ("wire", "NB1 %s stop-synthetic STOP" % SESSION, "STOP wire/request binding mismatch")]
+        for closed in (False, True):
+            for field, value, reason in faults:
+                with self.subTest(closed=closed, field=field, value=value):
+                    self.prepare(after_stop=True, closed=closed)
+                    path = self.directory / "stop-request.json"
+                    if field == "missing":
+                        path.unlink()
+                    else:
+                        request = self._stop_request()
+                        request[field] = value
+                        _dump(path, request)
+                    self.refresh_post_fingerprints()
+                    self.run_script("verify_trial_closed.py" if closed else "verify_trial.py",
+                                    success=False, phase="after_close" if closed else "after_stop",
+                                    expected_error=reason)
+
+    def test_saved_request_without_acknowledgement_cannot_be_before_stop_pass(self):
+        self.prepare()
+        _dump(self.directory / "stop-request.json", self._stop_request())
+        self.run_script(success=False, expected_error="UNVERIFIED: saved STOP request has no acknowledged receipt")
+
+    def test_stop_receipt_id_is_bounded_and_matches_original(self):
+        for closed in (False, True):
+            for request_id, reason in (("other-stop", "STOP request/receipt identity mismatch"),
+                                       ("", "Invalid STOP receipt"), ("bad id", "Invalid STOP receipt")):
+                with self.subTest(closed=closed, request_id=request_id):
+                    self.prepare(after_stop=True, closed=closed)
+                    stop = self._stop()
+                    stop["id"] = request_id
+                    _dump(self.directory / "stop-receipt.json", stop)
+                    self.refresh_post_fingerprints()
+                    self.run_script("verify_trial_closed.py" if closed else "verify_trial.py",
+                                    success=False, phase="after_close" if closed else "after_stop",
+                                    expected_error=reason)
+
+    def observation_post(self):
+        path = self.directory / "trial-independent-after_stop.json"
+        post = json.loads(path.read_text(encoding="utf-8"))
+        post.update(status="UNVERIFIED", oracle_mode="observe_legacy_stop",
+                    stop_request_verified=(self.directory / "stop-request.json").exists())
+        _dump(self.directory / "trial-observation-after_stop.json", post)
+        path.unlink()
+        self.refresh_post_fingerprints()
+
+    def test_observation_missing_or_complete_request_never_writes_pass(self):
+        for keep_request in (False, True):
+            with self.subTest(keep_request=keep_request):
+                self.prepare(after_stop=True)
+                if not keep_request:
+                    (self.directory / "stop-request.json").unlink()
+                post = self.run_script(phase="after_stop", mode="observe_legacy_stop")
+                self.assertIs(post["stop_request_verified"], keep_request)
+                self.assertTrue(post["crop_all_pixels_equal"])
+                self.assertTrue(post["crop_independent_memory"])
+                self.state["images"] = [image for image in self.state["images"] if image["id"] != CROP_ID]
+                self.state["documents"].pop()
+                closed = self.run_script("verify_trial_closed.py", phase="after_close", mode="observe_legacy_stop")
+                self.assertIs(closed["stop_request_verified"], keep_request)
+                self.assertTrue(closed["released_after_document_close"])
+                self.assertFalse(list(self.directory.glob("trial-independent-*.json")))
+
+    def test_strict_closed_never_consumes_observation_as_acceptance(self):
+        for put_at_strict_path in (False, True):
+            with self.subTest(put_at_strict_path=put_at_strict_path):
+                self.prepare(closed=True)
+                self.observation_post()
+                if put_at_strict_path:
+                    (self.directory / "trial-observation-after_stop.json").rename(
+                        self.directory / "trial-independent-after_stop.json")
+                self.run_script("verify_trial_closed.py", success=False, phase="after_close",
+                                expected_error="Required same-session post-STOP acceptance is missing")
+
+    def test_observation_does_not_bypass_existing_wrong_request_record(self):
+        for closed in (False, True):
+            for field, value, reason in (("op", "QUERY", "Invalid original STOP request record"),
+                                         ("id", "other-stop", "STOP request/receipt identity mismatch"),
+                                         ("wire", "wrong wire", "STOP wire/request binding mismatch")):
+                with self.subTest(closed=closed, field=field):
+                    self.prepare(after_stop=True, closed=closed)
+                    request = self._stop_request()
+                    request[field] = value
+                    _dump(self.directory / "stop-request.json", request)
+                    if closed:
+                        self.observation_post()
+                    self.run_script("verify_trial_closed.py" if closed else "verify_trial.py", success=False,
+                                    phase="after_close" if closed else "after_stop", mode="observe_legacy_stop",
+                                    expected_error=reason)
+
+    def test_observation_requires_acknowledged_stop_and_actual_host_pid(self):
+        for closed in (False, True):
+            for fault in ("missing_stop", "wrong_actual_pid"):
+                with self.subTest(closed=closed, fault=fault):
+                    self.prepare(after_stop=True, closed=closed)
+                    (self.directory / "stop-request.json").unlink()
+                    if closed:
+                        self.observation_post()
+                    if fault == "missing_stop":
+                        (self.directory / "stop-receipt.json").unlink()
+                        reason = ("Required STOP receipt is missing" if closed else
+                                  "Legacy STOP observation requires an acknowledged STOP receipt")
+                    else:
+                        self.state["process_pid"] = 999
+                        reason = "Native host PID does not match this process"
+                    self.run_script("verify_trial_closed.py" if closed else "verify_trial.py", success=False,
+                                    phase="after_close" if closed else "after_stop", mode="observe_legacy_stop",
+                                    expected_error=reason)
+
+    def test_observation_still_checks_pixels_documents_and_remaining_sources(self):
+        for fault, closed, reason in (("crop_pixels", False, "Delivered crop pixels/dtype/shape/independent memory mismatch"),
+                                      ("duplicate_document", False, "SHOW did not reuse exactly one document for the explicit crop ID"),
+                                      ("live_output", True, "Closed crop still has a live owner; do not claim final release"),
+                                      ("source_calibration", True, "Synthetic source calibration changed")):
+            with self.subTest(fault=fault):
+                self.prepare(after_stop=True, closed=closed)
+                (self.directory / "stop-request.json").unlink()
+                if closed:
+                    self.observation_post()
+                if fault == "crop_pixels":
+                    values = self.crop_array.copy()
+                    values[0, 0] += 0.25
+                    values[0, 1] -= 0.25
+                    np.save(str(self.crop_path), values, allow_pickle=False)
+                elif fault == "duplicate_document":
+                    self.state["documents"][0].append(CROP_ID)
+                elif fault == "live_output":
+                    self.state["images"].append({"id": CROP_ID, "array": str(self.crop_path),
+                                                  "calibration": [[0, 1, "nm"], [0, 1, "nm"]]})
+                else:
+                    self.state["images"][0]["calibration"][0][2] = "um"
+                self.run_script("verify_trial_closed.py" if closed else "verify_trial.py", success=False,
+                                phase="after_close" if closed else "after_stop", mode="observe_legacy_stop",
+                                expected_error=reason)
+
+    def test_closed_observation_requires_same_mode_pid_session_and_record_bindings(self):
+        fields = [("oracle_mode", "strict"), ("status", "PASS"), ("session", OTHER_SESSION),
+                  ("host_pid", 999), ("summary_sha256", "wrong"), ("stop_request_verified", True)]
+        for field, value in fields:
+            with self.subTest(field=field):
+                self.prepare(closed=True)
+                (self.directory / "stop-request.json").unlink()
+                self.observation_post()
+                path = self.directory / "trial-observation-after_stop.json"
+                post = json.loads(path.read_text(encoding="utf-8"))
+                post[field] = value
+                _dump(path, post)
+                reason = ("Post-STOP evidence is not bound to the current trial records" if field in (
+                    "summary_sha256", "stop_request_verified") else "Required same-session post-STOP observation is missing")
+                self.run_script("verify_trial_closed.py", success=False, phase="after_close", mode="observe_legacy_stop",
+                                expected_error=reason)
+
+    def test_duplicate_stop_json_keys_are_ambiguous_even_when_last_wins(self):
+        cases = [("request", "op", "QUERY", "STOP"),
+                 ("request", "id", "other-stop", "stop-synthetic"),
+                 ("receipt", "state", "failed", "completed"),
+                 ("receipt", "id", "other-stop", "stop-synthetic")]
+        for mode in ("strict", "observe_legacy_stop"):
+            for closed in (False, True):
+                for subject, field, first, last in cases:
+                    with self.subTest(mode=mode, closed=closed, subject=subject, field=field):
+                        self.prepare(after_stop=True, closed=closed)
+                        path = self.directory / ("stop-request.json" if subject == "request" else "stop-receipt.json")
+                        body = path.read_text(encoding="utf-8")
+                        old = json.dumps(field) + ": " + json.dumps(last)
+                        duplicate = json.dumps(field) + ": " + json.dumps(first) + ", " + old
+                        self.assertEqual(body.count(old), 1)
+                        path.write_text(body.replace(old, duplicate), encoding="utf-8")
+                        # Confirm this is specifically the old last-wins
+                        # ambiguity, not a syntax error or an altered value.
+                        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))[field], last)
+                        if closed and mode == "observe_legacy_stop":
+                            self.observation_post()
+                        self.refresh_post_fingerprints()
+                        self.run_script("verify_trial_closed.py" if closed else "verify_trial.py", success=False,
+                                        phase="after_close" if closed else "after_stop", mode=mode,
+                                        expected_error="Ambiguous STOP JSON evidence: duplicate key")
 
     def test_bad_stop_receipt_before_and_after_close(self):
         for closed in (False, True):

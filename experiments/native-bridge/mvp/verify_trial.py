@@ -13,9 +13,16 @@ import numpy as np
 import DigitalMicrograph as DM
 
 
-def _load(_path):
+def _load(_path, _strict_stop=False):
+    def _unique(_pairs):
+        _result = {}
+        for _key, _value in _pairs:
+            if _key in _result:
+                raise RuntimeError("Ambiguous STOP JSON evidence: duplicate key")
+            _result[_key] = _value
+        return _result
     with open(_path, encoding="utf-8") as _file:
-        return json.load(_file)
+        return json.load(_file, object_pairs_hook=_unique) if _strict_stop else json.load(_file)
 
 
 def _file_hash(_path):
@@ -23,7 +30,37 @@ def _file_hash(_path):
         return hashlib.sha256(_file.read()).hexdigest()
 
 
+def _verify_stop_request(_path, _stop, _host_pid, _observe):
+    if not os.path.lexists(_path):
+        if _observe:
+            return False, None
+        raise RuntimeError("UNVERIFIED: original pre-submission STOP request record is missing")
+    if not os.path.isfile(_path):
+        raise RuntimeError("Invalid original STOP request record")
+    _request = _load(_path, True)
+    if (not isinstance(_request, dict) or set(_request) != {
+            "protocol", "session", "id", "op", "args", "host_pid", "wire"}
+            or _request.get("protocol") != "NB1" or _request.get("op") != "STOP"
+            or type(_request.get("args")) is not list or _request["args"] != []
+            or not isinstance(_request.get("session"), str)
+            or re.fullmatch(r"[0-9a-f]{32}", _request["session"]) is None
+            or not isinstance(_request.get("id"), str)
+            or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", _request["id"]) is None
+            or type(_request.get("host_pid")) is not int or not 1 <= _request["host_pid"] <= 0xffffffff):
+        raise RuntimeError("Invalid original STOP request record")
+    if (_request["session"] != _stop["session"] or _request["id"] != _stop["id"]
+            or _request["host_pid"] != _host_pid):
+        raise RuntimeError("STOP request/receipt identity mismatch")
+    if _request["wire"] != "NB1 %s %s STOP\n" % (_request["session"], _request["id"]):
+        raise RuntimeError("STOP wire/request binding mismatch")
+    return True, _file_hash(_path)
+
+
 def verify():
+    _mode = os.environ.get("DM_NATIVE_ORACLE_MODE", "strict")
+    if _mode not in ("strict", "observe_legacy_stop"):
+        raise RuntimeError("Unsupported native oracle mode")
+    _observe = _mode == "observe_legacy_stop"
     _directory = os.environ["DM_NATIVE_EVIDENCE_DIR"]
     _truth_path = os.path.join(_directory, "trial-answers.json")
     _summary_path = os.path.join(_directory, "trial-acceptance", "summary.json")
@@ -43,6 +80,8 @@ def verify():
             or any(type(_value) is not int or not 1 <= _value <= 0xffffffff
                    for _value in (_host_pid, _worker_tid, _exec_tid)) or _worker_tid == _exec_tid):
         raise RuntimeError("Invalid native host status anchor")
+    if _host_pid != os.getpid():
+        raise RuntimeError("Native host PID does not match this process")
     _request_ids = []
     for _label, _output in (("status", _status), ("crop", _summary["crop"]),
                             ("delivery", _summary["delivery"]), ("repeated_show", _summary["repeated_show"])):
@@ -80,17 +119,30 @@ def verify():
                 or _show.get("model_visual_verification") is not False):
             raise RuntimeError("Show delivery/image binding mismatch")
     _stop_path = os.path.join(_directory, "stop-receipt.json")
+    _request_path = os.path.join(_directory, "stop-request.json")
     _after = os.path.exists(_stop_path)
+    _request_verified, _request_hash = False, None
+    if not _after and _observe:
+        raise RuntimeError("Legacy STOP observation requires an acknowledged STOP receipt")
+    if not _after and os.path.lexists(_request_path):
+        raise RuntimeError("UNVERIFIED: saved STOP request has no acknowledged receipt")
     if _after:
-        _stop = _load(_stop_path)
+        _stop = _load(_stop_path, True)
         _stop_result = _stop.get("result")
+        _timings = _stop.get("timings_us")
         if (_stop.get("protocol") != "NB1" or _stop.get("session") != _truth["session"]
+                or not isinstance(_stop.get("id"), str)
+                or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", _stop["id"]) is None
                 or _stop.get("state") != "completed" or not isinstance(_stop_result, dict)
-                or set(_stop_result) != {"ipc_stopped"} or _stop_result["ipc_stopped"] is not True):
+                or set(_stop_result) != {"ipc_stopped"} or _stop_result["ipc_stopped"] is not True
+                or not isinstance(_timings, dict) or any(type(_timings.get(_field)) is not int
+                    or not 0 <= _timings[_field] <= (1 << 53) - 1 for _field in ("queue", "execute"))
+                or "error" in _stop or "code" in _stop):
             raise RuntimeError("Invalid STOP receipt")
         if (any(type(_stop.get(_field)) is not int for _field in ("host_pid", "worker_tid", "exec_tid"))
                 or (_stop["host_pid"], _stop["worker_tid"], _stop["exec_tid"]) != (_host_pid, _worker_tid, 0)):
             raise RuntimeError("STOP host/thread identity mismatch")
+        _request_verified, _request_hash = _verify_stop_request(_request_path, _stop, _host_pid, _observe)
     _checks = []
     for _entry in _truth["images"]:
         _image = DM.FindImageByID(_entry["id"])
@@ -148,10 +200,13 @@ def verify():
     if not _after:
         with open(os.path.join(_directory, "trial-crop.npy"), "xb") as _file:
             np.save(_file, np.array(_crop_view, copy=True), allow_pickle=False)
-    return {"status": "PASS", "session": _truth["session"], "phase": "after_stop" if _after else "before_stop",
+    return {"status": "UNVERIFIED" if _observe else "PASS", "oracle_mode": _mode,
+            "host_pid": os.getpid(), "stop_request_verified": _request_verified,
+            "session": _truth["session"], "phase": "after_stop" if _after else "before_stop",
             "backend": "digitalmicrograph-native",
             "truth_sha256": _file_hash(_truth_path), "summary_sha256": _file_hash(_summary_path),
             "stop_receipt_sha256": _file_hash(_stop_path) if _after else None,
+            "stop_request_sha256": _request_hash,
             "image_id": _result["image_id"], "sources": _checks,
             "crop_all_pixels_equal": True, "crop_independent_memory": True,
             "crop_shape": list(_crop_view.shape), "crop_dtype": str(_crop_view.dtype),
@@ -161,8 +216,12 @@ def verify():
 
 
 _report = verify()
+_prefix = "trial-observation-" if _report["oracle_mode"] == "observe_legacy_stop" else "trial-independent-"
 with open(os.path.join(os.environ["DM_NATIVE_EVIDENCE_DIR"],
-          "trial-independent-" + _report["phase"] + ".json"), "x", encoding="utf-8") as _file:
+          _prefix + _report["phase"] + ".json"), "x", encoding="utf-8") as _file:
     json.dump(_report, _file, indent=2, allow_nan=False)
-print("PASS: exact delivered crop document, pixels, dtype, calibration and source invariance (" +
-      _report["phase"] + ").")
+if _report["status"] == "UNVERIFIED":
+    print("UNVERIFIED: legacy STOP observation recorded; cleanup qualification is unavailable.")
+else:
+    print("PASS: exact delivered crop document, pixels, dtype, calibration and source invariance (" +
+          _report["phase"] + ").")
