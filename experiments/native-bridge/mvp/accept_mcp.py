@@ -235,7 +235,17 @@ def run_acceptance(client, fixture, backend, build, expected_pid=None, repeats=1
     core_names = {"dm_status", "dm_datasets", "dm_native_mean", "dm_native_result"}
     require(isinstance(catalog, list) and all(isinstance(tool, dict) and isinstance(tool.get("name"), str) for tool in catalog), "Invalid native tool catalog")
     names = {tool["name"] for tool in catalog}
-    require(len(catalog) == len(names) and core_names <= names <= core_names | {"dm_crop"}, "Unexpected native tool catalog")
+    require(len(catalog) == len(names) and core_names <= names <= core_names | {"dm_crop", "dm_native_show"}, "Unexpected native tool catalog")
+    if "dm_crop" in names:
+        crop_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_crop")
+        require("request_id" in crop_schema.get("required", []) and crop_schema.get("properties", {}).get("request_id", {}).get("type") == "string",
+                "Native crop must require a caller-saved request_id before dispatch")
+    if "dm_native_show" in names:
+        show_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_show")
+        require({"image_id", "request_id"} <= set(show_schema.get("required", []))
+                and show_schema.get("properties", {}).get("image_id", {}).get("type") == "integer"
+                and show_schema.get("properties", {}).get("request_id", {}).get("type") == "string",
+                "Native show must require explicit image_id and a caller-saved request_id before dispatch")
     session, checks = fixture["session"], []
 
     def submit(name, arguments):

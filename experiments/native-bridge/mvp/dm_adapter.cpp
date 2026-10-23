@@ -3,6 +3,7 @@
 #include "adapter.hpp"
 #include "core.hpp"
 #include "crop_contract.hpp"
+#include "show_contract.hpp"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <bcrypt.h>
@@ -36,6 +37,8 @@ using Mean = double (*)(const NativeRef*);
 using Crop = NativeRef* (*)(const void*, NativeRef*, const nb::NativeDataSlice353*);
 using Delete = void (*)(void*);
 using VendorFree = void (*)(void*);
+using GetDocument = nb::ScriptImageDocument353* (*)(void*);
+using ShowDocument = void* (*)(nb::ScriptImageDocument353*);
 struct Api {
     Find find_id = nullptr, find_index = nullptr;
     std::uint32_t (*count)() = nullptr;
@@ -47,6 +50,9 @@ struct Api {
     Crop crop = nullptr;
     Delete destroy = nullptr;
     VendorFree deallocate = nullptr;
+    GetDocument get_document = nullptr;
+    ShowDocument show_document = nullptr;
+    Delete destroy_document_holder = nullptr, destroy_window = nullptr;
 } api;
 DWORD host_thread = 0;
 std::string gate_error = "native_adapter_not_initialized";
@@ -123,6 +129,100 @@ template<class T> T symbol(HMODULE module, const char* name) {
     FARPROC p = GetProcAddress(module, name);
     if (!p) throw std::runtime_error("required_native_symbol_missing");
     return reinterpret_cast<T>(p);
+}
+bool accessible_memory(const void* pointer, std::size_t bytes, bool writable = false) noexcept {
+    auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    if (!address || bytes > UINTPTR_MAX - address) return false;
+    const auto end = address + bytes;
+    while (address < end) {
+        MEMORY_BASIC_INFORMATION region{};
+        if (VirtualQuery(reinterpret_cast<void*>(address), &region, sizeof(region)) != sizeof(region) ||
+            region.State != MEM_COMMIT || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return false;
+        const auto protection = region.Protect & 0xff;
+        const bool can_write = protection == PAGE_READWRITE || protection == PAGE_WRITECOPY ||
+            protection == PAGE_EXECUTE_READWRITE || protection == PAGE_EXECUTE_WRITECOPY;
+        if (writable ? !can_write : !(can_write || protection == PAGE_READONLY || protection == PAGE_EXECUTE_READ))
+            return false;
+        const auto base = reinterpret_cast<std::uintptr_t>(region.BaseAddress);
+        if (region.RegionSize > UINTPTR_MAX - base) return false;
+        const auto next = base + region.RegionSize;
+        if (next <= address) return false;
+        address = next;
+    }
+    return true;
+}
+template<class T> T rva_symbol(HMODULE module, std::uint32_t rva) {
+    const auto* base = reinterpret_cast<const unsigned char*>(module);
+    if (!accessible_memory(base, sizeof(IMAGE_DOS_HEADER)))
+        throw std::runtime_error("invalid_native_module_headers");
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew < 0 || dos->e_lfanew > 1048576 ||
+        !accessible_memory(base + dos->e_lfanew, sizeof(IMAGE_NT_HEADERS64)))
+        throw std::runtime_error("invalid_native_module_headers");
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
+        nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
+        nt->FileHeader.SizeOfOptionalHeader != sizeof(IMAGE_OPTIONAL_HEADER64) ||
+        !nt->FileHeader.NumberOfSections || nt->FileHeader.NumberOfSections > 96 ||
+        rva < nt->OptionalHeader.SizeOfHeaders || rva >= nt->OptionalHeader.SizeOfImage)
+        throw std::runtime_error("native_entrypoint_outside_image");
+    const auto* sections = IMAGE_FIRST_SECTION(nt);
+    if (!accessible_memory(sections, sizeof(*sections) * nt->FileHeader.NumberOfSections))
+        throw std::runtime_error("invalid_native_module_headers");
+    bool executable_section = false;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
+        const auto& section = sections[i];
+        const auto length = section.Misc.VirtualSize > section.SizeOfRawData ? section.Misc.VirtualSize : section.SizeOfRawData;
+        const auto end = static_cast<std::uint64_t>(section.VirtualAddress) + length;
+        if (rva >= section.VirtualAddress && rva < end && end <= nt->OptionalHeader.SizeOfImage &&
+            (section.Characteristics & IMAGE_SCN_MEM_EXECUTE)) executable_section = true;
+    }
+    MEMORY_BASIC_INFORMATION region{};
+    const auto* address = base + rva;
+    if (!executable_section || VirtualQuery(address, &region, sizeof(region)) != sizeof(region) ||
+        region.State != MEM_COMMIT || region.Type != MEM_IMAGE || region.AllocationBase != module ||
+        (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)))
+        throw std::runtime_error("native_entrypoint_not_executable");
+    const auto protection = region.Protect & 0xff;
+    if (protection != PAGE_EXECUTE && protection != PAGE_EXECUTE_READ &&
+        protection != PAGE_EXECUTE_READWRITE && protection != PAGE_EXECUTE_WRITECOPY)
+        throw std::runtime_error("native_entrypoint_not_executable");
+    return reinterpret_cast<T>(const_cast<unsigned char*>(address));
+}
+volatile LONG64* reference_counter(void* pointer, std::size_t offset) noexcept {
+    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    if (!address || offset > UINTPTR_MAX - address) return nullptr;
+    auto* count = reinterpret_cast<volatile LONG64*>(address + offset);
+    if (reinterpret_cast<std::uintptr_t>(count) % alignof(LONG64) ||
+        !accessible_memory(const_cast<const LONG64*>(count), sizeof(*count), true)) return nullptr;
+    return count;
+}
+void release_show_reference(void*& pointer, std::size_t offset, Delete destroy) noexcept {
+    void* object = pointer;
+    pointer = nullptr;
+    if (!object) return;
+    auto* count = reference_counter(object, offset);
+    if (!count || InterlockedCompareExchange64(count, 0, 0) <= 0) { fatal_abi = true; return; }
+    const auto remaining = InterlockedDecrement64(count);
+    if (remaining == 0) { if (destroy) destroy(object); else fatal_abi = true; }
+    if (remaining < 0) fatal_abi = true;
+}
+class ShowRef {
+    const std::size_t offset_;
+    const Delete destroy_;
+public:
+    void* value;
+    ShowRef(void* pointer, std::size_t offset, Delete destroy) : offset_(offset), destroy_(destroy), value(pointer) {}
+    ShowRef(const ShowRef&) = delete;
+    ~ShowRef() { release_show_reference(value, offset_, destroy_); }
+    void abandon_invalid_layout() noexcept { value = nullptr; }
+};
+void validate_show_reference(void* pointer, std::size_t offset) {
+    auto* count = reference_counter(pointer, offset);
+    if (!count || InterlockedCompareExchange64(count, 0, 0) <= 0) {
+        fatal_abi = true;
+        throw std::runtime_error("native_show_invalid_reference_layout");
+    }
 }
 void release_image(NativeRef& value) noexcept {
     if (!value.image) return;
@@ -243,11 +343,13 @@ std::string metadata(void* image, bool strict_calibration = true) {
         if (std::isfinite(scale)) s << scale; else s << "null";
         s << ",\"unit\":" << (units.empty() ? "null" : nb::quote(units))
           << ",\"usable\":" << (valid ? "true" : "false")
-          << ",\"issue\":" << (valid ? "null" : units.empty() ? "\"unknown_units\"" : "\"invalid_calibration\"") << '}';
+          << ",\"issue\":" << (valid ? "null" : !numbers_valid ?
+              (units.empty() ? "\"invalid_calibration_and_unknown_units\"" : "\"invalid_calibration\"") :
+              "\"unknown_units\"") << '}';
     }
     require_ready();
     s << "],\"calibration_complete\":" << (calibration_complete ? "true" : "false")
-      << ",\"native_mean_supported\":" << (code == 2 && ndim == 2 && pixels <= 4194304 && calibration_complete ? "true" : "false")
+      << ",\"native_mean_supported\":" << (code == 2 && ndim == 2 && pixels <= 4194304 ? "true" : "false")
       << ",\"coordinate_rule\":\"physical(i)=calibrated_value_at_pixel_zero+i*scale\"}";
     return s.str();
 }
@@ -283,6 +385,48 @@ std::array<CropAxisCalibration, 2> crop_calibration(void* image) {
 }
 void write_rect(std::ostringstream& s, const std::array<std::uint32_t, 4>& rect) {
     s << '[' << rect[0] << ',' << rect[1] << ',' << rect[2] << ',' << rect[3] << ']';
+}
+std::string execute_show(const NativeRequest& request) {
+    if (request.args.size() != 1) throw std::runtime_error("native_show_requires_one_image_id");
+    const auto id = request.args[0];
+    const auto owned = retained_crops.find(id);
+    if (!id || owned == retained_crops.end()) throw std::runtime_error("native_show_requires_plugin_crop");
+    ImageRef image(api.find_id, id);
+    if (image.value.image != owned->second.value.image || api.id(image.value.image) != id)
+        throw std::runtime_error("image_identity_mismatch");
+    if (!api.get_document || !api.show_document || !api.destroy_document_holder || !api.destroy_window)
+        throw std::runtime_error("native_show_entrypoint_unavailable");
+    // Finish bounded local result construction before requesting any UI change.
+    auto s = json_stream();
+    s << "{\"backend\":\"digitalmicrograph-native\",\"image_id\":" << id
+      << ",\"delivery\":\"visible_dm_document\",\"document_visible\":true"
+      << ",\"operator\":\"ImageGetOrCreateImageDocument + ImageDocumentShow\""
+      << ",\"ownership\":\"host document holds image; plugin crop reference released at normal STOP/cleanup\""
+      << ",\"source_write_requested\":false,\"snapshot_atomic\":false"
+      << ",\"file_saved\":false,\"model_visual_verification\":false}";
+    const auto result = s.str();
+    if (!nb::valid_json(result)) throw std::runtime_error("native_show_result_invalid");
+    require_ready();
+    ShowRef holder(api.get_document(image.value.image), 0, api.destroy_document_holder);
+    if (!holder.value) throw std::runtime_error("native_show_document_unavailable");
+    validate_show_reference(holder.value, 0);
+    auto* document = static_cast<nb::ScriptImageDocument353*>(holder.value);
+    // Do not invoke a destructor that could follow a malformed document pointer.
+    if (!accessible_memory(document, sizeof(*document)) || !document->document ||
+        !reference_counter(document->document, 8) ||
+        InterlockedCompareExchange64(reference_counter(document->document, 8), 0, 0) <= 0) {
+        fatal_abi = true;
+        holder.abandon_invalid_layout();
+        throw std::runtime_error("native_show_invalid_document_layout");
+    }
+    require_ready();
+    ShowRef window(api.show_document(document), nb::kNativeWindowReferenceOffset353, api.destroy_window);
+    if (!window.value) throw std::runtime_error("native_show_window_unavailable");
+    validate_show_reference(window.value, nb::kNativeWindowReferenceOffset353);
+    require_ready();
+    // Reverse-order guards release our Window and holder references here. No
+    // document/window is retained by the plugin or closed during native STOP.
+    return result;
 }
 std::string execute_crop(const NativeRequest& request) {
     if (request.args.size() != 5) throw std::runtime_error("native_crop_requires_id_and_rect");
@@ -372,6 +516,8 @@ void initialize_native() {
             "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b");
         auto processing = checked_module(L"GMSImageProcessing.dll",
             "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042");
+        auto gms = checked_module(L"GMS.dll",
+            "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93");
         auto mfc = checked_module(L"mfc140.dll",
             "b784303d86232a1b316c79839aa78bf631b4fc182e55d9d947688adb066dff26", false);
         api.find_id = symbol<Find>(image, "?FindByID@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@K@Z");
@@ -391,6 +537,10 @@ void initialize_native() {
         api.deallocate = symbol<VendorFree>(mfc, MAKEINTRESOURCEA(1487));
         api.crop = symbol<Crop>(image,
             "?GetSubSliceAsImage@Image@GMS@@QEBA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSlice@Imaging@4@@Z");
+        api.get_document = rva_symbol<GetDocument>(gms, 0x4c3040);
+        api.show_document = rva_symbol<ShowDocument>(gms, 0x4b8a20);
+        api.destroy_document_holder = rva_symbol<Delete>(gms, 0x060e70);
+        api.destroy_window = rva_symbol<Delete>(gms, 0x57bab0);
         gate_error.clear();
     } catch (const std::exception& error) { gate_error = error.what(); }
 }
@@ -402,12 +552,13 @@ static std::string execute_operation(const NativeRequest& request) {
           << ",\"supported_build\":\"3.53.4137.0-x64\",\"binary_gate\":" << (gate_error.empty() ? "true" : "false")
           << ",\"host_pid\":" << GetCurrentProcessId() << ",\"host_thread\":" << host_thread
           << ",\"resident_python_required\":false,\"arbitrary_script\":false,\"requires_idle_host\":true"
-          << ",\"capabilities\":[\"datasets\",\"image_info\",\"mean_float32_2d\",\"crop_float32_2d\"]"
+          << ",\"capabilities\":[\"datasets\",\"image_info\",\"mean_float32_2d\",\"crop_float32_2d\",\"show_plugin_crop_visible_document\"]"
           << ",\"retained_crop_count\":" << retained_crops.size() << ",\"retained_crop_bytes\":" << retained_crop_bytes
           << ",\"build_error\":" << (fatal_abi ? "\"native_abi_invalid_output_path_disabled\"" : gate_error.empty() ? "null" : nb::quote(gate_error)) << '}';
         return s.str();
     }
     require_ready();
+    if (request.op == "SHOW") return execute_show(request);
     if (request.op == "CROP") return execute_crop(request);
     if (request.op == "DATASETS") {
         auto count = api.count();
@@ -451,13 +602,18 @@ static std::string execute_operation(const NativeRequest& request) {
             s << "]}";
             return s.str();
         }
-        auto info = metadata(image.value.image);
         require_ready();
         if (api.ndim(image.value.image) != 2 || api.dtype(image.value.image) != 2)
             throw std::runtime_error("native_mean_requires_float32_2d");
         auto w = api.dimension(image.value.image, 0), h = api.dimension(image.value.image, 1);
+        if (!w || !h) throw std::runtime_error("invalid_image_dimensions");
         if (static_cast<std::uint64_t>(w) * h > 4194304)
             throw std::runtime_error("native_mean_working_region_over_budget");
+        // Raw intensity does not depend on a usable spatial calibration. Keep
+        // recognized missing/invalid calibration visible in metadata, while
+        // propagating vendor, object-identity and ABI failures unchanged.
+        auto info = metadata(image.value.image, false);
+        require_ready();
         double mean = api.mean(&image.value);
         if (!std::isfinite(mean)) throw std::runtime_error("native_mean_nonfinite_result");
         auto s = json_stream();

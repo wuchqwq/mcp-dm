@@ -234,3 +234,20 @@ test("low-level CROP forwards five explicit unsigned arguments", async () => {
     assert.equal(host.requests.length, 1);
   } finally {await host.close();}
 });
+
+test("low-level SHOW submits one explicit unsigned image ID once before same-ID QUERY", async () => {
+  const result = {backend: "mock-native", image_id: 99, delivery: "visible_dm_document", document_visible: true};
+  const host = await fakeHost(({socket, request, reply}) => socket.end(JSON.stringify(
+    request.operation === "SHOW" ? reply("queued") : reply("completed", result)) + "\n"));
+  try {
+    assert.deepEqual((await host.bridge.execute("SHOW", [99], {requestId: "explicit-show"})).result, result);
+    assert.deepEqual(host.requests, [
+      {operation: "SHOW", args: ["99"], id: "explicit-show"},
+      {operation: "QUERY", args: [], id: "explicit-show"},
+    ]);
+    for (const args of [[], [99, 100], [-1], [0.5], [4294967296], ["99"]]) {
+      await assert.rejects(host.bridge.execute("SHOW", args, {requestId: "bad-show"}), /unsigned 32-bit/);
+    }
+    assert.equal(host.requests.length, 2, "invalid SHOW arguments must not reach the host");
+  } finally {await host.close();}
+});

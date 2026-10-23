@@ -106,7 +106,7 @@ test("native MCP exposes only implemented tools, strict IDs and real host fields
   try {
     const init = await client.init(); assert.match(init.instructions, /空闲/); assert.match(init.instructions, /不回退/);
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.deepEqual(catalog.map(entry => entry.name), ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_result", "dm_crop"]);
+    assert.deepEqual(catalog.map(entry => entry.name), ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_result", "dm_crop", "dm_native_show"]);
     for (const name of ["dm_stats", "dm_run_script", "dm_2d_preview", "dm_open", "no_such_tool"]) {
       const response = await client.tool(name); assert.equal(response.error.code, -32602); assert.match(response.error.message, /不支持工具/);
     }
@@ -200,6 +200,7 @@ test("native dm_crop validates explicit half-open bounds and preserves the host'
     await client.init();
     const crop = (await client.rpc("tools/list")).result.tools.find(tool => tool.name === "dm_crop");
     assert.match(crop.description, /不创建可见 DM 文档/);
+    assert.ok(crop.inputSchema.required.includes("request_id"));
     for (const args of [
       {}, {image_id: 77}, {rect}, {image_id: "front", rect}, {image_id: "77", rect}, {image_id: -1, rect},
       {image_id: 77, rect: null}, {image_id: 77, rect: []}, {image_id: 77, rect: [1, 2, 1, 6]},
@@ -207,7 +208,7 @@ test("native dm_crop validates explicit half-open bounds and preserves the host'
       {image_id: 77, rect: [-1, 2, 4, 6]}, {image_id: 77, rect: [1, 2, 4.5, 6]},
       {image_id: 77, rect: [1, 2, "4", 6]}, {image_id: 77, rect: [1, 2, 4294967296, 6]},
       {image_id: 77, rect, name: "unsupported custom name"},
-    ]) assert.equal((await client.tool("dm_crop", args)).error?.code, -32602, JSON.stringify(args));
+    ]) assert.equal((await client.tool("dm_crop", {...args, request_id: "invalid-arguments"})).error?.code, -32602, JSON.stringify(args));
     assert.equal(host.requests.length, 0, "invalid crops must fail before any native dispatch");
     const first = toolOutput(await client.tool("dm_crop", {image_id: 77, rect, request_id: "crop-id"}));
     const {native_receipt, ...original} = first;
@@ -259,5 +260,257 @@ test("native dm_crop accepts the rect alias and propagates host ROI failures wit
     const failure = toolOutput(await client.tool("dm_crop", {image_id: 77, rect: [1, 2, 400, 600], request_id: "outside"}), true);
     assert.equal(failure.native_receipt.code, "roi_out_of_bounds");
     assert.deepEqual(host.requests.map(request => request.operation), ["CROP", "CROP"]);
+  } finally {await client.close(); await host.close();}
+});
+
+test("native dm_crop requires a caller-saved request ID before any native call", async () => {
+  const host = await nativeHost(() => assert.fail("invalid or missing crop ID must never reach the plugin"));
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session});
+  try {
+    await client.init();
+    const crop = (await client.rpc("tools/list")).result.tools.find(tool => tool.name === "dm_crop");
+    assert.deepEqual(crop.inputSchema.required, ["image_id", "rect", "request_id"]);
+    assert.match(crop.inputSchema.properties.request_id.description, /必填/);
+    const argumentsWithoutId = {image_id: 77, rect: [1, 2, 4, 6]};
+    const missing = await client.tool("dm_crop", argumentsWithoutId);
+    assert.equal(missing.error?.code, -32602); assert.match(missing.error.message, /request_id/);
+    for (const request_id of [null, 7, false, [], {}, "", "bad id", "bad\n", "bad\r", "图", "x".repeat(65)]) {
+      const response = await client.tool("dm_crop", {...argumentsWithoutId, request_id});
+      assert.equal(response.error?.code, -32602, JSON.stringify(request_id));
+      assert.match(response.error.message, /request_id/);
+    }
+    assert.equal(host.requests.length, 0);
+  } finally {await client.close(); await host.close();}
+});
+
+test("accepted crop cancellation recovers the same object through a new client in the same host session", async () => {
+  const savedId = "caller-saved-before-cancel", rect = [1, 2, 4, 6];
+  const result = {backend: "mock-native", source_image_id: 77, image_id: 88, effective_rect: rect};
+  let accepted, completed = false, creations = 0;
+  const observed = new Promise(resolve => {accepted = resolve;});
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation === "CROP") {
+      assert.equal(request.id, savedId); assert.deepEqual(request.args, ["77", "1", "2", "4", "6"]);
+      socket.end(JSON.stringify(reply("queued")) + "\n"); accepted();
+    } else socket.end(JSON.stringify(completed ? reply("completed", result) : reply("running")) + "\n");
+  });
+  const env = {DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_MCP_TIMEOUT_MS: "1000"};
+  const first = mcpClient(env); let recovered;
+  try {
+    await first.init();
+    first.send({id: 900, method: "tools/call", params: {name: "dm_crop", arguments: {image_id: 77, rect, request_id: savedId}}});
+    await observed;
+    first.send({method: "notifications/cancelled", params: {requestId: 900}});
+    await first.rpc("ping");
+    assert.equal(first.messages.some(message => message.id === 900), false, "cancelled MCP response stays suppressed");
+    assert.equal(creations, 0, "the accepted operation can still execute after the local wait ends");
+    await first.close();
+    completed = true; creations++;
+    // Recovery belongs to the native host session, not the first Node process.
+    recovered = mcpClient(env); await recovered.init();
+    const a = toolOutput(await recovered.tool("dm_native_result", {request_id: savedId}));
+    const b = toolOutput(await recovered.tool("dm_native_result", {request_id: savedId}));
+    assert.equal(a.image_id, 88); assert.deepEqual(a, b);
+    assert.equal(a.native_receipt.request_id, savedId); assert.equal(a.native_receipt.session, host.session);
+    assert.equal(creations, 1); assert.equal(host.requests.filter(request => request.operation === "CROP").length, 1);
+    assert.ok(host.requests.every(request => request.id === savedId));
+  } finally {await first.close(); if (recovered) await recovered.close(); await host.close();}
+});
+
+test("crop disconnect, busy rejection and conflicting parameters cannot consume or overwrite the accepted record", async () => {
+  const rect = [1, 2, 4, 6], savedId = "crop-accepted-before-disconnect";
+  const result = {backend: "mock-native", source_image_id: 77, image_id: 88, effective_rect: rect};
+  let acceptedArgs, complete = false, creations = 0;
+  const host = await nativeHost(({socket, request, reply}) => {
+    let response;
+    if (request.operation === "CROP" && request.id === savedId) {
+      if (!acceptedArgs) {acceptedArgs = request.args; socket.destroy(); return;}
+      response = JSON.stringify(request.args) !== JSON.stringify(acceptedArgs)
+        ? reply("failed", undefined, {code: "id_conflict", error: "ID is already bound to different parameters"})
+        : complete ? reply("completed", result) : reply("running");
+    } else if (request.operation === "CROP") {
+      response = reply("failed", undefined, {code: "busy", error: "the original operation is still running"});
+    } else response = request.id !== savedId ? reply("unknown") : complete ? reply("completed", result) : reply("running");
+    socket.end(JSON.stringify(response) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session});
+  try {
+    await client.init();
+    const lost = toolOutput(await client.tool("dm_crop", {image_id: 77, rect, request_id: savedId}), true);
+    assert.equal(lost.request_id, savedId); assert.equal(lost.session, host.session); assert.equal(lost.sent, true);
+    const busy = toolOutput(await client.tool("dm_crop", {image_id: 77, rect: [0, 0, 1, 1], request_id: "different-crop"}), true);
+    assert.equal(busy.native_receipt.code, "busy"); assert.equal(busy.native_receipt.request_id, "different-crop");
+    const running = toolOutput(await client.tool("dm_native_result", {request_id: savedId}), true);
+    assert.equal(running.native_receipt.state, "running");
+    complete = true; creations++;
+    const original = toolOutput(await client.tool("dm_native_result", {request_id: savedId}));
+    assert.equal(original.image_id, 88); assert.deepEqual(original.effective_rect, rect);
+    const conflict = toolOutput(await client.tool("dm_crop", {image_id: 77, rect: [2, 2, 4, 6], request_id: savedId}), true);
+    assert.equal(conflict.native_receipt.code, "id_conflict");
+    assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id: savedId})), original);
+    const other = toolOutput(await client.tool("dm_native_result", {request_id: "different-crop"}), true);
+    assert.equal(other.native_receipt.state, "unknown");
+    assert.deepEqual(acceptedArgs, ["77", "1", "2", "4", "6"]);
+    assert.equal(creations, 1);
+    assert.equal(host.requests.filter(request => request.operation === "CROP" && JSON.stringify(request.args) === JSON.stringify(acceptedArgs)).length, 1,
+      "the originally sent operation must never be resent automatically after disconnect");
+  } finally {await client.close(); await host.close();}
+});
+
+test("a late crop completion after timeout remains bound to its saved ID while a later crop has a different ID", async () => {
+  const rect = [1, 2, 4, 6], savedId = "late-crop-original", otherId = "later-crop";
+  const firstResult = {backend: "mock-native", source_image_id: 77, image_id: 88, effective_rect: rect};
+  const otherResult = {...firstResult, image_id: 99};
+  let complete = false, originalReply, originalSocket, observedQuery, creations = 0;
+  const queried = new Promise(resolve => {observedQuery = resolve;});
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation === "CROP" && request.id === savedId) {
+      socket.end(JSON.stringify(reply("queued")) + "\n"); return;
+    }
+    if (request.operation === "QUERY" && request.id === savedId && !complete) {
+      originalSocket = socket; originalReply = reply; observedQuery(); return;
+    }
+    if (request.operation === "CROP") creations++;
+    socket.end(JSON.stringify(reply("completed", request.id === savedId ? firstResult : otherResult)) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_MCP_TIMEOUT_MS: "150"});
+  try {
+    await client.init();
+    const submitted = client.tool("dm_crop", {image_id: 77, rect, request_id: savedId});
+    await Promise.race([queried, submitted.then(response => {throw new Error("expected an in-flight QUERY before completion: " + JSON.stringify(response));})]);
+    const timeout = toolOutput(await submitted, true);
+    assert.equal(timeout.code, "NATIVE_TIMEOUT"); assert.equal(timeout.request_id, savedId); assert.equal(timeout.sent, true);
+    complete = true; creations++;
+    // The old response can arrive after its socket/waiter has been destroyed.
+    originalSocket.end(JSON.stringify(originalReply("completed", firstResult)) + "\n");
+    const later = toolOutput(await client.tool("dm_crop", {image_id: 77, rect, request_id: otherId}));
+    assert.equal(later.image_id, 99); assert.equal(later.native_receipt.request_id, otherId);
+    const recovered = toolOutput(await client.tool("dm_native_result", {request_id: savedId}));
+    assert.equal(recovered.image_id, 88); assert.equal(recovered.native_receipt.request_id, savedId);
+    assert.equal(creations, 2);
+    assert.deepEqual(host.requests.filter(request => request.operation === "CROP").map(request => request.id), [savedId, otherId]);
+  } finally {await client.close(); await host.close();}
+});
+
+test("native dm_native_show requires both saved request ID and explicit uint32 image ID before any host call", async () => {
+  const host = await nativeHost(() => assert.fail("invalid SHOW must not reach a plugin"));
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session});
+  try {
+    const init = await client.init();
+    assert.match(init.instructions, /dm_native_show/);
+    const show = (await client.rpc("tools/list")).result.tools.find(tool => tool.name === "dm_native_show");
+    assert.deepEqual(show.inputSchema.required, ["image_id", "request_id"]);
+    assert.equal(show.inputSchema.properties.image_id.type, "integer");
+    assert.match(show.description, /本插件仍持有的 crop/);
+    assert.match(show.description, /不保存文件/);
+    assert.match(show.description, /不代表模型已看图/);
+    assert.match(show.description, /不关闭已显示的文档/);
+    for (const args of [{}, {image_id: 88}, {request_id: "saved-show"}, {image_id: 88, request_id: "saved-show", front: true}]) {
+      assert.equal((await client.tool("dm_native_show", args)).error.code, -32602);
+    }
+    for (const image_id of [null, "front", "88", true, [], {}, -1, 0.25, 4294967296]) {
+      assert.equal((await client.tool("dm_native_show", {image_id, request_id: "saved-show"})).error.code, -32602);
+    }
+    for (const request_id of [null, 7, false, [], {}, "", "bad id", "bad\n", "bad\r", "图", "x".repeat(65)]) {
+      assert.equal((await client.tool("dm_native_show", {image_id: 88, request_id})).error.code, -32602);
+    }
+    assert.equal(host.requests.length, 0);
+  } finally {await client.close(); await host.close();}
+});
+
+test("native SHOW polls same ID once submitted and reuses a completed record without another document creation", async () => {
+  const result = {backend: "mock-native", image_id: 88, delivery: "visible_dm_document", document_visible: true,
+    operator: "synthetic-explicit-image-document", ownership: "document owns image; native STOP releases plugin crop reference only",
+    source_write_requested: false, snapshot_atomic: false};
+  const records = new Map(); let creations = 0;
+  const host = await nativeHost(({socket, request, reply}) => {
+    let response;
+    const previous = records.get(request.id);
+    if (request.operation === "SHOW") {
+      if (previous && JSON.stringify(previous.args) !== JSON.stringify(request.args)) {
+        response = reply("failed", undefined, {code: "id_conflict", error: "request ID already bound to another image"});
+      } else {
+        if (!previous) {records.set(request.id, {args: request.args, complete: false}); creations++;}
+        response = records.get(request.id).complete ? reply("completed", result) : reply("queued");
+      }
+    } else {
+      assert.equal(request.operation, "QUERY");
+      if (previous) {previous.complete = true; response = reply("completed", result);}
+      else response = reply("unknown");
+    }
+    socket.end(JSON.stringify(response) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    const args = {image_id: 88, request_id: "show-saved"};
+    const first = toolOutput(await client.tool("dm_native_show", args));
+    assert.deepEqual(host.requests, [
+      {id: "show-saved", operation: "SHOW", args: ["88"]},
+      {id: "show-saved", operation: "QUERY", args: []},
+    ], "the facade must only QUERY after the initial SHOW is accepted");
+    assert.deepEqual({...first, native_receipt: undefined}, {...result, native_receipt: undefined}, "host fields stay unchanged without invented delivery claims");
+    assert.equal(first.native_receipt.request_id, args.request_id); assert.equal(first.native_receipt.session, host.session);
+    assert.deepEqual(toolOutput(await client.tool("dm_native_show", args)), first);
+    assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id: args.request_id})), first);
+    const conflict = toolOutput(await client.tool("dm_native_show", {...args, image_id: 89}), true);
+    assert.equal(conflict.native_receipt.code, "id_conflict");
+    assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id: args.request_id})), first);
+    assert.equal(creations, 1, "an explicit repeat of a completed ID reuses the host record");
+    assert.equal(host.requests.filter(request => request.operation === "SHOW" && request.args[0] === "88").length, 2,
+      "there are exactly two explicitly requested SHOW submissions and no automatic resend");
+  } finally {await client.close(); await host.close();}
+});
+
+test("native SHOW rejects completed results without the same image and visible document delivery", async () => {
+  const valid = {backend: "mock-native", image_id: 88, delivery: "visible_dm_document", document_visible: true};
+  const cases = [
+    {...valid, image_id: 89}, {...valid, image_id: "88"}, {...valid, image_id: undefined},
+    {...valid, delivery: "file"}, {...valid, delivery: "latest_window"}, {...valid, delivery: undefined},
+    {...valid, document_visible: false}, {...valid, document_visible: "true"}, {...valid, document_visible: undefined},
+  ];
+  const host = await nativeHost(({socket, request, reply}) => {
+    assert.equal(request.operation, "SHOW");
+    socket.end(JSON.stringify(reply("completed", cases[Number(request.id.split("-").at(-1))])) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session});
+  try {
+    await client.init();
+    for (let index = 0; index < cases.length; index++) {
+      const request_id = "bad-show-" + index;
+      const output = toolOutput(await client.tool("dm_native_show", {image_id: 88, request_id}), true);
+      assert.equal(output.code, "NATIVE_PROTOCOL"); assert.equal(output.state, "unknown");
+      assert.equal(output.request_id, request_id); assert.equal(output.session, host.session); assert.equal(output.sent, true);
+      assert.equal(Object.hasOwn(output, "delivery"), false);
+    }
+    assert.equal(host.requests.length, cases.length, "malformed success receipts must not trigger a replay");
+  } finally {await client.close(); await host.close();}
+});
+
+test("native SHOW failures and unknown do not succeed or fall back; timeout recovers using only QUERY", async () => {
+  const savedId = "show-late";
+  const result = {backend: "mock-native", image_id: 88, delivery: "visible_dm_document", document_visible: true};
+  let displays = 0;
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.id === "not-retained") socket.end(JSON.stringify(reply("failed", undefined,
+      {code: "not_retained_crop", error: "SHOW only accepts this plugin's retained crops"})) + "\n");
+    else if (request.id === "unknown-show") socket.end(JSON.stringify(reply("unknown")) + "\n");
+    else if (request.operation === "SHOW") {displays++; /* Operation completed, response lost. */}
+    else socket.end(JSON.stringify(reply("completed", result)) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    const failed = toolOutput(await client.tool("dm_native_show", {image_id: 77, request_id: "not-retained"}), true);
+    assert.equal(failed.native_receipt.state, "failed"); assert.equal(failed.native_receipt.code, "not_retained_crop");
+    const unknown = toolOutput(await client.tool("dm_native_show", {image_id: 88, request_id: "unknown-show"}), true);
+    assert.equal(unknown.native_receipt.state, "unknown");
+    const timeout = toolOutput(await client.tool("dm_native_show", {image_id: 88, request_id: savedId}), true);
+    assert.equal(timeout.code, "NATIVE_TIMEOUT"); assert.equal(timeout.sent, true);
+    assert.equal(timeout.request_id, savedId); assert.equal(timeout.session, host.session);
+    const recovered = toolOutput(await client.tool("dm_native_result", {request_id: savedId}));
+    assert.equal(recovered.image_id, 88); assert.equal(recovered.delivery, "visible_dm_document");
+    assert.equal(recovered.native_receipt.request_id, savedId); assert.equal(displays, 1);
+    assert.deepEqual(host.requests.filter(request => request.id === savedId).map(request => request.operation), ["SHOW", "QUERY"]);
   } finally {await client.close(); await host.close();}
 });

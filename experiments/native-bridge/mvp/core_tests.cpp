@@ -11,10 +11,12 @@ void reject(const std::string& s) { try { nb::parse_line(s); require(false); } c
 }
 int main() {
     try {
-        for (const auto& tail : {"id STATUS", "id DATASETS", "id QUERY", "id STOP", "id INFO 0", "id MEAN 4294967295", "id CROP 1 0 0 4 3"}) require(!parse(tail).request.op.empty());
+        for (const auto& tail : {"id STATUS", "id DATASETS", "id QUERY", "id STOP", "id INFO 0", "id MEAN 4294967295", "id CROP 1 0 0 4 3", "id SHOW 1", "id SHOW 4294967295"}) require(!parse(tail).request.op.empty());
         for (const auto& tail : {"id STATUSX", "id STATUS 1", "id INFO", "id INFO -1", "id INFO +1", "id INFO 4294967296", "id INFO 1x", "id MEAN 1.2", "id CROP 1 0 0 1", "id CROP 1 0 0 1 2 3", "bad.id STATUS", "id  STATUS", "id STATUS ", "id\tSTATUS"}) reject("NB1 " + session + " " + tail);
         reject(""); reject("NB2 " + session + " id STATUS"); reject("NB1 " + std::string(32, 'A') + " id STATUS");
         reject("NB1 " + session + " " + std::string(65, 'i') + " STATUS"); reject("NB1 " + session + " id STATUS\n");
+        for (const auto& tail : {"id SHOW", "id SHOW 1 2", "id SHOW -1", "id SHOW +1", "id SHOW 1.5", "id SHOW 4294967296"})
+            reject("NB1 " + session + " " + tail);
         for (const auto& value : {"-1.25", "0.125", "{\"x\":[-2,0.25,true,null,\"hi\\u4e00\"]}", "1e-20"}) require(nb::valid_json(value));
         for (const auto& value : {"NaN", "Infinity", "01", "-", "1.", "1e", "{\"x\":1,}", "[1,]", "true false", "{\"x\":NaN}"}) require(!nb::valid_json(value));
         require(nb::quote(u8"中文 µm") == u8"\"中文 µm\"");
@@ -47,6 +49,19 @@ int main() {
         auto e = core.accept(parse("e MEAN 1")); core.close(); require(!core.begin(e.dispatch_token, 321));
         require(core.accept(parse("e QUERY")).receipt.find("bridge_stopped") != std::string::npos);
         require(core.accept(parse("f MEAN 1")).receipt.find("bridge_stopped") != std::string::npos);
+        nb::Core delivery(session, 1, 1); delivery.mark_ready(1);
+        auto show = delivery.accept(parse("visible SHOW 100")); require(show.dispatch_token != 0);
+        require(delivery.accept(parse("visible SHOW 100")).dispatch_token == 0);
+        require(delivery.accept(parse("visible SHOW 101")).receipt.find("id_conflict") != std::string::npos);
+        require(delivery.accept(parse("visible MEAN 100")).receipt.find("id_conflict") != std::string::npos);
+        auto shown = delivery.begin(show.dispatch_token, 1); require(shown != nullptr);
+        delivery.finish(shown, "{\"image_id\":100,\"delivery\":\"visible_dm_document\"}");
+        auto show_again = delivery.accept(parse("visible SHOW 100"));
+        require(show_again.dispatch_token == 0 && show_again.receipt.find("completed") != std::string::npos);
+        auto queued_show = delivery.accept(parse("queued_show SHOW 100")); require(queued_show.dispatch_token != 0);
+        require(delivery.accept(parse("delivery_stop STOP")).stop);
+        require(!delivery.begin(queued_show.dispatch_token, 1));
+        require(delivery.accept(parse("queued_show QUERY")).receipt.find("bridge_stopped") != std::string::npos);
         nb::Core capacity(session, 1, 1); capacity.mark_ready(1);
         for (std::size_t i = 0; i < nb::kMaxOperationRecords; ++i) {
             auto input = parse("c" + std::to_string(i) + " STATUS"); auto accepted = capacity.accept(input);

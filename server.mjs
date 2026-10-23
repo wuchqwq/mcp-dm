@@ -48,8 +48,8 @@ const INSTRUCTIONS = [
 ].join("\n");
 const NATIVE_INSTRUCTIONS = [
   "实验性 DigitalMicrograph C++ NB1 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
-  "只提供 dm_status、dm_datasets、dm_native_mean、dm_native_result、dm_crop；未实现工具明确拒绝，绝不回退到 Python。mean 只返回原生均值，不代表完整 stats。crop 创建插件持有的独立原生图像至正常 STOP/cleanup 释放，不创建可见 DM 文档。",
-  "每次提交返回 native_receipt 含 session/request_id。超时、取消、断连均不代表操作终止，使用 dm_native_result 查询同一 ID，不自动重发。可在提交前指定 request_id，以便取消后仍能查询；若取消前未保存 ID，将无法保证恢复。",
+  "只提供 dm_status、dm_datasets、dm_native_mean、dm_native_result、dm_crop、dm_native_show；未实现工具明确拒绝，绝不回退到 Python。mean 只返回原生均值，不代表完整 stats。crop 创建插件持有的独立原生图像，本身不创建可见 DM 文档。dm_native_show 仅为本插件仍持有的 crop 工作副本创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的 crop 引用，不关闭已显示的文档。",
+  "每次提交返回 native_receipt 含 session/request_id。dm_crop、dm_native_show 和后续新增工具必须使用客户端在提交前保存的 request_id；仅现有 dm_status/dm_datasets/dm_native_mean 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
 
@@ -408,6 +408,9 @@ const tools = [
 
 const NATIVE_REQUEST_ID = {type: "string", minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "可选客户端请求 ID；省略时生成 UUID。取消前预先保存此 ID，之后只用 dm_native_result 查询，不自动重发"};
 const NATIVE_IMAGE_ID = {type: "integer", minimum: 0, maximum: 4294967295, description: "dm_datasets 返回的显式 uint32 图像 ID；不接受 front 或数字字符串"};
+// Only these existing read-only tools may generate an ID. Every newly added
+// native tool must carry a caller-saved ID before it can reach the plugin.
+const NATIVE_OPTIONAL_REQUEST_ID_TOOLS = new Set(["dm_status", "dm_datasets", "dm_native_mean"]);
 const nativeTools = [
   tool("dm_status", "实验性指定构建的 C++ NB1 桥状态及宿主真实 backend；只在 DM 空闲且不编辑源图时调用，源图只读，不回退 Python。", {request_id: NATIVE_REQUEST_ID}),
   tool("dm_datasets", "实验性指定构建：枚举宿主当前图像；只在 DM 空闲且不编辑源图时调用，源图只读。请固定数字 image_id，不回退 Python。", {request_id: NATIVE_REQUEST_ID}),
@@ -418,11 +421,15 @@ const nativeTools = [
   tool("dm_native_result", "实验性指定构建：用已保存 request_id 查询 NB1 记录，只发送 QUERY，不重执行原操作。queued/running/unknown 不当作成功；只在 DM 空闲且不编辑源图时调用。", {
     request_id: {...NATIVE_REQUEST_ID, description: "原操作已保存的 request_id，必须属于当前 DM_NATIVE_SESSION"},
   }, ["request_id"]),
-  tool("dm_crop", "实验性指定构建的原生二维独立副本裁剪；显式数字 image_id 和非空半开 rect=[x0,y0,x1,y1]，不舍入/裁夹。插件持有新图像至正常 native STOP/cleanup 释放，不创建可见 DM 文档。只在 DM 空闲且不编辑源图时调用，源图不改；超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
+  tool("dm_crop", "实验性指定构建的原生二维独立副本裁剪；显式数字 image_id、非空半开 rect=[x0,y0,x1,y1] 和提交前已保存的 request_id 必填，不舍入/裁夹。插件持有新图像至正常 native STOP/cleanup 释放，不创建可见 DM 文档。只在 DM 空闲且不编辑源图时调用，源图不改；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
     image_id: NATIVE_IMAGE_ID,
     rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
-    request_id: NATIVE_REQUEST_ID,
-  }, ["image_id", "rect"]),
+    request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
+  }, ["image_id", "rect", "request_id"]),
+  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的 crop 工作副本创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的 crop 引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
+    image_id: {...NATIVE_IMAGE_ID, description: "本插件仍持有的 dm_crop 结果 image_id（显式 uint32）；不接受任意源图、front 或数字字符串"},
+    request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
+  }, ["image_id", "request_id"]),
 ];
 
 async function callNativeTool(name, args, signal) {
@@ -430,13 +437,14 @@ async function callNativeTool(name, args, signal) {
   if (!catalog) throw new RpcError(-32602, `native backend 不支持工具: ${name}；不会回退 Python`);
   args = args === undefined ? {} : args;
   validate(args, catalog.inputSchema);
+  if (!NATIVE_OPTIONAL_REQUEST_ID_TOOLS.has(name) && !validRequestId(args.request_id)) throw new RpcError(-32602, "request_id 必须由客户端在提交前保存，并匹配 [A-Za-z0-9_-]{1,64}");
   if (args.request_id !== undefined && !validRequestId(args.request_id)) throw new RpcError(-32602, "request_id 必须匹配 [A-Za-z0-9_-]{1,64}");
   if (name === "dm_crop" && (args.rect[2] <= args.rect[0] || args.rect[3] <= args.rect[1])) throw new RpcError(-32602, "rect 必须为正面积，右下边界不包含");
   try {
     const options = {requestId: args.request_id, signal};
     const reply = name === "dm_native_result" ? await bridge.query(args.request_id, options)
-      : await bridge.execute({dm_status: "STATUS", dm_datasets: "DATASETS", dm_native_mean: "MEAN", dm_crop: "CROP"}[name],
-        name === "dm_native_mean" ? [args.image_id] : name === "dm_crop" ? [args.image_id, ...args.rect] : [], options);
+      : await bridge.execute({dm_status: "STATUS", dm_datasets: "DATASETS", dm_native_mean: "MEAN", dm_crop: "CROP", dm_native_show: "SHOW"}[name],
+        ["dm_native_mean", "dm_native_show"].includes(name) ? [args.image_id] : name === "dm_crop" ? [args.image_id, ...args.rect] : [], options);
     const {result, ...receipt} = reply;
     const native_receipt = {...receipt, request_id: receipt.id};
     if (reply.state === "completed" && name === "dm_native_mean" && (typeof result.mean !== "number" || !Number.isFinite(result.mean))) {
@@ -451,6 +459,10 @@ async function callNativeTool(name, args, signal) {
           (Object.hasOwn(result, "requested_rect") && !matches(result.requested_rect))) {
         throw new NativeBridgeError("Native CROP completed with invalid new/source image identity or effective rectangle", {session: bridge.session, requestId: reply.id, code: "NATIVE_PROTOCOL", sent: true});
       }
+    }
+    if (reply.state === "completed" && name === "dm_native_show" &&
+        (result.image_id !== args.image_id || result.delivery !== "visible_dm_document" || result.document_visible !== true)) {
+      throw new NativeBridgeError("Native SHOW completed without the requested image identity and visible DM document delivery", {session: bridge.session, requestId: reply.id, code: "NATIVE_PROTOCOL", sent: true});
     }
     const output = reply.state === "completed" ? {...result, native_receipt} : {native_receipt, error: reply.error || `Native request is ${reply.state}; only completed is success`};
     return {content: [{type: "text", text: JSON.stringify(output, null, 2)}], ...(reply.state !== "completed" ? {isError: true} : {})};

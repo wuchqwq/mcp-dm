@@ -32,6 +32,13 @@ std::string execute_native(const NativeRequest& r) {
     if (r.args.empty() || r.args[0] == 0 || r.args[0] > 2) throw std::runtime_error("mock image id not found");
     if (r.op == "MEAN") return r.args[0] == 1 ? "{\"backend\":\"synthetic_mock\",\"mean\":-1.25}" : "{\"backend\":\"synthetic_mock\",\"mean\":0.125}";
     if (r.op == "INFO") return "{\"backend\":\"synthetic_mock\",\"image_id\":" + std::to_string(r.args[0]) + ",\"shape\":[3,4],\"dtype\":\"float32\"}";
+    if (r.op == "SHOW") {
+        if (r.args.size() != 1) throw std::runtime_error("mock show requires one image id");
+        return "{\"backend\":\"synthetic_mock\",\"image_id\":" + std::to_string(r.args[0]) +
+            ",\"delivery\":\"visible_dm_document\",\"document_visible\":true,\"operator\":\"ImageGetOrCreateImageDocument + ImageDocumentShow\","
+            "\"ownership\":\"mock delivery only; no host document exists\",\"source_write_requested\":false,\"snapshot_atomic\":false,"
+            "\"file_saved\":false,\"model_visual_verification\":false}";
+    }
     if (r.op == "CROP") {
         if (r.args.size() != 5 || r.args[1] >= r.args[3] || r.args[2] >= r.args[4] || r.args[3] > 4 || r.args[4] > 3)
             throw std::runtime_error("mock crop must use valid half-open bounds");

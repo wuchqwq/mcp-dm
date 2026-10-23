@@ -21,8 +21,24 @@ int crop_calls = 0;
 std::string crop_fault;
 int releases = 0, destructions = 0, assertions = 0;
 bool invalid_scale = false;
+bool calibration_throws = false, mean_throws = false;
+int mean_calls = 0;
 double expected_mean = -24.375;
-void check(bool value) { ++assertions; if (!value) throw std::runtime_error("adapter assertion"); }
+struct FakeDocument { void* marker = nullptr; LONG64 references = 1; FakeImage* image = nullptr; };
+struct FakeWindow { unsigned char prefix[0x50]{}; LONG64 references = 1; };
+static_assert(offsetof(FakeDocument, references) == 8);
+static_assert(offsetof(FakeWindow, references) == nb::kNativeWindowReferenceOffset353);
+std::map<std::uint32_t, FakeDocument*> host_documents;
+std::map<std::uint32_t, FakeWindow*> host_windows;
+std::vector<nb::ScriptImageDocument353*> malformed_holders;
+std::vector<FakeWindow*> malformed_windows;
+int document_calls = 0, show_calls = 0, holder_destructions = 0, window_destructions = 0;
+std::string show_fault;
+void check_at(bool value, int line) {
+    ++assertions;
+    if (!value) throw std::runtime_error("adapter assertion at line " + std::to_string(line));
+}
+#define check(value) check_at((value), __LINE__)
 void fill(MsvcWString353* out, const std::wstring& text) {
     *out = MsvcWString353{};
     out->length = text.size();
@@ -61,12 +77,15 @@ std::uint32_t dimension_fake(const void* image, std::int32_t dim) {
 }
 MsvcWString353* name_fake(const void*, MsvcWString353* out) { fill(out, L"synthetic ownership test"); return out; }
 void calibration_fake(void* image, std::uint32_t dim, float* origin, float* scale, void* unit, std::int32_t format) {
+    if (calibration_throws) throw std::runtime_error("surrogate calibration getter failure");
     auto* data = static_cast<FakeImage*>(image);
     *scale = invalid_scale ? 0 : data->scale[dim];
     *origin = format == 0 ? -(data->scale[dim] * data->origin[dim]) : data->origin[dim];
     if (unit) fill(static_cast<MsvcWString353*>(unit), data->unit[dim]);
 }
 double mean_fake(const NativeRef* ref) {
+    ++mean_calls;
+    if (mean_throws) throw std::runtime_error("surrogate native mean failure");
     const auto* image = static_cast<const FakeImage*>(ref->image);
     if (!image->generated) { check(ref->image == &fake); return expected_mean; }
     double sum = 0;
@@ -110,12 +129,96 @@ NativeRef* crop_fake(const void* pointer, NativeRef* out, const nb::NativeDataSl
     return crop_fault == "return_pointer" ? nullptr : out;
 }
 void free_fake(void* ptr) { ++releases; std::free(ptr); }
+void delete_document_holder_fake(void* pointer) {
+    auto* holder = static_cast<nb::ScriptImageDocument353*>(pointer);
+    check(holder->references == 0);
+    if (holder->document) {
+        auto* document = static_cast<FakeDocument*>(holder->document);
+        check(InterlockedDecrement64(&document->references) == 1);
+    }
+    ++holder_destructions;
+    delete holder;
+}
+void delete_window_fake(void* pointer) {
+    auto* window = static_cast<FakeWindow*>(pointer);
+    check(window->references == 0);
+    ++window_destructions;
+    delete window;
+}
+nb::ScriptImageDocument353* get_document_fake(void* pointer) {
+    ++document_calls;
+    if (show_fault == "document_throw") throw std::runtime_error("surrogate document factory failure");
+    if (show_fault == "document_null") return nullptr;
+    if (show_fault == "holder_bad_pointer") return reinterpret_cast<nb::ScriptImageDocument353*>(1);
+    auto* image = static_cast<FakeImage*>(pointer);
+    auto found = host_documents.find(image->id);
+    if (found == host_documents.end()) {
+        auto document = std::make_unique<FakeDocument>();
+        document->image = image;
+        InterlockedIncrement64(&image->references);
+        found = host_documents.emplace(image->id, document.release()).first;
+    }
+    auto* document = found->second;
+    auto* holder = new nb::ScriptImageDocument353{1, document};
+    InterlockedIncrement64(&document->references);
+    if (show_fault == "holder_zero") holder->references = 0;
+    if (show_fault == "holder_null_doc") holder->document = nullptr;
+    if (show_fault == "document_zero") document->references = 0;
+    if (show_fault == "holder_zero" || show_fault == "holder_null_doc" || show_fault == "document_zero")
+        malformed_holders.push_back(holder);
+    return holder;
+}
+void* show_document_fake(nb::ScriptImageDocument353* holder) {
+    ++show_calls;
+    check(holder && holder->references == 1);
+    auto* document = static_cast<FakeDocument*>(holder->document);
+    check(document && document->references == 2);
+    if (show_fault == "show_throw") throw std::runtime_error("surrogate native show failure");
+    if (show_fault == "window_null") return nullptr;
+    if (show_fault == "window_zero") {
+        auto* window = new FakeWindow;
+        window->references = 0;
+        malformed_windows.push_back(window);
+        return window;
+    }
+    auto found = host_windows.find(document->image->id);
+    if (found == host_windows.end()) found = host_windows.emplace(document->image->id, new FakeWindow).first;
+    InterlockedIncrement64(&found->second->references);
+    return found->second;
+}
+void close_surrogate_documents() {
+    // Repair deliberately malformed allocations only in this test process.
+    // Production latches off and avoids following unidentifiable layouts.
+    for (auto* holder : malformed_holders) {
+        auto* document = host_documents.begin()->second;
+        document->references = 2; holder->document = document; holder->references = 0;
+        delete_document_holder_fake(holder);
+    }
+    malformed_holders.clear();
+    for (auto* window : malformed_windows) delete_window_fake(window);
+    malformed_windows.clear();
+    for (const auto& entry : host_windows) {
+        check(InterlockedDecrement64(&entry.second->references) == 0);
+        delete_window_fake(entry.second);
+    }
+    host_windows.clear();
+    for (const auto& entry : host_documents) {
+        auto* document = entry.second;
+        check(InterlockedDecrement64(&document->references) == 0);
+        auto* image = document->image;
+        if (InterlockedDecrement64(&image->references) == 0) delete_fake(image);
+        delete document;
+    }
+    host_documents.clear();
+}
 void inject_fake() {
     api.find_id = find_fake; api.id = id_fake; api.ndim = ndim_fake;
     api.find_index = index_fake; api.count = count_fake; api.crop = crop_fake;
     api.dtype = dtype_fake; api.dimension = dimension_fake;
     api.calibration = calibration_fake; api.name = name_fake;
     api.mean = mean_fake; api.destroy = delete_fake; api.deallocate = free_fake;
+    api.get_document = get_document_fake; api.show_document = show_document_fake;
+    api.destroy_document_holder = delete_document_holder_fake; api.destroy_window = delete_window_fake;
     host_thread = GetCurrentThreadId(); gate_error.clear(); fatal_abi = false;
     registry.emplace(fake.id, &fake);
 }
@@ -124,6 +227,121 @@ void expect_crop_failure(std::vector<std::uint32_t> args, const std::string& mes
     catch (const std::runtime_error& e) { check(e.what() == message); }
     check(fake.references == 1 && retained_crops.empty() && retained_crop_bytes == 0);
     check(registry.size() == 1);
+}
+void expect_mean_failure(std::uint32_t id, const std::string& message, bool calls_operator = false) {
+    const auto before = mean_calls;
+    std::string actual;
+    try { execute_native({"mean_failure", "MEAN", {id}}); }
+    catch (const std::runtime_error& e) { actual = e.what(); }
+    if (actual != message) throw std::runtime_error("expected " + message + ", received " + actual);
+    check(actual == message);
+    check(mean_calls == before + (calls_operator ? 1 : 0));
+    check(fake.references == 1 && retained_crops.empty() && retained_crop_bytes == 0);
+}
+std::string accepted_mean(double value, const char* wire_value, bool calibration_complete) {
+    expected_mean = value;
+    const auto before = mean_calls;
+    const auto result = execute_native({"raw_mean", "MEAN", {fake.id}});
+    check(nb::valid_json(result));
+    check(result.find(std::string("\"mean\":") + wire_value) != std::string::npos);
+    check(result.find("\"intensity_calibration_applied\":false") != std::string::npos);
+    check(result.find("\"intensity_semantics\":\"raw pixel intensity\"") != std::string::npos);
+    check(result.find("\"calibration_complete\":" + std::string(calibration_complete ? "true" : "false")) != std::string::npos);
+    check(result.find("\"native_mean_supported\":true") != std::string::npos);
+    check(mean_calls == before + 1 && fake.references == 1);
+    return result;
+}
+void raw_mean_calibration_tests() {
+    inject_fake();
+    check(fake.references == 1 && registry.size() == 1);
+    const auto original = fake;
+    invalid_scale = false;
+
+    // Independently supplied binary-fraction native results retain sign and
+    // fraction; spatial calibration is reported, never applied to intensity.
+    const auto normal = accepted_mean(0.125, "0.125", true);
+    check(normal.find("\"issue\":null") != std::string::npos);
+    accepted_mean(-0.375, "-0.375", true);
+
+    fake.unit[0].clear();
+    const auto missing_units = accepted_mean(-0.375, "-0.375", false);
+    check(missing_units.find("\"unit\":null,\"usable\":false,\"issue\":\"unknown_units\"") != std::string::npos);
+    check(missing_units.find("\"unit\":\"nm\",\"usable\":true,\"issue\":null") != std::string::npos);
+    const auto listed = execute_native({"uncalibrated_list", "DATASETS", {}});
+    check(nb::valid_json(listed));
+    check(listed.find("\"calibration_complete\":false") != std::string::npos);
+    check(listed.find("\"native_mean_supported\":true") != std::string::npos);
+    const auto before_crop = crop_calls;
+    expect_crop_failure({fake.id,0,0,1,1}, "unknown_image_units");
+    check(crop_calls == before_crop);
+    fake.unit[0] = original.unit[0];
+
+    invalid_scale = true;
+    const auto zero_scale = accepted_mean(0.125, "0.125", false);
+    check(zero_scale.find("\"issue\":\"invalid_calibration\"") != std::string::npos);
+    expect_crop_failure({fake.id,0,0,1,1}, "invalid_image_calibration");
+    check(crop_calls == before_crop);
+    fake.unit[0].clear();
+    const auto invalid_and_unmarked = accepted_mean(-0.375, "-0.375", false);
+    check(invalid_and_unmarked.find("\"unit\":null,\"usable\":false,\"issue\":\"invalid_calibration_and_unknown_units\"") != std::string::npos);
+    fake.unit[0] = original.unit[0];
+    invalid_scale = false;
+
+    fake.scale[0] = std::numeric_limits<float>::quiet_NaN();
+    const auto nonfinite_calibration = accepted_mean(-0.375, "-0.375", false);
+    check(nonfinite_calibration.find("\"calibrated_value_at_pixel_zero\":null,\"scale\":null") != std::string::npos);
+    check(nonfinite_calibration.find("\"issue\":\"invalid_calibration\"") != std::string::npos);
+    expect_crop_failure({fake.id,0,0,1,1}, "invalid_image_calibration");
+    check(crop_calls == before_crop);
+    fake.scale[0] = original.scale[0];
+    fake.origin[1] = std::numeric_limits<float>::infinity();
+    const auto unusable_origin = accepted_mean(0.125, "0.125", false);
+    check(unusable_origin.find("\"origin\":null,\"calibrated_value_at_pixel_zero\":null") != std::string::npos);
+    fake.origin[1] = original.origin[1];
+
+    // Relaxing known calibration-data defects must not relax operation gates
+    // or turn native getter/ABI failures into apparent numerical success.
+    fake.code = 10;
+    expect_mean_failure(fake.id, "native_mean_requires_float32_2d");
+    const auto unsupported = execute_native({"unsupported_list", "DATASETS", {}});
+    check(nb::valid_json(unsupported));
+    check(unsupported.find("\"native_mean_supported\":false") != std::string::npos);
+    fake.code = original.code; fake.dimensions = 3;
+    expect_mean_failure(fake.id, "native_mean_requires_float32_2d");
+    fake.dimensions = original.dimensions; fake.width = 4194305; fake.height = 1;
+    expect_mean_failure(fake.id, "native_mean_working_region_over_budget");
+    fake.width = 0;
+    expect_mean_failure(fake.id, "invalid_image_dimensions");
+    fake.width = original.width; fake.height = original.height;
+    expect_mean_failure(99, "image_not_found");
+    registry.emplace(99, &fake);
+    expect_mean_failure(99, "image_identity_mismatch");
+    registry.erase(99);
+
+    calibration_throws = true;
+    fake.unit[0].clear();
+    expect_mean_failure(fake.id, "surrogate calibration getter failure");
+    calibration_throws = false;
+    fake.unit[0] = std::wstring(1, static_cast<wchar_t>(0xd800));
+    expect_mean_failure(fake.id, "invalid_vendor_unicode");
+    fake.unit[0] = original.unit[0];
+    mean_throws = true;
+    expect_mean_failure(fake.id, "surrogate native mean failure", true);
+    mean_throws = false;
+    for (double value : {std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+                         std::numeric_limits<double>::quiet_NaN()}) {
+        expected_mean = value;
+        expect_mean_failure(fake.id, "native_mean_nonfinite_result", true);
+    }
+    gate_error = "surrogate adapter not ready";
+    expect_mean_failure(fake.id, "surrogate adapter not ready");
+    gate_error.clear(); fatal_abi = true;
+    expect_mean_failure(fake.id, "native_abi_invalid_output_path_disabled");
+    fatal_abi = false;
+    accepted_mean(-0.375, "-0.375", true);
+    check(fake.origin[0] == original.origin[0] && fake.origin[1] == original.origin[1]);
+    check(fake.scale[0] == original.scale[0] && fake.scale[1] == original.scale[1]);
+    check(fake.unit[0] == original.unit[0] && fake.unit[1] == original.unit[1]);
 }
 void crop_tests() {
     inject_fake(); invalid_scale = false;
@@ -228,6 +446,126 @@ void crop_tests() {
     const auto wrong_zero = nb::crop_zero_check(0.40625f, -0.125f, 3.25f, 1, 0.29f);
     check(wrong_zero.absolute_error > wrong_zero.tolerance);
 }
+void show_tests() {
+    inject_fake(); invalid_scale = false;
+    fake.width = 3; fake.height = 2;
+    fake.pixels = {-2, -1, 0, 1, 2, 3};
+    const auto original_pixels = fake.pixels;
+    const auto factory_before = document_calls;
+    auto rejected = [&](std::vector<std::uint32_t> args, const char* expected) {
+        std::string error;
+        try { execute_native({"show_failure", "SHOW", std::move(args)}); }
+        catch (const std::runtime_error& e) { error = e.what(); }
+        check(error == expected);
+    };
+    rejected({}, "native_show_requires_one_image_id");
+    rejected({0}, "native_show_requires_plugin_crop");
+    rejected({fake.id}, "native_show_requires_plugin_crop");
+    rejected({99}, "native_show_requires_plugin_crop");
+    check(document_calls == factory_before && fake.references == 1);
+    execute_native({"work_copy", "CROP", {fake.id,0,0,2,2}});
+    const auto output_id = last_output_id;
+    auto* output = registry.at(output_id);
+    registry.erase(output_id);
+    rejected({output_id}, "image_not_found");
+    registry.emplace(output_id, &fake);
+    rejected({output_id}, "image_identity_mismatch");
+    registry.at(output_id) = output;
+    check(document_calls == factory_before && output->references == 1 && fake.references == 1);
+    api.show_document = nullptr;
+    rejected({output_id}, "native_show_entrypoint_unavailable");
+    check(document_calls == factory_before && output->references == 1);
+    api.show_document = show_document_fake;
+
+    const auto holders_before = holder_destructions;
+    auto result = execute_native({"show_work_copy", "SHOW", {output_id}});
+    check(nb::valid_json(result));
+    for (const auto& part : {"\"backend\":\"digitalmicrograph-native\"", "\"delivery\":\"visible_dm_document\"",
+                            "\"document_visible\":true", "\"source_write_requested\":false", "\"snapshot_atomic\":false",
+                            "\"file_saved\":false", "\"model_visual_verification\":false"})
+        check(result.find(part) != std::string::npos);
+    check(result.find("\"image_id\":" + std::to_string(output_id)) != std::string::npos);
+    check(result.find("document_id") == std::string::npos);
+    check(host_documents.size() == 1 && host_windows.size() == 1);
+    check(output->references == 2 && host_documents.at(output_id)->references == 1);
+    check(host_windows.at(output_id)->references == 1 && holder_destructions == holders_before + 1);
+    auto* original_doc = host_documents.at(output_id);
+    auto* original_window = host_windows.at(output_id);
+    execute_native({"show_existing_doc", "SHOW", {output_id}});
+    check(host_documents.at(output_id) == original_doc && host_windows.at(output_id) == original_window);
+    check(host_documents.size() == 1 && host_windows.size() == 1 && holder_destructions == holders_before + 2);
+    check(output->references == 2 && original_doc->references == 1 && original_window->references == 1);
+    const auto windows_before_stop = window_destructions;
+    shutdown_native();
+    check(host_documents.at(output_id) == original_doc && host_windows.at(output_id) == original_window);
+    check(window_destructions == windows_before_stop && holder_destructions == holders_before + 2);
+    check(retained_crops.empty() && retained_crop_bytes == 0 && registry.at(output_id)->references == 1);
+    check(output->pixels == std::vector<float>({-2,-1,1,2}) && fake.pixels == original_pixels);
+    close_surrogate_documents();
+    check(registry.count(output_id) == 0 && fake.references == 1);
+
+    inject_fake();
+    execute_native({"work_copy_failures", "CROP", {fake.id,0,0,2,2}});
+    const auto failure_id = last_output_id;
+    auto* failure_output = registry.at(failure_id);
+    const std::pair<const char*, const char*> failures[] = {
+        {"document_throw", "surrogate document factory failure"}, {"document_null", "native_show_document_unavailable"},
+        {"show_throw", "surrogate native show failure"}, {"window_null", "native_show_window_unavailable"},
+        {"holder_zero", "native_show_invalid_reference_layout"}, {"holder_null_doc", "native_show_invalid_document_layout"},
+        {"document_zero", "native_show_invalid_document_layout"}, {"holder_bad_pointer", "native_show_invalid_reference_layout"},
+        {"window_zero", "native_show_invalid_reference_layout"}
+    };
+    for (const auto& failure : failures) {
+        show_fault = failure.first;
+        const auto showed_before = show_calls;
+        rejected({failure_id}, failure.second);
+        check(show_calls == showed_before + ((show_fault == "show_throw" || show_fault == "window_null" || show_fault == "window_zero") ? 1 : 0));
+        const bool malformed = show_fault == "holder_zero" || show_fault == "holder_null_doc" || show_fault == "document_zero" ||
+            show_fault == "holder_bad_pointer" || show_fault == "window_zero";
+        check(fatal_abi == malformed);
+        if (malformed) rejected({failure_id}, "native_abi_invalid_output_path_disabled");
+        close_surrogate_documents();
+        check(failure_output->references == 1 && retained_crops.size() == 1 && fake.references == 1);
+        fatal_abi = false;
+    }
+    show_fault.clear();
+    // A sole temporary reference must run final deletion exactly once; host
+    // references in the successful path above must never run that destructor.
+    const auto final_windows_before = window_destructions;
+    { ShowRef temporary(new FakeWindow, nb::kNativeWindowReferenceOffset353, delete_window_fake); }
+    check(window_destructions == final_windows_before + 1);
+    const auto final_holders_before = holder_destructions;
+    { ShowRef temporary(new nb::ScriptImageDocument353{1, nullptr}, 0, delete_document_holder_fake); }
+    check(holder_destructions == final_holders_before + 1 && !fatal_abi);
+    auto* wide_window = new FakeWindow;
+    wide_window->references = 0x100000001LL;
+    const auto wide_windows_before = window_destructions;
+    { ShowRef temporary(wide_window, nb::kNativeWindowReferenceOffset353, delete_window_fake); }
+    check(wide_window->references == 0x100000000LL && window_destructions == wide_windows_before);
+    wide_window->references = 0; delete_window_fake(wide_window);
+    auto* wide_holder = new nb::ScriptImageDocument353{0x100000001LL, nullptr};
+    const auto wide_holders_before = holder_destructions;
+    { ShowRef temporary(wide_holder, 0, delete_document_holder_fake); }
+    check(wide_holder->references == 0x100000000LL && holder_destructions == wide_holders_before);
+    wide_holder->references = 0; delete_document_holder_fake(wide_holder);
+    auto* invalid_holder = new nb::ScriptImageDocument353{-1, nullptr};
+    const auto invalid_holders_before = holder_destructions;
+    { ShowRef temporary(invalid_holder, 0, delete_document_holder_fake); }
+    check(fatal_abi && invalid_holder->references == -1 && holder_destructions == invalid_holders_before);
+    invalid_holder->references = 0; delete_document_holder_fake(invalid_holder); fatal_abi = false;
+    shutdown_native(); check(registry.size() == 1 && fake.references == 1);
+
+    // Resolve only addresses inside this test EXE. No vendor DLL is loaded.
+    auto module = GetModuleHandleW(nullptr);
+    const auto base = reinterpret_cast<std::uintptr_t>(module);
+    const auto code_rva = reinterpret_cast<std::uintptr_t>(&delete_fake) - base;
+    check(code_rva <= UINT32_MAX && rva_symbol<Delete>(module, static_cast<std::uint32_t>(code_rva)) == delete_fake);
+    for (const auto rva : {std::uint32_t(0), std::uint32_t(UINT32_MAX), static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(&fake) - base)}) {
+        bool failed = false;
+        try { rva_symbol<Delete>(module, rva); } catch (const std::runtime_error&) { failed = true; }
+        check(failed);
+    }
+}
 }
 int main() {
     try {
@@ -243,13 +581,15 @@ int main() {
         catch (const std::runtime_error& e) { check(std::string(e.what()) == "image_not_found"); }
         check(fake.references == 1 && destructions == 0);
         invalid_scale = true;
-        try { execute_native({"badcal", "MEAN", {fake.id}}); check(false); }
-        catch (const std::runtime_error& e) { check(std::string(e.what()) == "invalid_image_calibration"); }
+        const auto badcal = execute_native({"badcal", "MEAN", {fake.id}});
+        check(nb::valid_json(badcal));
+        check(badcal.find("\"mean\":-24.375") != std::string::npos);
+        check(badcal.find("\"calibration_complete\":false") != std::string::npos);
         check(fake.references == 1 && releases == 201);
         auto partial = metadata(&fake, false);
         check(nb::valid_json(partial));
         check(partial.find("\"calibration_complete\":false") != std::string::npos);
-        check(partial.find("\"native_mean_supported\":false") != std::string::npos);
+        check(partial.find("\"native_mean_supported\":true") != std::string::npos);
         invalid_scale = false; expected_mean = std::numeric_limits<double>::infinity();
         try { execute_native({"badmean", "MEAN", {fake.id}}); check(false); }
         catch (const std::runtime_error& e) { check(std::string(e.what()) == "native_mean_nonfinite_result"); }
@@ -273,7 +613,9 @@ int main() {
         try { execute_native({"disabled", "INFO", {fake.id}}); check(false); }
         catch (const std::runtime_error& e) { check(std::string(e.what()) == "native_abi_invalid_output_path_disabled"); }
         check(fake.references == 1);
+        raw_mean_calibration_tests();
         crop_tests();
+        show_tests();
         std::cout << "PASS adapter surrogate: " << assertions << " assertions; no DM loaded\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
