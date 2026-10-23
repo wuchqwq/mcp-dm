@@ -1,5 +1,9 @@
 # Native bridge MVP
 
+The historical mainline integration retained `3c9715c` plus the mandatory crop
+request-ID safeguard. This feature preserves that safeguard and adds the
+separately qualified work below; see [mainline scope history](../../../docs/NATIVE_MERGE_SCOPE.md).
+
 An opt-in, build-pinned C++ backend for a small set of DigitalMicrograph
 post-acquisition operations. The target is Windows x64 GMS **3.53.4137.0**.
 Exact host/module identities are checked before image operations. Earlier core status,

@@ -231,7 +231,13 @@ test("native dm_crop validates explicit half-open bounds and preserves the host'
     await client.init();
     const crop = (await client.rpc("tools/list")).result.tools.find(tool => tool.name === "dm_crop");
     assert.match(crop.description, /不创建可见 DM 文档/);
-    assert.ok(crop.inputSchema.required.includes("request_id"));
+    assert.deepEqual(crop.inputSchema.required, ["image_id", "rect", "request_id"]);
+    for (const request_id of [undefined, "", "bad id", "x".repeat(65), 123]) {
+      const args = {image_id: 77, rect};
+      if (request_id !== undefined) args.request_id = request_id;
+      assert.equal((await client.tool("dm_crop", args)).error?.code, -32602);
+    }
+    assert.equal(host.requests.length, 0, "missing/invalid recovery IDs never dispatch");
     for (const args of [
       {}, {image_id: 77}, {rect}, {image_id: "front", rect}, {image_id: "77", rect}, {image_id: -1, rect},
       {image_id: 77, rect: null}, {image_id: 77, rect: []}, {image_id: 77, rect: [1, 2, 1, 6]},
