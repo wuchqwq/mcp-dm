@@ -55,6 +55,8 @@ Node 服务无 npm 运行依赖；DM 桥仅用 Python 标准库和 NumPy。DM/GM
 
 P1 可见文档候选 `dm_native_show` 仅针对本插件持有的裁剪副本，须另存必填 show ID；真实原生完成回执和同图像身份核对通过。**当前试用 HOLD，桌面验收 pending**：实际可见性、文档数量、STOP 后文档持有、本轮独立全像素/源不变核对及正常退出/移除均未完成。STOP 回执及管道/窗口消失通过，但测试宿主仍运行、DLL 仍加载且 manifest 仍为 installed；早前的裁剪/清理 PASS 不继承到本轮。看不到图的显示回执不构成视觉验收，也不代表模型看见或文件保存。Native SaveAs 的 ABI/不覆盖语义证据仍不足，不作永久文件交付承诺。
 
+离线完整链路已连接真实 Node MCP、Windows 管道和 C++ 合成宿主，验证取消后换客户端查询仍恢复同一裁剪对象；验收脚本另有故障注入测试。两者均不执行 DM，不解除上述实机 HOLD；运行方法及证据范围见原生实验说明和验收矩阵。
+
 安装和回退见 [原生实验说明](experiments/native-bridge/mvp/README.md)、[验收矩阵](experiments/native-bridge/RESULTS.md)、[安装/移除](experiments/native-bridge/mvp/INSTALL.md) 与 [WorkBuddy 操作者试用包](experiments/native-bridge/mvp/WORKBUDDY_TRIAL.md)。STOP 只停实验 IPC；正常关闭 DM 后，按安装所有权记录移除本实验 DLL 即可回到未改动的默认后端。以下环境与启动说明仍以默认 Python 后端为准。
 
 ## 当前验证范围

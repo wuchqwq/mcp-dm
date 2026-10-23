@@ -217,7 +217,9 @@ From the repository root:
 .\experiments\native-bridge\mvp\build\core_tests.exe
 .\experiments\native-bridge\mvp\build\adapter_tests.exe
 python -B .\experiments\native-bridge\mvp\test_transport.py
-node --test tests/native-bridge.test.mjs tests/native-mcp.test.mjs
+$env:DM_NATIVE_FAKE_HOST_EXE = (Resolve-Path .\experiments\native-bridge\mvp\build\fake_host.exe).Path
+node --test tests/native-bridge.test.mjs tests/native-mcp.test.mjs tests/native-e2e.test.mjs
+python -B -m unittest discover -s tests -p 'test_native_trial_oracles.py' -v
 ```
 
 Omit `-OfflineOnly` to build `dm_native_bridge.dll` as well. Build output paths
@@ -225,6 +227,26 @@ can be changed with `-OutputDirectory`; pass the matching `--exe` path to the
 Python transport tests. Neither compilation nor these tests installs a plugin,
 starts DM or proves real-host execution. `fake_host.exe` and the adapter tests
 use synthetic callbacks, not Gatan modules.
+
+The Windows E2E test connects the actual stdio MCP server, NB1 named pipe,
+message window and C++ retained-state core. C++ emits an execution-start
+event before the test cancels the MCP wait. A fresh Node client then queries
+the saved ID, including after delayed completion, and C++ creation counters
+check that recovery did not create another object. Its document counters are
+synthetic; they do not establish actual DM visibility or ownership.
+
+Without an explicit executable, the E2E test can build its own fake host using
+the local compiler in `DM_NATIVE_TEST_CXX` (or `clang++.exe` on PATH). It never
+downloads a compiler. Non-Windows runs or a missing compiler without explicit
+configuration produce an explicit SKIP; a configured compiler or executable
+failure fails the test. Only the fake host
+recognizes the test-only `NB_FAKE_E2E` controls and per-session event gates.
+
+The oracle fault suite runs the real one-shot scripts in isolated Python
+subprocesses with a synthetic DM API. Positive controls must pass; changed
+pixels, calibration, record identity and document counts must fail at their
+intended checks without writing a PASS report. This checks the acceptance
+scripts themselves and does not execute an oracle in DM.
 
 See [the validation matrix](../RESULTS.md), [ABI contracts](../ABI_NOTES.md),
 [installation and rollback](INSTALL.md), and the concise

@@ -269,6 +269,34 @@ passed a limited actual-host MCP check. Independent visibility, document count
 and post-STOP ownership remain **NOT_TESTED**; the current trial is HOLD.
 See [RESULTS.md](RESULTS.md) for the distinct runtime evidence boundaries.
 
+## Legacy Python and native Unicode paths
+
+Static inspection of the pinned Python wrapper confirms that the name and
+unit setters obtain UTF-8 bytes, then pass through a vendor narrow-string
+service with encoding argument zero. The getters request narrow bytes with
+that argument, try Python's UTF-8 decoder and fall back to `bytes` after a
+decode error. Separately, the inspected GMS encoding resolver maps zero to
+the Windows system code page. The exact indirect binding from the Python
+string service to that implementation is not fully established. These facts
+identify a compatibility risk; they do not prove the complete cause of the
+earlier failed comparison or the historical process's actual code page.
+
+The native bridge takes the vendor UTF-16 name and calibration-unit getters
+directly and converts the fixed-build string POD with explicit `CP_UTF8` and
+strict invalid-character checking, preserving vendor allocation ownership.
+A legacy Python setter/getter round trip can conceal a stored-Unicode
+difference and is not a UI or native-string truth oracle. No reverse-codec
+guess or product encoding change is justified by this inspection.
+
+Non-ASCII interoperation remains **NOT_QUALIFIED**. Future synthetic tests
+must record UI-entered characters separately from Python-set names, preserve
+legacy getter result type/raw bytes as well as text code points, and compare
+the native/MCP result for the exact image ID. Units need their own comparison.
+The prepared legacy probe currently assumes text getters; handle and preserve
+a possible `bytes` result explicitly before that diagnostic is used for new
+Unicode qualification. Static inspection does not replace the pending UI
+comparison, and no Unicode probe was executed in this offline continuation.
+
 ## Minimum runtime verification order
 
 After offline protocol/lifecycle tests pass, use a prepared idle test session:

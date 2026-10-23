@@ -101,6 +101,24 @@ Two corrected offline runs must not obscure their initial failures:
   resource checks passed. This correction is not a claim about all host memory
   or operating-system resources.
 
+## Offline recovery and acceptance-script hardening
+
+| Scope | Status | Evidence boundary |
+|---|---|---|
+| Actual Node MCP to Windows pipe to C++ synthetic host | PASS | C++ execution-start events precede cancellation; a fresh Node client recovers the original crop ID. Timeout/late completion, unknown IDs, conflicts and duplicate submissions remain distinct |
+| Synthetic creation and cleanup accounting | PASS | C++ counts each crop creation and synthetic document creation; per-session event gates close and normal STOP releases the audited bridge resources. No Gatan module or DM document is involved |
+| Trial oracle fault injection | Initial FAIL; corrected PASS | Some wrong nested receipts and STOP records originally produced PASS. The correction binds native host/operation identity and post-STOP records; positive controls and specific-error negative controls run the actual scripts against a fake DM API |
+| Pixels, calibration and document checks in the oracle | PASS, offline | Wrong pixels with an unchanged mean, dtype/shape, aliased memory, signed scales/physical zero/units, source fingerprints and document counts are rejected. This does not execute the oracle inside DM |
+| Legacy Python Unicode conversion tracing | PASS, static inspection only; interoperability NOT_QUALIFIED | UTF-8/narrow-string wrappers and a vendor system-code-page default were identified. Their exact indirect binding and UI truth remain unresolved; native UTF-16 to explicit UTF-8 conversion was not changed |
+| Current real-host delivery and WorkBuddy | NOT_TESTED / HOLD unchanged | No DM process, UI, installation, client configuration or pending real-host evidence was changed by these offline tests |
+
+The fault tests require the intended failure reason, a nonzero exit and no new
+PASS evidence; an unrelated earlier failure is not accepted as coverage.
+Post-STOP evidence fingerprints bind the truth, protocol summary and STOP
+record used by the later closed-document oracle. They do not replace the
+independent pixel/calibration checks or make previous records newly accepted.
+Detailed failed runs and corrected reruns remain private.
+
 ## Initial real-host failures and corrected acceptance
 
 The first real-host run produced a correct native mean receipt but its overall

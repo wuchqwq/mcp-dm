@@ -92,6 +92,12 @@ not inherited by this revision. A show receipt without seeing the image is
 not visual acceptance, model vision or file persistence. Native SaveAs remains unavailable pending adequate
 ABI and exclusive/no-overwrite evidence.
 
+The offline E2E test now connects the actual Node MCP server, Windows named
+pipe and synthetic C++ host, recovering the same crop after cancellation and
+a client change. Separate fault injection tests the acceptance scripts.
+Neither test executes DM or clears the current real-host HOLD; commands and
+evidence boundaries are in the native guide and validation matrix.
+
 See the [native guide](experiments/native-bridge/mvp/README.md),
 [validation matrix](experiments/native-bridge/RESULTS.md) and
 [installation/removal](experiments/native-bridge/mvp/INSTALL.md) and

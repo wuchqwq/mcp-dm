@@ -91,7 +91,11 @@ The original truth and failure were preserved. The same session's synthetic
 names were explicitly qualified to ASCII with a separate truth record, then
 core MCP and crop acceptance passed with the same implementation. The accepted
 name scope is ASCII. Non-ASCII / legacy GMS Python binding interoperability is
-**NOT_QUALIFIED**; its encoding cause is unresolved. Native `GetUnicodeName`
+**NOT_QUALIFIED**. Static tracing identified a legacy UTF-8/narrow-string
+boundary and a vendor system-code-page default, but their indirect service
+binding and the UI comparison remain unresolved. See
+[ABI_NOTES.md](../ABI_NOTES.md#legacy-python-and-native-unicode-paths).
+Native `GetUnicodeName`
 still follows the explicit UTF-16/UTF-8 path, with no heuristic conversion or
 general Chinese-name repair claim.
 
@@ -132,6 +136,18 @@ strict real-host MCP trial. Actual visibility, document count and post-STOP
 lifetime remain NOT_TESTED; do not inherit the earlier crop oracle. Native SaveAs remains blocked by
 insufficient dm_string ABI and exclusive/no-overwrite evidence. Do not equate
 display with model vision or permanent file delivery.
+
+Offline continuation now includes the real Node MCP to Win32 pipe to C++
+synthetic-host recovery test, with a host execution-start event before
+cancelling and a new Node client querying the saved ID. C++ creation counters
+detect replay; late results, conflicts and cleanup are also checked. The
+actual trial scripts have independent positive controls and fault injection
+for pixels/calibration, record/host identity and document counts. Initially
+accepted wrong receipts are recorded as FAIL, with the corrected checks
+tested separately. Post-STOP and after-close evidence now bind the same
+truth/summary/STOP files by fingerprints. Do not edit old evidence to fit the
+new scripts. These offline checks do not clear the current real-host HOLD.
+Commands are in [README.md](README.md#build-and-offline-tests).
 
 The operator package is [WORKBUDDY_TRIAL.md](WORKBUDDY_TRIAL.md). Generated
 trial-answers.json stays private and is not supplied to the Agent. The strict
