@@ -29,7 +29,7 @@
 | 单次往返，空闲态 | `PING 1` | 有回执，且执行线程 = 宿主线程 | `OK 1 0 2226 10654 0 1 42864 35296`（接收线程 42864，执行线程 35296 = PlugInStartup 线程） | 终端输出 + 日志 | PASS |
 | 顺序 10 次 | `PING 1..10` | 全部成功，线程稳定 | 10/10 成功，执行线程恒 35296，总延迟 0.32–1.19 ms，`post→exec` 22–728 µs | 终端输出 | PASS |
 | 非法请求 | `HELLO there` | 明确拒绝 | `ERR bad-request`（0.16 ms） | 终端输出 | PASS |
-| 宿主未及时执行 | 宿主 5 s 内未取走请求 | 返回 unknown，不重发 | 机制已实现（`UNKNOWN host-did-not-run`），本次未触发（没有出现超时） | 源码 + 日志 | 机制就绪，未实测 |
+| 宿主未及时执行 | 宿主 5 s 内未取走请求 | 返回 unknown，不重发 | **已实测触发**：在 DM 启动阶段（消息泵尚未运行）发请求，稳定返回 `UNKNOWN host-did-not-run`（恰好 5003 ms），未重发 | `stat_test.out` | PASS（超时路径已验证） |
 | 通信线程不碰 DM API | worker 只做收发/入队/PostMessage | 满足 | 代码路径可见：worker 内无任何 DM 调用，DM 调用只在 WndProc | `nb_probe.cpp` | PASS（代码审查级） |
 
 **关键回执字段**：`OK <reqid> <recv→post µs> <post→exec µs> <exec 耗时 µs> <…> <result> <worker tid> <exec tid>`。
@@ -54,20 +54,21 @@
 
 | 测试条件 | 输入 | 预期 | 实际 | 证据 | 判定 |
 |---|---|---|---|---|---|
-| 按 ID 取图、读尺寸/标定/像素 | 外部请求驱动的原生调用 | 与独立真值一致 | 未执行 | — | NOT_TESTED |
+| 按 ID 取图、读尺寸 | `STAT <id>`，图像由 Python 侧 `DM.CreateImage` 创建（37×53 float32，常量 3.0，ID=23） | 返回 dims=2 | 未取得有效采样：请求在宿主启动阶段到达，宿主消息泵尚未运行，5 s 后返回 `UNKNOWN host-did-not-run` | `stat_test.out`、`evidence/nb_probe.last.log` | NOT_TESTED |
+| 读标定/像素/负 scale | 同上 | 与独立真值一致 | 未执行（本路径未实现标定读取，像素仍需结构体尺寸） | — | NOT_TESTED |
 
-阻断原因（已确认，非猜测）：
-1. 需要把 `ref_ptr<Image>` 的返回值按值接收并正确释放，涉及 `Gatan::ref_ptr` 的布局约定；
-2. 像素访问需要 `DataAlignment` / `DataSlice` / `DataLayout` 的**结构体尺寸**，当前只有字段偏移的下界证据，没有 `sizeof`；
-3. 需要一个已知 ID 的合成图作为输入，而创建图像同样依赖上述结构体。
-
-按任务要求，**没有在未确认布局的情况下试调**。
+已实现但未验证的代码路径（`STAT` → `Image::FindImageAsObject` → `GetDimensions` → `ref_ptr_delete`）：
+插件能成功解析全部导出名（`stat api unresolved` 未出现），说明符号解析与调用准备就绪，缺的只是一个**宿主已就绪**的采样窗口。
 
 ## T5 原生处理操作
 
 | 测试条件 | 输入 | 预期 | 实际 | 证据 | 判定 |
 |---|---|---|---|---|---|
-| 经 T2 路径触发一次 DM 原生处理 | 外部请求 → 宿主执行 → 裁剪或 FFT | 结果正确、原图不变、资源释放 | 未执行（依赖 T4 的结构体证据） | — | NOT_TESTED |
+| 经 T2 路径触发 `GMSImageProcessing::GetMean` | `STAT <id>`，宿主线程内计算 | 返回值 = 3.000 | 未采样成功（同上，窗口未对齐）；最后一次尝试因 DM 被人工关闭而中断 | `stat_test.out` | NOT_TESTED |
+
+`GetMean` 已按修饰名解析（`?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z`），
+调用形态为 `double(ref_ptr<Image> const&)`，即传入 8 字节 ref_ptr 的地址。**未验证的不是调用方式，而是采样时机。**
+
 
 ---
 

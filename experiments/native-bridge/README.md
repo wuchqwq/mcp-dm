@@ -35,8 +35,10 @@ One ASCII line per request, one line per reply.
 | anything else | `ERR bad-request` |
 | host did not pick it up within 5 s | `UNKNOWN host-did-not-run` (no retry) |
 
-`IMG <id> <imageid>` exists in the source as a placeholder for a native image read; it is not
-part of any verified result and is left in place for the next round.
+`STAT <id> <imageid>` resolves an image by id on the host thread, reads its dimension count and
+computes the mean with GMS's own implementation. The code path is complete, but **no valid sample
+was captured** in this round: every attempt landed while the host message pump was not yet running,
+so the honest status is NOT_TESTED (see RESULTS.md).
 
 ## Build
 

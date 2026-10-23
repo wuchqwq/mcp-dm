@@ -7,6 +7,7 @@ Usage:
     python nb_client.py stop             # ask the plugin to stop serving
 """
 
+import os
 import sys
 import time
 
@@ -56,6 +57,18 @@ def main():
 
     if cmd == "bad":
         ms, reply = send("HELLO there")
+        print("%8.2f ms  %s" % (ms if ms is not None else -1.0, reply))
+        return 0
+
+    if cmd == "stat":
+        idfile = r"C://dmtest//img_id.txt"
+        imgid = sys.argv[2] if len(sys.argv) > 2 else None
+        if imgid is None:
+            if not os.path.exists(idfile):
+                print("no image id file")
+                return 2
+            imgid = open(idfile, "r", encoding="utf-8").read().strip()
+        ms, reply = send("STAT 201 %s" % imgid, timeout=30.0)
         print("%8.2f ms  %s" % (ms if ms is not None else -1.0, reply))
         return 0
 

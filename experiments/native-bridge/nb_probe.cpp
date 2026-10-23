@@ -82,6 +82,8 @@ __declspec(dllimport) void __stdcall Sleep(DWORD);
 
 // Freestanding C runtime bits: the compiler emits calls to these for struct copies
 // and aggregate initialisation, and we deliberately do not link a CRT.
+extern "C" int _fltused = 1;  // tells the compiler floating point is linked in
+
 extern "C" void* memcpy(void* dst, const void* src, unsigned long long n) {
     unsigned char* d = (unsigned char*)dst;
     const unsigned char* s = (const unsigned char*)src;
@@ -132,7 +134,8 @@ volatile i64 g_t_exec = 0;
 volatile i64 g_t_done = 0;
 volatile DWORD g_exec_tid = 0;
 u64 g_result = 0;
-u32 g_resultKind = 0;  // 1 = ping, 2 = image dims, 3 = error
+u32 g_resultKind = 0;  // 1 = ping, 2 = image dims, 3 = error, 4 = stat, 5 = not found
+u64 g_result2 = 0;
 
 inline i64 Now() {
     LARGE_INTEGER_ t;
@@ -180,7 +183,10 @@ typedef void* (*FindImageAsObjectFn)(void* outRefPtr, u64 id);
 typedef u32 (*GetDimensionsFn)(void* image);
 typedef void (*RefPtrDeleteFn)(void* image);
 
+typedef double (*GetMeanFn)(void* refPtrAddr);
+
 FindImageAsObjectFn g_findImage = nullptr;
+GetMeanFn g_getMean = nullptr;
 GetDimensionsFn g_getDims = nullptr;
 RefPtrDeleteFn g_refPtrDelete = nullptr;
 
@@ -235,6 +241,11 @@ void DoImageDims(u64 id) {
             g_findImage = (FindImageAsObjectFn)ResolveExport(
                 m, "?FindImageAsObject@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@_K@Z");
             g_getDims = (GetDimensionsFn)ResolveExport(m, "?GetDimensions@Image@GMS@@QEBAKXZ");
+            HMODULE mp = GetModuleHandleA("GMSImageProcessing.dll");
+            if (mp != nullptr) {
+                g_getMean = (GetMeanFn)ResolveExport(
+                    mp, "?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z");
+            }
             g_refPtrDelete = (RefPtrDeleteFn)ResolveExport(m, "?ref_ptr_delete@Gatan@@YAXPEAVImage@GMS@@@Z");
         }
     }
@@ -251,6 +262,49 @@ void DoImageDims(u64 id) {
     }
     g_result = (u64)g_getDims(image);
     g_resultKind = 2;
+    if (g_refPtrDelete != nullptr) {
+        g_refPtrDelete(image);
+    }
+}
+
+// Native statistics path: resolve by id, read the dimension count, compute the
+// mean with GMS's own implementation, then release the reference.
+void DoStat(u64 id) {
+    g_resultKind = 5;
+    g_result = 0;
+    g_result2 = 0;
+
+    if (g_findImage == nullptr) {
+        HMODULE m = GetModuleHandleA("GMSImage.dll");
+        if (m != nullptr) {
+            g_findImage = (FindImageAsObjectFn)ResolveExport(
+                m, "?FindImageAsObject@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@_K@Z");
+            g_getDims = (GetDimensionsFn)ResolveExport(m, "?GetDimensions@Image@GMS@@QEBAKXZ");
+            g_refPtrDelete = (RefPtrDeleteFn)ResolveExport(m, "?ref_ptr_delete@Gatan@@YAXPEAVImage@GMS@@@Z");
+        }
+        HMODULE mp = GetModuleHandleA("GMSImageProcessing.dll");
+        if (mp != nullptr) {
+            g_getMean = (GetMeanFn)ResolveExport(
+                mp, "?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z");
+        }
+    }
+    if (g_findImage == nullptr || g_getDims == nullptr || g_getMean == nullptr) {
+        AppendLog("[nb] stat api unresolved\n");
+        return;
+    }
+
+    void* refPtr[2] = {nullptr, nullptr};
+    g_findImage(refPtr, id);
+    void* image = refPtr[0];
+    if (image == nullptr) {
+        g_resultKind = 5;
+        return;
+    }
+    g_result = (u64)g_getDims(image);
+    double mean = g_getMean(refPtr);
+    i64 milli = (i64)(mean * 1000.0 + (mean >= 0 ? 0.5 : -0.5));
+    g_result2 = (u64)milli;
+    g_resultKind = 4;
     if (g_refPtrDelete != nullptr) {
         g_refPtrDelete(image);
     }
@@ -277,7 +331,21 @@ LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
     while (local[k] != '\0' && local[k] != ' ' && k < 7) { cmd[k] = local[k]; ++k; }
     cmd[k] = '\0';
 
-    if (cmd[0] == 'I' && cmd[1] == 'M' && cmd[2] == 'G') {
+    if (cmd[0] == 'S' && cmd[1] == 'T' && cmd[2] == 'A' && cmd[3] == 'T') {
+        // STAT <reqid> <imageid>
+        u32 p = 0;
+        u32 spaces = 0;
+        while (local[p] != '\0' && spaces < 2) {
+            if (local[p] == ' ') ++spaces;
+            ++p;
+        }
+        u64 sid = 0;
+        while (local[p] >= '0' && local[p] <= '9') {
+            sid = sid * 10 + (u64)(local[p] - '0');
+            ++p;
+        }
+        DoStat(sid);
+    } else if (cmd[0] == 'I' && cmd[1] == 'M' && cmd[2] == 'G') {
         // parse id after second space
         u32 p = 0;
         u32 spaces = 0;
@@ -297,6 +365,14 @@ LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
     g_t_done = Now();
     SetEvent(g_doneEvent);
     return 0;
+}
+
+void AppendU64(char* buf, u32& n, u64 v) {
+    char tmp[24];
+    u32 m = 0;
+    if (v == 0) tmp[m++] = '0';
+    while (v != 0 && m < 24) { tmp[m++] = (char)('0' + (u32)(v % 10)); v /= 10; }
+    while (m > 0) buf[n++] = tmp[--m];
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +415,7 @@ u32 __stdcall Worker(void*) {
                 const char* bye = "BYE\n";
                 DWORD w = 0;
                 WriteFile(pipe, bye, 4, &w, nullptr);
-            } else if (buf[0] == 'P' || buf[0] == 'I') {
+            } else if (buf[0] == 'P' || buf[0] == 'I' || (buf[0] == 'S' && buf[1] == 'T' && buf[2] == 'A')) {
                 i64 tRecv = Now();
                 if (g_lockReady) EnterCriticalSection(&g_lock);
                 for (u32 i = 0; i <= got && i < 511; ++i) g_req.line[i] = buf[i];
@@ -356,6 +432,36 @@ u32 __stdcall Worker(void*) {
                     const char* unknown = "UNKNOWN host-did-not-run\n";
                     DWORD w2 = 0;
                     WriteFile(pipe, unknown, 25, &w2, nullptr);
+                    FlushFileBuffers(pipe);
+                    DisconnectNamedPipe(pipe);
+                    CloseHandle(pipe);
+                    continue;
+                }
+
+                if (g_resultKind == 4 || g_resultKind == 5) {
+                    char r2[256];
+                    u32 n2 = 0;
+                    const char* tag = (g_resultKind == 4) ? "STAT " : "NOTFOUND ";
+                    for (u32 i = 0; tag[i] != '\0'; ++i) r2[n2++] = tag[i];
+                    u32 p2 = 0;
+                    while (buf[p2] != '\0' && buf[p2] != ' ') ++p2;
+                    if (buf[p2] == ' ') ++p2;
+                    while (buf[p2] != '\0' && buf[p2] != ' ') r2[n2++] = buf[p2++];
+                    r2[n2++] = ' ';
+                    AppendU64(r2, n2, g_result);
+                    r2[n2++] = ' ';
+                    AppendU64(r2, n2, g_result2);
+                    r2[n2++] = ' ';
+                    AppendU64(r2, n2, (u64)ToUs(tPost - tRecv));
+                    r2[n2++] = ' ';
+                    AppendU64(r2, n2, (u64)ToUs(g_doneEvent == nullptr ? 0 : (g_t_exec - tPost)));
+                    r2[n2++] = ' ';
+                    AppendU64(r2, n2, (u64)ToUs(g_t_done - g_t_exec));
+                    r2[n2++] = ' ';
+                    AppendU64(r2, n2, (u64)g_exec_tid);
+                    r2[n2++] = '\n';
+                    DWORD w3 = 0;
+                    WriteFile(pipe, r2, n2, &w3, nullptr);
                     FlushFileBuffers(pipe);
                     DisconnectNamedPipe(pipe);
                     CloseHandle(pipe);
