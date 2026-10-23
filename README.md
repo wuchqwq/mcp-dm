@@ -47,6 +47,8 @@ Node 服务无 npm 运行依赖；DM 桥仅用 Python 标准库和 NumPy。DM/GM
 
 ## 可选原生 C++ 实验后端
 
+**本次部分合并边界：**主线接纳已审阅的 `3c9715c` 基础原生后端，并要求原生 `dm_crop` 在提交前提供并保存 `request_id`。默认 v0.6 后端不变。后续 Show/可见文档交付、原始均值标定策略调整及最新试用验收仍留在 `feature/native-bridge-mvp`，其 HOLD/NOT_QUALIFIED 不因本次合并解除；详见 [合并范围](docs/NATIVE_MERGE_SCOPE.md)。
+
 默认仍为 v0.6 Python/TCP 后端。通过独立配置显式选择 `DM_MCP_BACKEND=native`，可在 Windows x64 GMS **3.53.4137.0** 的固定二进制门限下试用原生桥；它不使用常驻 Python listener，也不回退到 Python。原生目录提供 `dm_status`、`dm_datasets`、`dm_native_mean`、`dm_native_result` 和实验性 `dm_crop`；均值不等于完整 `dm_stats`，裁剪返回插件持有的新图像 ID，不承诺创建可见窗口。
 
 已用 ASCII 名称的合成输入通过目标 DM 的有限范围验收：加载与宿主回调、元数据/有符号标定、原生均值、严格 stdio MCP，以及原生裁剪的逐像素独立核对、独立内存和源数据不变。STOP 后已独立确认裁剪输出引用释放、实验管道/窗口消失且普通一次性 Python 继续可用；随后 DM 正常退出，并仅移除本实验拥有的 DLL，恢复安装前目录状态，未改客户端配置。**WorkBuddy/模型看图、真实实验数据、其它构建与并发图像调用仍为 NOT_TESTED**；非 ASCII 名称与旧 GMS Python binding 的互认对比未通过，单列为 **NOT_QUALIFIED**，未加入猜测性的编码转换。使用空闲宿主并串行请求；超时后查询原 `request_id`，不自动重发。原生异常不具备进程隔离保证。

@@ -1,5 +1,7 @@
 # Native MVP continuation handoff
 
+Mainline integration note: this snapshot retains the reviewed `3c9715c` native implementation. Native `dm_crop` now requires the caller to save and supply `request_id` before dispatch; read-only tool IDs remain optional. Later SHOW delivery and raw-mean policy changes stay on the feature branch until their separate acceptance is complete. See [merge scope](../../../docs/NATIVE_MERGE_SCOPE.md).
+
 Target: Windows x64 GMS **3.53.4137.0**, with exact executable/module identity
 checks. The default v0.6 Python backend and client configuration remain
 unchanged. Core native work and crop numerical/copy behavior have separate

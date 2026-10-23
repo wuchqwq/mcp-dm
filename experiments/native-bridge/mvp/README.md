@@ -1,5 +1,7 @@
 # Native bridge MVP
 
+Mainline integration note: this snapshot retains the reviewed `3c9715c` native implementation. Native `dm_crop` now requires the caller to save and supply `request_id` before dispatch; read-only tool IDs remain optional. Later SHOW delivery and raw-mean policy changes stay on the feature branch until their separate acceptance is complete. See [merge scope](../../../docs/NATIVE_MERGE_SCOPE.md).
+
 An opt-in, build-pinned C++ backend for a small set of DigitalMicrograph
 post-acquisition operations. The target is Windows x64 GMS **3.53.4137.0**.
 Exact host/module identities are checked before image operations. Core status,

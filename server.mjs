@@ -49,7 +49,7 @@ const INSTRUCTIONS = [
 const NATIVE_INSTRUCTIONS = [
   "实验性 DigitalMicrograph C++ NB1 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
   "只提供 dm_status、dm_datasets、dm_native_mean、dm_native_result、dm_crop；未实现工具明确拒绝，绝不回退到 Python。mean 只返回原生均值，不代表完整 stats。crop 创建插件持有的独立原生图像至正常 STOP/cleanup 释放，不创建可见 DM 文档。",
-  "每次提交返回 native_receipt 含 session/request_id。超时、取消、断连均不代表操作终止，使用 dm_native_result 查询同一 ID，不自动重发。可在提交前指定 request_id，以便取消后仍能查询；若取消前未保存 ID，将无法保证恢复。",
+  "每次提交返回 native_receipt 含 session/request_id。超时、取消、断连均不代表操作终止，使用 dm_native_result 查询同一 ID，不自动重发。原生 dm_crop 必须在提交前指定并保存 request_id；只读工具仍可省略。取消或断连后只能在同一存活 session 查询原 ID。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
 
@@ -418,11 +418,11 @@ const nativeTools = [
   tool("dm_native_result", "实验性指定构建：用已保存 request_id 查询 NB1 记录，只发送 QUERY，不重执行原操作。queued/running/unknown 不当作成功；只在 DM 空闲且不编辑源图时调用。", {
     request_id: {...NATIVE_REQUEST_ID, description: "原操作已保存的 request_id，必须属于当前 DM_NATIVE_SESSION"},
   }, ["request_id"]),
-  tool("dm_crop", "实验性指定构建的原生二维独立副本裁剪；显式数字 image_id 和非空半开 rect=[x0,y0,x1,y1]，不舍入/裁夹。插件持有新图像至正常 native STOP/cleanup 释放，不创建可见 DM 文档。只在 DM 空闲且不编辑源图时调用，源图不改；超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
+  tool("dm_crop", "实验性指定构建的原生二维独立副本裁剪；必须在调用前生成并保存 request_id；显式数字 image_id 和非空半开 rect=[x0,y0,x1,y1]，不舍入/裁夹。插件持有新图像至正常 native STOP/cleanup 释放，不创建可见 DM 文档。只在 DM 空闲且不编辑源图时调用，源图不改；超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
     image_id: NATIVE_IMAGE_ID,
     rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
     request_id: NATIVE_REQUEST_ID,
-  }, ["image_id", "rect"]),
+  }, ["image_id", "rect", "request_id"]),
 ];
 
 async function callNativeTool(name, args, signal) {

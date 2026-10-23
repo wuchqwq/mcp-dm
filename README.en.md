@@ -47,6 +47,8 @@ The Node server has no npm runtime dependencies. The DM bridge uses the standard
 
 ## Optional native C++ experiment
 
+**Partial merge boundary:** main integrates the reviewed `3c9715c` native core and now requires a caller-saved `request_id` for native `dm_crop`. The default v0.6 backend is unchanged. Later Show/document delivery, raw-mean calibration policy changes and current trial acceptance remain on `feature/native-bridge-mvp`; their HOLD/NOT_QUALIFIED status is not cleared. See [merge scope](docs/NATIVE_MERGE_SCOPE.md).
+
 The v0.6 Python/TCP backend remains the default. A separate configuration with
 `DM_MCP_BACKEND=native` selects a build-pinned Windows x64 GMS **3.53.4137.0**
 experiment. It uses no resident Python listener and never falls back to Python.
