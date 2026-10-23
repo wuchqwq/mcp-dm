@@ -29,6 +29,11 @@ The ordinary Python backend stays the default. Selecting
 `DM_MCP_BACKEND=native` selects this experimental backend and its own tool
 catalog; it never starts or falls back to the resident Python bridge.
 
+Future processing extensions call DM's own operators; the bridge handles
+parameters, ownership and result delivery. It does not implement a parallel
+analysis engine. [FFT readiness](FFT_READINESS.md) records static findings and
+unresolved acceptance conditions; native FFT is not implemented or advertised.
+
 ## Public native tools
 
 | Tool | Scope |

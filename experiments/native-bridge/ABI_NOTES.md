@@ -106,6 +106,27 @@ The corresponding exports are:
 ?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z
 ```
 
+## FFT interface investigation: not qualified
+
+Bounded local machine-code inspection supports the existing one-pointer image
+reference and caller-provided output-reference shape for the exported FFT,
+Real_FFT and Packed_FFT candidates. They impose different descriptor/packing
+constraints; FFT must not be selected merely because the input is real
+float32. The real-input path includes a native packed-to-complex conversion
+branch, strong-reference handling and native frequency-calibration transfer.
+
+These are partial static findings, not a production call contract. Exact
+complex representation, normalization, data centering/phase, usable reciprocal
+axes, source preservation, workspace bounds and end-to-end output ownership
+remain unqualified. Native raw-origin arithmetic does not establish NumPy
+fftshift equivalence. Existing mean/crop or Python FFT passes do not qualify
+these candidates, and crop-only SHOW does not provide FFT-result delivery.
+
+No production function binding, FFT protocol operation or MCP tool is added.
+Scientific processing must remain in DM; MCP/C++ adapts verified calls and
+hands off results. See [FFT readiness](mvp/FFT_READINESS.md) for unresolved
+conditions and the separate offline/real-host acceptance sequence.
+
 ## MSVC string ABI shim
 
 Do not pass a MinGW `std::wstring` to an MSVC-built host. The fixed-build shim

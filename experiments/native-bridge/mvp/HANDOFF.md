@@ -162,3 +162,12 @@ The [acceptance procedure](TRIAL_ACCEPTANCE.md) preserves synthetic input
 creation, `accept_trial_mcp.py`, independent oracles and the pre-recorded
 STOP/process identity checks. Generated trial answers and execution evidence
 stay private; protocol success does not establish visual acceptance.
+
+Future native processing must execute through qualified DM built-in APIs.
+The MCP/plugin layer handles image identity, parameters and result delivery;
+it must not supply another FFT/filtering engine or silently fall back to the
+legacy Python kernels. [FFT readiness](FFT_READINESS.md) separates the current
+static interface findings from missing numerical, complex-data, ownership and
+delivery acceptance. No FFT tool or production binding has been added. Pending
+desktop/lifetime checks retain their HOLD; do not use the preserved stopped
+session to explore new operators or replace its loaded DLL.

@@ -4,6 +4,12 @@
 
 Let a general-purpose agent inspect DM data, view selected images, invoke common post-acquisition operations correctly and retrieve calibrated results for further work. This repository is a tool interface, not a scientific decision-maker or a new agent application.
 
+Future native processing stays inside DigitalMicrograph. The MCP/plugin layer
+adapts verified built-in operations and handles data identity, parameters,
+calibration, ownership and result delivery. It does not grow a parallel
+Python/C++ analysis engine. Existing v0.6 and optional report paths remain
+compatible; independent numerical oracles are for tests only.
+
 ## Core acceptance
 
 - A new user can connect to the real DM backend and identify the intended data.
@@ -50,6 +56,13 @@ Native SaveAs stays deferred for insufficient string ABI and exclusive-write
 evidence. The [synthetic trial](experiments/native-bridge/mvp/TRIAL_ACCEPTANCE.md)
 keeps its independent answers private and separates protocol receipts from
 actual host display and lifetime checks.
+
+While the test desktop is unavailable, continue bounded static interface
+review and independent acceptance design. [FFT readiness](experiments/native-bridge/mvp/FFT_READINESS.md)
+tracks DM's own FFT entrypoints, unresolved complex-data/normalization and
+calibration semantics, and the result-delivery requirements. Finding an export
+does not qualify its ABI or add a public tool. Do not replace the loaded DLL or
+use the pending host for exploratory calls; current SHOW/lifecycle HOLD remains.
 
 Earlier native crop separately passed actual MCP and an independent one-shot GMS
 Python oracle for explicit IDs, half-open bounds, every pixel, separate memory,

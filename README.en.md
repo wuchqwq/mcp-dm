@@ -55,6 +55,13 @@ experimental `dm_crop` and the `dm_native_show` candidate.
 Mean is not full statistics; crop returns a
 plugin-retained image ID and does not promise a visible document.
 
+For future native extensions, **DM performs the scientific processing**;
+MCP/C++ selects images, validates parameters, calls verified DM APIs and
+hands results back. No second Python/C++ analysis engine supplies missing DM
+operators. Independent calculations are test oracles only; existing v0.6
+behavior remains compatible. [FFT readiness](experiments/native-bridge/mvp/FFT_READINESS.md)
+is offline interface/acceptance preparation, not an added native tool.
+
 Earlier limited real-host acceptance with ASCII-named synthetic inputs passed
 loading/host callbacks, metadata/signed calibration, native mean and strict
 stdio MCP. Separate crop acceptance checked every pixel, independent memory,

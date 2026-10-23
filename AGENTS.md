@@ -12,6 +12,20 @@ acceptance gate. Keep native APIs, coordinate contracts, source protection and
 honest errors. Do not add an agent framework, scheduler, report platform or
 4D features as part of scope cleanup. Scope decisions are in docs/SCOPE_AUDIT.md.
 
+For future native operations, DigitalMicrograph is the processing engine.
+The MCP facade and C++ plugin adapt explicit image IDs/parameters to verified
+DM built-in APIs, preserve calibration and ownership, and return bounded
+results, previews or saved-file references. Do not build a second Python/C++
+analysis engine or silently replace a missing DM operator with NumPy, an
+external worker, a handwritten kernel or arbitrary script execution. A missing
+or insufficiently qualified DM interface remains unsupported. Independent
+test oracles may compute reference answers; they are never a runtime fallback.
+Existing v0.6 kernels and optional report/replay paths remain compatibility
+code, not a reason to expand that route for new native processing features.
+Preview encoding and protocol/metadata validation belong in the bridge;
+scientific processing belongs in DM. Native FFT readiness is tracked in
+experiments/native-bridge/mvp/FFT_READINESS.md; FFT is not yet a native tool.
+
 ## Architecture and ownership
 
 - `server.mjs`: zero-dependency Node >=18 stdio MCP facade, strict tool schemas, serialized loopback requests, timeouts/cancellation. Stdout is MCP JSON only; diagnostics belong on stderr.
