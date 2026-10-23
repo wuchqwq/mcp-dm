@@ -106,9 +106,8 @@ python -B .\experiments\native-bridge\mvp\accept_mcp.py --fixture "$fixtureJson"
 It checks the MCP and tool-error layers separately, backend/build identity,
 receipts, fixture means, shapes and physical calibration, plus invalid ID
 rejection. Its default deadline is five seconds per RPC; a reader thread keeps
-that deadline effective if stdout stalls. The generated report does not claim
-WorkBuddy or visual acceptance. This does not replace the independent post-run
-source-invariance check in `verify_fixture.py`.
+that deadline effective if stdout stalls. Independent visual acceptance and
+the post-run source-invariance check in `verify_fixture.py` remain separate.
 
 Native crop has a separate [strict MCP acceptance client](accept_crop_mcp.py),
 an independent one-shot [pixel/calibration oracle](verify_crop.py), and a
@@ -120,10 +119,10 @@ scripts run once inside DM after native calls have finished; they are not
 resident listeners and must release their image/array references before an
 output-lifetime check.
 
-For the separate, answer-free ordinary WorkBuddy trial, follow
-[WORKBUDDY_TRIAL.md](WORKBUDDY_TRIAL.md). Its private trial answers are operator
-material; `accept_trial_mcp.py` is a strict protocol client, not a WorkBuddy
-run. No existing client entry is edited by these instructions or scripts.
+Follow [TRIAL_ACCEPTANCE.md](TRIAL_ACCEPTANCE.md) for the complete synthetic
+fixture, `accept_trial_mcp.py`, independent oracle and saved-STOP sequence.
+Its answers and evidence remain private. No existing client entry is edited
+by these instructions or scripts.
 
 The P1 `dm_native_show` candidate completed actual MCP/native receipt and
 same-image correlation checks. Independent desktop acceptance is still

@@ -36,7 +36,7 @@ only the delivered crop document and run [verify_trial_closed.py](verify_trial_c
 while DM still runs: output ID invalid, original document count restored and
 other sources unchanged. Whole-host exit cannot prove final output-reference
 release. Finally close the host normally and remove only the manifest-owned DLL. Do not force termination or
-remove a loaded plugin. WorkBuddy actual calls remain NOT_TESTED.
+remove a loaded plugin.
 
 The native catalog is `dm_status`, `dm_datasets`, `dm_native_mean`,
 `dm_native_result`, experimental `dm_crop` and the P1 `dm_native_show`
@@ -44,7 +44,7 @@ candidate. There is no Python fallback; show's visual/document acceptance is
 still NOT_TESTED despite its completed native receipt.
 Mean is bounded 2D float32 raw intensity, not full statistics. Crop returns a
 separate image ID held by bounded plugin references until STOP/cleanup; it does
-not promise a visible document, model-visible preview or WorkBuddy acceptance.
+not promise a visible document or model-visible preview.
 Earlier post-crop STOP release passed an independent check: the hidden output ID became
 invalid, its pipe/window disappeared and ordinary Python still ran.
 
@@ -122,16 +122,15 @@ lookup and destructive release call were wrong. See
 Vendor access violations are not isolated. Keep the host idle and requests
 serialized; no safe hot unload, concurrent image API use, hardware operation,
 arbitrary script tool, other-build compatibility or real-data acceptance is
-claimed. WorkBuddy/model visual acceptance remains **NOT_TESTED**.
+claimed. Model visual acceptance remains **NOT_TESTED**.
 
 The earlier accepted session's normal DM exit and manifest-owned DLL removal
 completed successfully.
 Only this experimental DLL was removed, the pre-installation inventory was
 restored, and the manifest records removal; no client configuration was
-changed. Next, keep any new client/visual or scientific-data acceptance
-separate. Normal
-agent tasks are listed in [README.md](README.md#short-tasks-for-a-connected-agent)
-and do not establish WorkBuddy/visual acceptance. Keep private
+changed. Any further visual or scientific-data acceptance needs separate
+evidence. The [acceptance procedure](TRIAL_ACCEPTANCE.md) covers protocol,
+independent numerical and lifecycle checks. Keep private
 receipts, manifests, scientific files, vendor binaries and build output out of
 public commits. To roll back, disconnect clients, send explicit native STOP,
 close DM normally, and use the same ownership manifest to remove only this
@@ -159,7 +158,7 @@ truth/summary/STOP files by fingerprints. Do not edit old evidence to fit the
 new scripts. These offline checks do not clear the current real-host HOLD.
 Commands are in [README.md](README.md#build-and-offline-tests).
 
-The operator package is [WORKBUDDY_TRIAL.md](WORKBUDDY_TRIAL.md). Generated
-trial-answers.json stays private and is not supplied to the Agent. The strict
-accept_trial_mcp.py client has a separate protocol scope; actual WorkBuddy
-calls remain NOT_TESTED, and model image viewing is not a trial prerequisite.
+The [acceptance procedure](TRIAL_ACCEPTANCE.md) preserves synthetic input
+creation, `accept_trial_mcp.py`, independent oracles and the pre-recorded
+STOP/process identity checks. Generated trial answers and execution evidence
+stay private; protocol success does not establish visual acceptance.

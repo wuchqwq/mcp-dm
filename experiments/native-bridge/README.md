@@ -44,7 +44,7 @@ normal exit and owned removal are still pending. Earlier crop/cleanup passes
 must not be inherited by this revision. ASCII names are qualified.
 Non-ASCII naming interoperability with legacy GMS Python bindings is
 **NOT_QUALIFIED** after an independent comparison failed; no heuristic encoding
-conversion was added. Real experimental data, WorkBuddy/visual acceptance,
+conversion was added. Real experimental data, visual acceptance,
 other GMS builds and concurrent native API use remain unverified.
 
 A worker owns the named-pipe transport. A message-only window dispatches native

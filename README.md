@@ -49,7 +49,7 @@ Node 服务无 npm 运行依赖；DM 桥仅用 Python 标准库和 NumPy。DM/GM
 
 默认仍为 v0.6 Python/TCP 后端。通过独立配置显式选择 `DM_MCP_BACKEND=native`，可在 Windows x64 GMS **3.53.4137.0** 的固定二进制门限下试用原生桥；它不使用常驻 Python listener，也不回退到 Python。原生目录提供 `dm_status`、`dm_datasets`、`dm_native_mean`、`dm_native_result`、实验性 `dm_crop` 及 `dm_native_show`；均值不等于完整 `dm_stats`，裁剪本身只返回插件持有的新图像 ID。
 
-早前已用 ASCII 名称的合成输入通过目标 DM 的有限范围验收：加载与宿主回调、元数据/有符号标定、原生均值、严格 stdio MCP，以及原生裁剪的逐像素独立核对、独立内存和源数据不变。STOP 后已独立确认裁剪输出引用释放、实验管道/窗口消失且普通一次性 Python 继续可用；随后 DM 正常退出，并仅移除本实验拥有的 DLL，恢复安装前目录状态，未改客户端配置。**WorkBuddy/模型看图、真实实验数据、其它构建与并发图像调用仍为 NOT_TESTED**；非 ASCII 名称与旧 GMS Python binding 的互认对比未通过，单列为 **NOT_QUALIFIED**，未加入猜测性的编码转换。使用空闲宿主并串行请求；超时后查询原 `request_id`，不自动重发。原生异常不具备进程隔离保证。
+早前已用 ASCII 名称的合成输入通过目标 DM 的有限范围验收：加载与宿主回调、元数据/有符号标定、原生均值、严格 stdio MCP，以及原生裁剪的逐像素独立核对、独立内存和源数据不变。STOP 后已独立确认裁剪输出引用释放、实验管道/窗口消失且普通一次性 Python 继续可用；随后 DM 正常退出，并仅移除本实验拥有的 DLL，恢复安装前目录状态，未改客户端配置。**模型看图、真实实验数据、其它构建与并发图像调用仍为 NOT_TESTED**；非 ASCII 名称与旧 GMS Python binding 的互认对比未通过，单列为 **NOT_QUALIFIED**，未加入猜测性的编码转换。使用空闲宿主并串行请求；超时后查询原 `request_id`，不自动重发。原生异常不具备进程隔离保证。
 
 本轮 P0 将 raw mean 与空间标定解耦：已识别的缺单位或不可用空间标定仍允许支持类型的原始均值，返回 `calibration_complete:false` 和每轴问题；crop 仍严格要求标定。`dm_crop` 的 `request_id` 必填，须在提交前连同 session/参数保存；超时后只在原 session 用 `dm_native_result` 查询，STOP 或跨重启不承诺恢复。新增副作用工具遵循同样规则；旧只读工具保留兼容性，试用统一显式保存 ID。真实严格 MCP 已通过缺单位均值/元数据、安全错误及裁剪 ID 恢复与冲突检查；其它无效空间数值目前仅有离线覆盖。
 
@@ -59,7 +59,7 @@ P1 可见文档候选 `dm_native_show` 仅针对本插件持有的裁剪副本�
 
 后置核对进一步绑定实际进程 PID 与提交前保存的 STOP 请求；缺旧证据仅能做 UNVERIFIED 观察。解锁后按[最短操作清单](experiments/native-bridge/mvp/UNLOCK_CHECKLIST.md)完成显示、引用寿命与正常清理；main 与 feature 的后续差异整合见[方案](experiments/native-bridge/mvp/INTEGRATION_PLAN.md)，本轮不合并 main。
 
-安装和回退见 [原生实验说明](experiments/native-bridge/mvp/README.md)、[验收矩阵](experiments/native-bridge/RESULTS.md)、[安装/移除](experiments/native-bridge/mvp/INSTALL.md) 与 [WorkBuddy 操作者试用包](experiments/native-bridge/mvp/WORKBUDDY_TRIAL.md)。STOP 只停实验 IPC；正常关闭 DM 后，按安装所有权记录移除本实验 DLL 即可回到未改动的默认后端。以下环境与启动说明仍以默认 Python 后端为准。
+安装和回退见 [原生实验说明](experiments/native-bridge/mvp/README.md)、[验收矩阵](experiments/native-bridge/RESULTS.md)、[安装/移除](experiments/native-bridge/mvp/INSTALL.md) 与 [原生合成验收](experiments/native-bridge/mvp/TRIAL_ACCEPTANCE.md)。STOP 只停实验 IPC；正常关闭 DM 后，按安装所有权记录移除本实验 DLL 即可回到未改动的默认后端。以下环境与启动说明仍以默认 Python 后端为准。
 
 ## 当前验证范围
 

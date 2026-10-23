@@ -47,8 +47,9 @@ display, document count and post-STOP document ownership are NOT_TESTED due
 to pending desktop acceptance. IPC STOP/pipe/window cleanup passed; normal
 host exit and owned DLL removal remain pending with the test host still open.
 Native SaveAs stays deferred for insufficient string ABI and exclusive-write
-evidence. The [operator trial](experiments/native-bridge/mvp/WORKBUDDY_TRIAL.md)
-keeps its private answers separate; actual WorkBuddy calls remain NOT_TESTED.
+evidence. The [synthetic trial](experiments/native-bridge/mvp/TRIAL_ACCEPTANCE.md)
+keeps its independent answers private and separates protocol receipts from
+actual host display and lifetime checks.
 
 Earlier native crop separately passed actual MCP and an independent one-shot GMS
 Python oracle for explicit IDs, half-open bounds, every pixel, separate memory,
@@ -60,7 +61,7 @@ prior inventory without changing client configuration. The
 qualified name scope is ASCII; the legacy Python/native non-ASCII name
 comparison failed and remains NOT_QUALIFIED without heuristic conversion.
 A plugin-retained result ID is not a displayed DM
-document or model visual acceptance. WorkBuddy, real experimental data, other
+document or model visual acceptance. Real experimental data, other
 builds, concurrent image API use and vendor exception isolation remain
 unverified. Keep the backend opt-in and the original client configuration
 unchanged. See [the matrix](experiments/native-bridge/RESULTS.md) and

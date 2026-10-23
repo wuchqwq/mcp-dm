@@ -1,7 +1,7 @@
 """Strict real stdio MCP trial on NEW synthetic inputs; no DM start/stop.
 
-Reads the private operator answers from create_trial_fixture.py. The ordinary
-Agent trial uses published tools, not this protocol client or the answer file.
+Reads the private independent answers from create_trial_fixture.py. Protocol
+receipts are checked separately from the one-shot host pixel/document oracles.
 """
 import argparse
 import json
@@ -26,7 +26,7 @@ def main():
     args.evidence_directory.mkdir(parents=True, exist_ok=False)
     env = os.environ.copy()
     env.update(DM_MCP_BACKEND="native", DM_NATIVE_SESSION=truth["session"], DM_MCP_TIMEOUT_MS="5000")
-    report = {"status": "FAIL", "scope": "strict protocol client, not WorkBuddy or model viewing",
+    report = {"status": "FAIL", "scope": "strict protocol client; no model viewing",
               "checks": [], "session": truth["session"]}
     host_thread = None
     def check_metadata(actual, expected, calibrated):
@@ -158,7 +158,7 @@ def main():
             report.update(status="PASS", crop=crop, crop_mean=crop_mean,
                           delivery=delivery, repeated_show=repeated_show,
                           same_session_query_recovery=True, duplicate_object_reused=True,
-                          missing_id_rejected=True, workbuddy="NOT_TESTED")
+                          missing_id_rejected=True)
         except Exception as error:
             report["error"] = str(error)
             raise

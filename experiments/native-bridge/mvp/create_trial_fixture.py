@@ -3,7 +3,7 @@
 
 Operator: run once inside an empty prepared DM, before native image requests.
 Use a NEW private DM_NATIVE_EVIDENCE_DIR and DM_NATIVE_SESSION. The generated
-trial-answers.json is an operator answer record; do not give it to the Agent.
+trial-answers.json stores independent pixel/calibration truth for verification.
 No existing image or file is read, renamed or modified.
 """
 import hashlib

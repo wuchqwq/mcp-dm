@@ -35,7 +35,7 @@ native concurrency guarantee.
 | Plugin crop output release after STOP | PASS, limited | The experimental pipe/window disappeared; an independent one-shot DM check found the hidden crop ID invalid and ordinary Python still usable |
 | Non-ASCII naming / legacy Python binding interoperability | FAIL / NOT_QUALIFIED | Independent Python/native name comparison failed; no encoding repair or broader Unicode compatibility claim |
 | Native export, direct pixel access and additional numeric types | NOT_TESTED | No broader native replacement claim |
-| WorkBuddy, model image viewing and real experimental data | NOT_TESTED | Strict MCP acceptance does not imply a client UI or visual/scientific-data acceptance |
+| Model image viewing and real experimental data | NOT_TESTED | Strict MCP acceptance does not imply a client UI or visual/scientific-data acceptance |
 | Concurrent native/script image calls, vendor exception isolation and other GMS builds | NOT_TESTED | Idle serialization and a pinned build remain required |
 | Hot unload, arbitrary scripts, hardware or acquisition control | NOT_TESTED | No support claim; hardware and arbitrary-script tools are not exposed |
 
@@ -54,7 +54,7 @@ implementation and inputs; they do not certify this revision automatically.
 |---|---|---|
 | Raw mean with missing spatial units | PASS, limited actual host | Calibrated and empty-unit synthetic inputs matched independent mean truth, metadata and limitation checks; other invalid spatial-number cases have offline coverage only |
 | Safe rejection of unsupported/nonfinite/missing images | PASS, limited actual host | UINT16, nonfinite mean and missing ID returned the expected errors; native/ABI exceptions are not converted into missing-data success |
-| Caller-saved crop request ID and immutable recovery | PASS, strict actual-host MCP; WorkBuddy NOT_TESTED | Missing ID rejected; same-session QUERY/duplicate kept the same crop, conflicting parameters failed, cropped mean matched truth, and missing-unit crop remained rejected |
+| Caller-saved crop request ID and immutable recovery | PASS, strict actual-host MCP | Missing ID rejected; same-session QUERY/duplicate kept the same crop, conflicting parameters failed, cropped mean matched truth, and missing-unit crop remained rejected |
 | `dm_native_show` native receipt and image identity | PASS, limited actual host | Explicit retained crop ID completed; QUERY/duplicate preserved its receipt and a different show ID still identified that image; no data copy or path/file save |
 | Visible document, document count and independent full-pixel/source oracle for this revision | NOT_TESTED | A native completed receipt does not establish visual delivery or replace the pending one-shot host oracle |
 | Shown-document ownership after STOP | NOT_TESTED | STOP must not close a document; previous hidden-output release evidence does not establish shown-output lifetime |
@@ -63,7 +63,6 @@ implementation and inputs; they do not certify this revision automatically.
 | Normal exit and manifest-owned removal for this revision | NOT_TESTED | Test host remains open, DLL loaded and ownership manifest installed; preserve them until normal continuation and cleanup |
 | New non-ASCII UI/binding comparison | NOT_TESTED / NOT_QUALIFIED | The earlier failed name comparison is retained; no new Unicode qualification |
 | Native SaveAs | Not implemented / NOT_QUALIFIED | `dm_string` ABI and exclusive/no-overwrite semantics lack adequate evidence; no permanent-file delivery claim |
-| Ordinary WorkBuddy trial | NOT_TESTED | Private operator answers and the strict protocol client are separate from an actual model/client run; model viewing is not a prerequisite |
 
 The current native IPC is stopped. Do not remove the loaded DLL or force-close
 the host to turn the pending steps into a cleanup claim. Resume with the
@@ -85,8 +84,8 @@ Request recovery uses volatile records from the same running session. STOP,
 DM exit/restart or a new session does not promise QUERY recovery; saved IDs
 must not be replayed in a new session. Existing read-only tools keep optional
 generated IDs for compatibility, while the operator trial saves IDs for every
-call. See [WORKBUDDY_TRIAL.md](mvp/WORKBUDDY_TRIAL.md) for the answer-free prompt,
-independent private review and current delivery gate.
+call. See [TRIAL_ACCEPTANCE.md](mvp/TRIAL_ACCEPTANCE.md) for the synthetic
+protocol trial, independent private review and current delivery gate.
 
 Two corrected offline runs must not obscure their initial failures:
 
@@ -110,7 +109,7 @@ Two corrected offline runs must not obscure their initial failures:
 | Trial oracle fault injection | Initial FAIL; corrected PASS | Some wrong nested receipts and STOP records originally produced PASS. The correction binds native host/operation identity and post-STOP records; positive controls and specific-error negative controls run the actual scripts against a fake DM API |
 | Pixels, calibration and document checks in the oracle | PASS, offline | Wrong pixels with an unchanged mean, dtype/shape, aliased memory, signed scales/physical zero/units, source fingerprints and document counts are rejected. This does not execute the oracle inside DM |
 | Legacy Python Unicode conversion tracing | PASS, static inspection only; interoperability NOT_QUALIFIED | UTF-8/narrow-string wrappers and a vendor system-code-page default were identified. Their exact indirect binding and UI truth remain unresolved; native UTF-16 to explicit UTF-8 conversion was not changed |
-| Current real-host delivery and WorkBuddy | NOT_TESTED / HOLD unchanged | No DM process, UI, installation, client configuration or pending real-host evidence was changed by these offline tests |
+| Current real-host delivery | NOT_TESTED / HOLD unchanged | No DM process, UI, installation, client configuration or pending real-host evidence was changed by these offline tests |
 
 The fault tests require the intended failure reason, a nonzero exit and no new
 PASS evidence; an unrelated earlier failure is not accepted as coverage.
@@ -145,7 +144,7 @@ These are offline code/test scopes, not newly accepted DM observations.
 | Actual-process and saved STOP identity | PASS, offline | Self-consistent foreign-host bundles, mismatched original requests and ambiguous duplicate keys are rejected; helper tests observe persistence before simulated transport |
 | Existing oracle fault coverage | PASS, offline | Original negative methods retain their intended errors; expanded tests also prove strict/observation isolation and independent scientific checks |
 | Typed Unicode diagnostic retention | PASS, offline; interoperability NOT_QUALIFIED | Fake getters exercise exact bytes/text, surrogate and exception retention; no real probe or UI comparison |
-| Current real-host delivery, cleanup and WorkBuddy | HOLD / NOT_TESTED | No desktop, DM process interaction or loaded-DLL change was performed by this closeout |
+| Current real-host delivery and cleanup | HOLD / NOT_TESTED | No desktop, DM process interaction or loaded-DLL change was performed by this closeout |
 
 See [the unlock checklist](mvp/UNLOCK_CHECKLIST.md) for remaining human steps
 and [the integration plan](mvp/INTEGRATION_PLAN.md) for main/feature differences.

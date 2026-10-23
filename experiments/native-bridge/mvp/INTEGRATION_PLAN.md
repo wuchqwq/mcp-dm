@@ -67,7 +67,7 @@ Neither diff is an instruction to apply every hunk without review.
 | SHOW candidate | Exact retained-crop ID/pointer lookup, typed document/window calls, additional pinned-module and executable-entry checks, temporary reference cleanup, explicit no-file/no-model-vision claims. STOP releases plugin crop ownership without closing shown documents. | `dm_adapter.cpp`, `show_contract.hpp`, `core.cpp`, `core_tests.cpp`, SHOW cases in `adapter_tests.cpp` |
 | MCP facade | Add NB1 SHOW with one explicit numeric image ID and saved request ID; validate completed delivery/image identity. Keep main's required crop ID and extend the explicit-ID policy to newly added side-effect tools. Native catalog grows from five to six; no Python fallback. | Root `server.mjs`, `lib/native_bridge.mjs`, `tests/native-bridge.test.mjs`, `tests/native-mcp.test.mjs` |
 | Acceptance clients | Check required schemas and permit the sixth native tool without automatically invoking it in the core acceptance client. | `accept_mcp.py`, `accept_crop_mcp.py` |
-| Prepared trial | Separate answer-free operator instructions from private synthetic truth; strict native acceptance, independent pixel/calibration/source/document checks and later final-release checks. | `WORKBUDDY_TRIAL.md`, `accept_trial_mcp.py`, `create_trial_fixture.py`, `verify_trial.py`, `verify_trial_closed.py` |
+| Prepared trial | Prepared synthetic inputs and strict native acceptance, independent pixel/calibration/source/document checks and later final-release checks. | `TRIAL_ACCEPTANCE.md`, `accept_trial_mcp.py`, `create_trial_fixture.py`, `verify_trial.py`, `verify_trial_closed.py` |
 | Unicode diagnostic | Keep the prepared diagnostic and the distinction between legacy Python bytes/text, native UTF-16/UTF-8, units and independent UI truth. Interoperability remains NOT_QUALIFIED. | `create_unicode_fixture.py`, `../ABI_NOTES.md`, trial instructions |
 | Synthetic recovery E2E | Actual Node facade/transport, Windows pipe, C++ Core/message window and fake adapter; controlled running/cancel/timeout events, new-client QUERY, immutable/conflicting IDs, creation counters and normal STOP. No Gatan module or real document is involved. | `fake_adapter.cpp`, `fake_host.cpp`, root `tests/native-e2e.test.mjs` |
 | Oracle fault suite | Execute the actual one-shot scripts against an isolated fake DM API, with independent arrays, passing controls and exact-error failures. Keep original failures separate from corrected tests. | Root `tests/test_native_trial_oracles.py`, both trial verification scripts |
@@ -90,11 +90,12 @@ candidate's additional module gate runs during native initialization: review
 its effect on all native operations, not just SHOW. It does not broaden build
 compatibility or provide vendor exception isolation or general host admission.
 
-The committed tree comparison also changes these documentation paths:
+Documentation to reconcile includes:
 `AGENTS.md`, `README.md`, `README.en.md`, `ROADMAP.md`,
 `experiments/native-bridge/README.md`, `experiments/native-bridge/ABI_NOTES.md`,
 `experiments/native-bridge/RESULTS.md`, and MVP `HANDOFF.md`, `INSTALL.md`,
-`README.md`, `WORKBUDDY_TRIAL.md`. Reconcile their current-candidate statements
+`README.md`, and the current `TRIAL_ACCEPTANCE.md`. The acceptance guide's
+replacement is a follow-up to the recorded snapshots. Reconcile their current-candidate statements
 with main's reviewed-core history; do not replace one scope with the other.
 
 ## Main changes that must survive reconciliation
@@ -116,7 +117,7 @@ with main's reviewed-core history; do not replace one scope with the other.
 4. **Preserve current HOLD.** Historical core/crop numerical and cleanup
    acceptance is separate from this candidate's native SHOW receipts. Pending
    desktop/document, current pixel/source, post-STOP lifetime, final release,
-   normal exit/removal and WorkBuddy checks must not become PASS by integration.
+   normal exit/removal checks must not become PASS by integration.
 
 Six paths changed on both branches since the common base:
 `server.mjs`, `tests/native-mcp.test.mjs`, `README.md`, `README.en.md`, and MVP
@@ -197,5 +198,5 @@ observe the exact shown document and duplicate document count; verify it still
 owns the image after STOP; normally close only that document and verify final
 image release while the host remains running; then confirm normal exit and
 manifest-based removal. UI-entered Unicode, legacy getter bytes/text, native
-names and units need separate qualification. WorkBuddy calls remain a separate
-answer-free client trial, not a synonym for the strict protocol client.
+names and units need separate qualification. Strict protocol success does not
+replace those independent host observations.

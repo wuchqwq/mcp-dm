@@ -130,7 +130,7 @@ class NativeStrictClientTests(unittest.TestCase):
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         self.assertEqual(report["status"], "PASS")
                         self.assertEqual(report["backend"], "mock-native")
-                        self.assertIn("no WorkBuddy", report["scope"])
+                        self.assertIn("no client UI", report["scope"])
                         requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines()]
                         self.assertEqual([request["operation"] for request in requests], ["STATUS", "DATASETS", "MEAN", "MEAN", "MEAN", "MEAN"])
                         self.assertEqual(len({request["id"] for request in requests}), len(requests))

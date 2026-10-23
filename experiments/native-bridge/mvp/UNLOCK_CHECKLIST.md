@@ -52,10 +52,10 @@ runpy.run_path(r"<仓库绝对路径>\experiments\native-bridge\mvp\verify_trial
 若这些目标已有文件，保留它们并停止重复运行，不删文件来重试。
 严格验收不会接受这些观察记录作为 PASS 前置证据。
 
-## 之后的新会话资格与 WorkBuddy 盲测
+## 之后的新严格验收会话
 
-原会话清理完毕后，按 [WorkBuddy 试用包](WORKBUDDY_TRIAL.md) 准备新的空闲
-合成会话、证据目录和独立 native 客户端入口。此步骤不沿用 STOP 后的旧 IPC；
+原会话清理完毕后，按 [原生验收流程](TRIAL_ACCEPTANCE.md) 准备新的空闲
+合成会话、证据目录和严格 stdio 协议检查。此步骤不沿用 STOP 后的旧 IPC；
 本轮没有执行它。默认 v0.6 配置保持原样，main 的已审核心与 feature 的 Show
 候选须区分，后续整合见 [分支差异方案](INTEGRATION_PLAN.md)。
 
@@ -65,13 +65,10 @@ runpy.run_path(r"<仓库绝对路径>\experiments\native-bridge\mvp\verify_trial
 - STOP 使用新 ID、明确宿主 PID，并将 `--request-record` 指向本次
   `stop-request.json`，`--evidence` 指向 `stop-receipt.json`。请求记录必须已
   exclusive-write、flush/fsync 完成，才允许管道连接和提交，详见 INSTALL。
-- 盲测 Agent 只收到目标范围、session、请求参数和短提示；**不提供答案、
-  fixture 源码或严格协议预检结果**。操作者保留源 NPY/答案作独立审阅。
-- 用一段提示完成状态、显式 ID 选择、两类 raw mean、预存 ID 裁剪、裁剪均值、
-  对同结果 ID 的 Show 和错误拒绝。超时/取消只 QUERY 原 ID，不自动重发。
-  让 Agent 保存原始工具回执，操作者单独核数值、源不变及文档/生命周期。
-- WorkBuddy 真实调用、UI 显示、模型看图和文件保存分别记录。固定协议客户端
-  的 summary/oracle 不能冒充 WorkBuddy 结果，也不能直接认领另一个 Agent 的输出。
+- 协议检查覆盖状态、显式 ID、两类 raw mean、预存 ID 裁剪、裁剪均值、
+  同结果 ID 的 Show 和错误拒绝。超时/取消只 QUERY 原 ID，不自动重发。
+  以保留的源 NPY/答案独立核对数值、源不变及文档/生命周期。
+- 原生回执、UI 可见性、模型是否收到图像和文件保存分别记录。
   没做的项保持 NOT_TESTED；Show 不提供永久文件保存。
 
 Unicode 可在主交付/正常清理之外另建合成会话诊断，不阻塞已独立完成的检查。

@@ -63,7 +63,7 @@ release of the hidden crop ID, removal of the experimental pipe/window and
 continued one-shot Python use. The test host then exited normally, and only
 the manifest-owned experimental DLL was removed, restoring the prior plugin
 inventory without changing client configuration.
-**WorkBuddy/model image viewing, real experimental data, other builds and
+**Model image viewing, real experimental data, other builds and
 concurrent image API use remain NOT_TESTED.** Non-ASCII naming interoperability
 with legacy GMS Python bindings failed comparison and remains
 **NOT_QUALIFIED**; no heuristic encoding conversion was added. Use an idle
@@ -107,7 +107,7 @@ for future main integration; no main merge is performed by this closeout.
 See the [native guide](experiments/native-bridge/mvp/README.md),
 [validation matrix](experiments/native-bridge/RESULTS.md) and
 [installation/removal](experiments/native-bridge/mvp/INSTALL.md) and
-[WorkBuddy operator trial](experiments/native-bridge/mvp/WORKBUDDY_TRIAL.md). STOP ends only
+[native synthetic trial](experiments/native-bridge/mvp/TRIAL_ACCEPTANCE.md). STOP ends only
 the experimental IPC. Close DM normally, then remove only the owned test DLL
 using its manifest to return to the unchanged default backend. The setup
 instructions below continue to describe that default Python backend.

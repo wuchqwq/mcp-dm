@@ -66,7 +66,7 @@ ownership remain **NOT_TESTED**. A completed receipt without seeing the image
 is not visual acceptance, a file save or proof that the model saw it.
 Native saving remains unavailable: the `SaveAsGatan` string ABI and
 exclusive/no-overwrite behavior are not sufficiently established. See the
-[operator trial](WORKBUDDY_TRIAL.md) before treating P1 as delivered.
+[acceptance procedure](TRIAL_ACCEPTANCE.md) before treating P1 as delivered.
 
 The accepted real-host name scope is ASCII. An independent comparison of
 non-ASCII names between legacy GMS Python `SetName`/`GetName` and native
@@ -90,32 +90,12 @@ calibration. The mean never applies intensity calibration.
 `native_mean_supported` reports dtype/dimension/budget eligibility; a native
 failure or nonfinite result can still reject the operation.
 
-## Short tasks for a connected agent
+## Acceptance procedure
 
-These prompts use the published tools and need no Skill installation or source
-reading. They are suggested client acceptance tasks, not evidence that
-WorkBuddy or another model client has passed:
-
-1. "Save explicit request IDs, then check `dm_status`. Report the actual
-   backend, readiness, build gate and receipt identity. Continue only with
-   `digitalmicrograph-native` ready."
-2. "List datasets and use my specified numeric image ID for a native mean.
-   Report its shape, dtype, available spatial calibration and raw mean; mark
-   unknown units or unsupported inputs explicitly."
-3. "For my specified image ID and half-open rectangle, make a separate native
-   crop. Save its session and required request ID before submitting, report
-   the new image ID, and compare its dtype,
-   dimensions, signed scales and physical pixel-zero shift with the source.
-   Do not claim a visible window or an unchanged-source proof from the receipt
-   alone. If the wait expires, query that same request ID."
-4. "Check a safe invalid parameter such as a fractional image ID. Confirm an
-   explicit error, inspect both RPC and tool-error status, and ensure no
-   fallback or successful-image claim is reported."
-
-For the answer-free WorkBuddy prompt, operator steps and separate private
-answer review, use [WORKBUDDY_TRIAL.md](WORKBUDDY_TRIAL.md). Actual WorkBuddy
-calls remain NOT_TESTED; model image viewing is not a prerequisite for this
-tool-use trial.
+Use [TRIAL_ACCEPTANCE.md](TRIAL_ACCEPTANCE.md) for synthetic input creation,
+strict stdio MCP checks, independent pixel/calibration oracles and the saved
+STOP/document-lifetime sequence. Protocol receipts, actual visibility and
+source preservation require their own evidence. The current HOLD remains.
 
 ## Protocol and lifecycle
 
@@ -198,8 +178,8 @@ without a resident Python listener. It also verified rejection of an ID after
 the synthetic document and its remaining Python references were released.
 These observations do not establish concurrent script/native image safety,
 general invalid-pointer recovery, real experimental-data support or other
-GMS-build compatibility. WorkBuddy and model visual acceptance remain
-**NOT_TESTED**. See [RESULTS.md](../RESULTS.md) for initial failures and corrected
+GMS-build compatibility. Model visual acceptance remains **NOT_TESTED**.
+See [RESULTS.md](../RESULTS.md) for initial failures and corrected
 acceptance boundaries.
 
 ## Build and offline tests

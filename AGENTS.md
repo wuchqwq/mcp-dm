@@ -73,8 +73,8 @@ completed receipt. A shown document may hold an
 output after plugin STOP; do not confuse document ownership with a plugin
 leak, or close unrelated documents. No model-viewing or permanent-save claim.
 The SaveAsGatan string/exclusive-write contracts remain unqualified. Keep
-WorkBuddy trial prompts separate from private answers; see the MVP
-WORKBUDDY_TRIAL.md. A strict protocol client is not WorkBuddy acceptance.
+independent trial answers private; see MVP TRIAL_ACCEPTANCE.md for the strict
+protocol and host-oracle sequence. Protocol receipts do not prove UI visibility.
 
 ## Mandatory scientific contracts
 

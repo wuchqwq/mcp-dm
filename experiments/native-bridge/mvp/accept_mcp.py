@@ -1,7 +1,7 @@
 """Strict stdio MCP acceptance client; it starts/closes only its own Node child.
 
 Run against an already prepared, idle synthetic DM fixture. This validates
-protocol and numerical receipts, never WorkBuddy UI or visual acceptance.
+protocol and numerical receipts, never client UI or visual acceptance.
 """
 import argparse
 from datetime import datetime, timezone
@@ -305,7 +305,7 @@ def main(argv=None):
     fixture = validate_fixture(strict_json(args.fixture.read_text(encoding="utf-8-sig")))
     evidence = args.evidence_directory.resolve()
     evidence.mkdir(parents=True, exist_ok=False)
-    report = {"status": "FAIL", "scope": "strict stdio MCP and native receipts; no WorkBuddy UI/visual validation",
+    report = {"status": "FAIL", "scope": "strict stdio MCP and native receipts; no client UI/visual validation",
               "fixture_kind": "synthetic-only", "session": fixture["session"], "backend": args.expected_backend}
     client = None
     try:
