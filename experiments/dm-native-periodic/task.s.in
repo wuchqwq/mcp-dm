@@ -1,0 +1,159 @@
+// Original bounded experiment. Not the production Bridge; no Python execution.
+class MCPNativePeriodic_@CLASS@
+{
+    string root, token, seen
+    number taskID, started, ticks, nextSlot, executions, active, sourceID
+    image source
+
+    void WriteOnce(object self, string name, string body)
+    {
+        string destination = root + "/" + name
+        string temporary = destination + ".partial"
+        if (DoesFileExist(destination) || DoesFileExist(temporary)) Throw("Output already exists")
+        number f = CreateFileForWriting(temporary)
+        WriteFile(f, body)
+        CloseFile(f)
+        MoveFile(temporary, destination)
+    }
+
+    number SourceOK(object self)
+    {
+        if (sourceID == 0) return 1
+        if (!source.ImageIsValid()) return 0
+        string owner
+        if (!source.ImageGetTagGroup().TagGroupGetTagAsString("MCP_NATIVE:session", owner)) return 0
+        if (owner != token || source.ImageGetID() != sourceID) return 0
+        if (source.ImageGetDimensionSize(0) != 12 || source.ImageGetDimensionSize(1) != 8) return 0
+        number x, y
+        for (y=0; y<8; y++) for (x=0; x<12; x++)
+            if (source.GetPixel(x,y) != 10*y+x) return 0
+        number ox, sx, oy, sy
+        string ux, uy
+        source.ImageGetDimensionCalibration(0, ox, sx, ux, 0)
+        source.ImageGetDimensionCalibration(1, oy, sy, uy, 0)
+        return ox==1.25 && sx==-0.25 && oy==-2.5 && sy==0.5 && ux=="nm" && uy=="nm"
+    }
+
+    void Stop(object self, string reason)
+    {
+        if (!active) return
+        active = 0
+        RemoveMainThreadTask(taskID)
+        number unchanged = self.SourceOK()
+        number closed = 0
+        if (sourceID != 0 && unchanged)
+        {
+            source.ImageGetOrCreateImageDocument().ImageDocumentClose(0)
+            closed = 1
+        }
+        self.WriteOnce("stopped.json", "{\"token\":\""+token+"\",\"reason\":\""+reason+"\",\"ticks\":"+ticks+",\"executions\":"+executions+",\"processed_slots\":"+nextSlot+",\"source_unchanged\":"+unchanged+",\"owned_image_closed\":"+closed+"}")
+        Result("Native periodic experiment stopped: "+reason+"\n")
+    }
+
+    string Stats(object self)
+    {
+        if (sourceID == 0)
+        {
+            source := RealImage("MCP_NATIVE_"+token, 4, 12, 8)
+            source = icol + 10*irow
+            source.ImageGetTagGroup().TagGroupSetTagAsString("MCP_NATIVE:session", token)
+            source.ImageSetDimensionCalibration(0, 1.25, -0.25, "nm", 0)
+            source.ImageSetDimensionCalibration(1, -2.5, 0.5, "nm", 0)
+            sourceID = source.ImageGetID()
+            ShowImage(source)
+        }
+        if (!self.SourceOK()) Throw("Owned synthetic image changed")
+        number ox, sx, oy, sy
+        string ux, uy
+        source.ImageGetDimensionCalibration(0, ox, sx, ux, 0)
+        source.ImageGetDimensionCalibration(1, oy, sy, uy, 0)
+        number total = sum(source[1,2,5,7])
+        number average = mean(source[1,2,5,7])
+        number low = min(source[1,2,5,7])
+        number high = max(source[1,2,5,7])
+        return ",\"image_id\":"+sourceID+",\"shape_yx\":[8,12],\"dtype\":\"float32\",\"zero_xy\":["+ox+","+oy+"],\"scale_xy\":["+sx+","+sy+"],\"units_xy\":[\"nm\",\"nm\"],\"rect_xyxy\":[2,1,7,5],\"count\":20,\"sum\":"+total+",\"mean\":"+average+",\"min\":"+low+",\"max\":"+high
+    }
+
+    void HandleTick(object self)
+    {
+        if (!active) return
+        ticks++
+        if (CalcOSSecondsBetween(started, GetOSTickCount()) >= @TTL@ || ticks > @MAXTICKS@)
+        {
+            self.Stop("expired")
+            return
+        }
+        if (DoesFileExist(root+"/stop.ready"))
+        {
+            self.Stop("requested")
+            return
+        }
+        if (nextSlot >= 32) return
+        string slot = ""+nextSlot
+        string path = root+"/request_"+slot+".ready"
+        if (!DoesFileExist(path)) return
+        number f = -1, validID = 0
+        string id = "", op = "", state = "failed", code = "invalid_request", extra = ""
+        try
+        {
+            f = OpenFileForReading(path)
+            string request = ReadFile(f, 128)
+            CloseFile(f)
+            f = -1
+            if (request.len()!=128 || request.mid(32,1)!="|" || request.mid(65,1)!="|") Throw("Bad envelope")
+            id = request.mid(33,32)
+            number k
+            string hex = "0123456789abcdef"
+            for(k=0; k<32; k++)
+                if (hex.find(id.mid(k,1)) < 0) Throw("Bad request ID")
+            validID = 1
+            op = request.mid(66,8)
+            if (request.left(32) != token) code = "wrong_session"
+            else if (seen.find("|"+id+"|") >= 0) code = "duplicate_request_id"
+            else
+            {
+                seen += id+"|"
+                if (op == "ping    ") { state="success"; code="pong"; executions++; }
+                else if (op == "stats   ") { extra=self.Stats(); state="success"; code="stats"; executions++; }
+                else if (op == "fail    ") { code="intentional_failure"; }
+                else { code="unsupported_operation"; }
+            }
+        }
+        catch
+        {
+            if (f >= 0) CloseFile(f)
+            state = "failed"
+            code = "native_request_error"
+            break
+        }
+        // No executable input. IDs are checked hex before inclusion in output.
+        if (!validID) id="invalid"
+        self.WriteOnce("reply_"+slot+".json", "{\"token\":\""+token+"\",\"request_id\":\""+id+"\",\"slot\":"+slot+",\"state\":\""+state+"\",\"code\":\""+code+"\",\"executions\":"+executions+",\"ticks\":"+ticks+extra+"}")
+        nextSlot++
+    }
+
+    void Tick(object self)
+    {
+        try { self.HandleTick(); }
+        catch { self.Stop("callback_failure"); break; }
+    }
+
+    object Init(object self)
+    {
+        root="@ROOT@"
+        token="@TOKEN@"
+        seen="|"
+        ticks=0; nextSlot=0; executions=0; sourceID=0; active=0
+        if (DoesFileExist(root+"/registration_attempted.marker")) Throw("Already attempted; do not register twice")
+        self.WriteOnce("registration_attempted.marker", token)
+        started = GetOSTickCount()
+        taskID = AddMainThreadPeriodicTask(self, "Tick", 0.5)
+        active=1
+        number major, minor, build
+        GetApplicationVersion(major, minor, build)
+        self.WriteOnce("registered.json", "{\"token\":\""+token+"\",\"task_id\":"+taskID+",\"object_id\":"+self.ScriptObjectGetID()+",\"version\":["+major+","+minor+","+build+"],\"ttl_seconds\":@TTL@,\"source_template_sha256\":\"@SHA@\"}")
+        return self
+    }
+}
+Alloc(MCPNativePeriodic_@CLASS@).Init()
+Result("Native periodic registration returned; no Python serve loop.\n")
