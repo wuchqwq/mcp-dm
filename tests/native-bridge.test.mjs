@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import {randomUUID} from "node:crypto";
 import {NativeBridge, NativeBridgeError, validRequestId} from "../lib/native_bridge.mjs";
-import {fourierFixture, readFixture, imageMetadata} from "./fixtures/native-operations.mjs";
+import {fourierFixture, readFixture, imageMetadata, uint32BinaryFixture, uint32OperationFixture} from "./fixtures/native-operations.mjs";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const sessionId = () => randomUUID().replaceAll("-", "");
@@ -140,7 +140,7 @@ test("uint32 raw mean and READ preserve unknown-unit limitations while crop stil
   } finally {await host.close();}
 });
 
-test("uint32 support does not widen arithmetic, Fourier or filter metadata contracts", async () => {
+test("uint32 raw support does not implicitly widen arithmetic, Fourier or filter metadata contracts", async () => {
   const cases = [["UNARY", [77, 1]], ["BINARY", [77, 78, 1]], ["FFT", [77]], ["FILTER", [77, 1]]];
   const host = await fakeHost(({socket, request, reply}) => {
     const [operation, args] = cases[Number(request.id.at(-1))];
@@ -160,7 +160,161 @@ test("uint32 support does not widen arithmetic, Fourier or filter metadata contr
   });
   try {
     for (let i = 0; i < cases.length; ++i) await assert.rejects(host.bridge.execute(cases[i][0], cases[i][1], {requestId: "closed-type-" + i}),
-      error => error.details.code === "NATIVE_PROTOCOL" && /image metadata/.test(error.message));
+      error => error.details.code === "NATIVE_PROTOCOL" &&
+        (cases[i][0] === "FILTER" ? /per-operation matrix/ : /dtype_semantics/).test(error.message));
+  } finally {await host.close();}
+});
+
+test("typed uint32 binary receipts declare native float32 outputs and preserve same-ID QUERY identity", async () => {
+  const host = await fakeHost(({socket, request, reply}) => {
+    const args = [77, 78, Number(request.id.at(-1))];
+    socket.end(JSON.stringify(reply("completed", uint32BinaryFixture(args), identity("BINARY", args))) + "\n");
+  });
+  try {
+    for (let opcode = 1; opcode <= 3; ++opcode) {
+      const id = "u32-native-binary-" + opcode;
+      const first = await host.bridge.execute("BINARY", [77, 78, opcode], {requestId: id});
+      assert.deepEqual(first.result.sources.map(source => source.dtype), ["uint32", "uint32"]);
+      assert.equal(first.result.image.dtype, "float32");
+      assert.match(first.result.dtype_semantics.precision, /not lossless/);
+      assert.deepEqual((await host.bridge.query(id)).result, first.result);
+    }
+  } finally {await host.close();}
+});
+
+test("uint32 operator contracts use the observed per-operation native dtype matrix", async () => {
+  const cases = [["UNARY", [77, 1], "float32"], ["UNARY", [77, 2], "float32"], ["UNARY", [77, 3], "float32"],
+    ["FILTER", [77, 1], "uint32"], ["FILTER", [77, 2], "float32"], ["FILTER", [77, 3], "float32"], ["FILTER", [77, 4], "uint32"],
+    ["FFT", [77], "complex64"]];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const [operation, args] = cases[Number(request.id.split("-").at(-1))];
+    socket.end(JSON.stringify(reply("completed", uint32OperationFixture(operation, args), {...identity(operation, args), result_version: operation === "FFT" ? 2 : 1})) + "\n");
+  });
+  try {
+    for (let i = 0; i < cases.length; ++i) {
+      const [operation, args, expected] = cases[i], id = "observed-u32-type-" + i;
+      const actual = await host.bridge.execute(operation, args, {requestId: id});
+      assert.equal(actual.result.image.dtype, expected); assert.equal(actual.result.dtype_semantics.output_dtype, expected);
+      assert.deepEqual(actual.result.dtype_semantics.input_dtypes, ["uint32"]);
+      assert.deepEqual((await host.bridge.query(id)).result, actual.result);
+    }
+  } finally {await host.close();}
+});
+
+test("uint32 unary/filter/Fourier contracts reject wrong output types, precision and unqualified probes", async () => {
+  const cases = [
+    ["UNARY", [77, 2], r => {delete r.dtype_semantics;}, /dtype_semantics/],
+    ["UNARY", [77, 3], r => {r.image = imageMetadata(99, {unsigned: true});}, /dtype_semantics/],
+    ["FILTER", [77, 1], r => {r.image = imageMetadata(99, {shape: [5, 7]});}, /per-operation matrix/],
+    ["FILTER", [77, 2], r => {r.image = imageMetadata(99, {unsigned: true, shape: [5, 7]});}, /per-operation matrix/],
+    ["FILTER", [77, 3], r => {delete r.dtype_semantics;}, /dtype_semantics/],
+    ["FILTER", [77, 4], r => {r.dtype_semantics.precision = "lossless uint32 transform";}, /dtype_semantics/],
+    ["FILTER", [77, 1], r => {r.source.is_unsigned = false;}, /image metadata/],
+    ["FILTER", [77, 4], r => {r.image.is_integer = false;}, /image metadata/],
+    ["FILTER", [77, 1], r => {
+      for (const image of [r.source, r.image]) {image.calibration[0].unit = null; image.calibration[0].usable = false; image.calibration[0].issue = "unknown_units"; image.calibration_complete = false;}
+    }, /derived calibration/],
+    ["FFT", [77], r => {r.dtype_semantics.output_dtype = "uint32";}, /dtype_semantics/],
+    ["FFT", [77], r => {r.image = imageMetadata(99);}, /per-operation matrix/],
+    ["FFT", [77], r => {r.dtype_semantics.precision = "exact uint32 Fourier";}, /dtype_semantics/],
+    ["FFT", [77], r => {r.source.is_unsigned = false;}, /image metadata/],
+    ["FILTER", [77, 2], r => {r.qualification = "NOT_QUALIFIED";}, /Unqualified candidate/],
+    ["FFT", [77], r => {r.candidate_probe = true;}, /Unqualified candidate/],
+  ];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const [operation, args, mutate] = cases[Number(request.id.split("-").at(-1))], result = uint32OperationFixture(operation, args); mutate(result);
+    socket.end(JSON.stringify(reply("completed", result, {...identity(operation, args), result_version: operation === "FFT" ? 2 : 1})) + "\n");
+  });
+  try {
+    for (let i = 0; i < cases.length; ++i) {
+      const [operation, args, , expected] = cases[i], id = "bad-u32-matrix-" + i;
+      for (const attempt of [() => host.bridge.execute(operation, args, {requestId: id}), () => host.bridge.query(id)])
+        await assert.rejects(attempt(), error => error.details.code === "NATIVE_PROTOCOL" && expected.test(error.message), "specific target " + i);
+    }
+  } finally {await host.close();}
+});
+
+test("candidate uint32 binary contracts reject implicit casts, mixed inputs and false precision claims", async () => {
+  const cases = [
+    [r => {delete r.dtype_semantics;}, /dtype_semantics/],
+    [r => {r.dtype_semantics.input_dtypes.reverse(); r.dtype_semantics.input_dtypes[0] = "float32";}, /dtype_semantics/],
+    [r => {r.dtype_semantics.output_dtype = "uint32";}, /dtype_semantics/],
+    [r => {r.dtype_semantics.precision = "exact uint32 arithmetic";}, /dtype_semantics/],
+    [r => {r.dtype_semantics.selection = "bridge cast to float32";}, /dtype_semantics/],
+    [r => {r.dtype_semantics.lossless = true;}, /dtype_semantics/],
+    [r => {r.sources[1] = imageMetadata(78);}, /not admitted/],
+    [r => {r.image = imageMetadata(99, {unsigned: true});}, /dtype_semantics/],
+    [r => {r.sources[0].is_unsigned = false;}, /image metadata/],
+    [r => {r.sources[0].data_type_code = 2;}, /image metadata/],
+    [r => {r.output_bytes += 4;}, /output budget/],
+    [r => {r.sources[0].calibration_complete = false;}, /calibration\/output budget/],
+    [r => {r.candidate_probe = true;}, /Unqualified candidate/],
+    [r => {r.qualification = "NOT_QUALIFIED";}, /Unqualified candidate/],
+    [r => {r.computation = "DM native unqualified probe";}, /identity\/raw semantics/],
+  ];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const result = uint32BinaryFixture(); cases[Number(request.id.split("-").at(-1))][0](result);
+    socket.end(JSON.stringify(reply("completed", result, identity("BINARY", [77, 78, 1]))) + "\n");
+  });
+  try {
+    for (let i = 0; i < cases.length; ++i) {
+      const id = "bad-u32-binary-" + i;
+      for (const attempt of [() => host.bridge.execute("BINARY", [77, 78, 1], {requestId: id}), () => host.bridge.query(id)])
+        await assert.rejects(attempt(), error => error.details.code === "NATIVE_PROTOCOL" && cases[i][1].test(error.message), "target " + i);
+    }
+  } finally {await host.close();}
+});
+
+test("Fourier dtype semantics describe the immediate complex input rather than its uint32 ancestor", async () => {
+  const fixture = () => ({...fourierFixture("REAL", 77), dtype_semantics: {
+    input_dtypes: ["complex64"], output_dtype: "float32", selection: "DM native operator output; no bridge pixel cast",
+    precision: "binary32 result; not lossless for arbitrary uint32 inputs"}});
+  const host = await fakeHost(({socket, request, reply}) => {
+    const result = fixture(); if (request.id === "wrong-ancestor-dtype") result.dtype_semantics.input_dtypes = ["uint32"];
+    socket.end(JSON.stringify(reply("completed", result, {...identity("REAL", [77]), result_version: 2})) + "\n");
+  });
+  try {
+    const actual = await host.bridge.query("actual-complex-source");
+    assert.deepEqual(actual.result.dtype_semantics.input_dtypes, ["complex64"]);
+    assert.equal(actual.result.image.dtype, "float32");
+    await assert.rejects(host.bridge.query("wrong-ancestor-dtype"), error => error.details.code === "NATIVE_PROTOCOL" && /dtype_semantics/.test(error.message));
+  } finally {await host.close();}
+});
+
+function describedShowFixture(image = imageMetadata(99, {unsigned: true})) {
+  return {backend: "digitalmicrograph-native", image_id: 99, image, delivery: "visible_dm_document", document_visible: true,
+    operator: "ImageGetOrCreateImageDocument + ImageDocumentShow", ownership: "synthetic UI receipt; no actual document",
+    source_write_requested: false, snapshot_atomic: false, file_saved: false, model_visual_verification: false};
+}
+
+test("described SHOW validates uint32 image identity and permits unavailable optional reductions without changing legacy v1", async () => {
+  const result = describedShowFixture(); result.image.native_mean_supported = result.image.native_summary_supported = false;
+  const host = await fakeHost(({socket, reply}) => socket.end(JSON.stringify(reply("completed", result, identity("SHOW", [99]))) + "\n"));
+  try {
+    const actual = await host.bridge.execute("SHOW", [99], {requestId: "show-u32-described"});
+    assert.equal(actual.result.image.dtype, "uint32"); assert.equal(actual.result.file_saved, false);
+    assert.deepEqual((await host.bridge.query("show-u32-described")).result, result);
+  } finally {await host.close();}
+});
+
+test("described SHOW rejects dtype flags, changed image IDs and invented saving or model visibility", async () => {
+  const cases = [
+    [r => {r.image.id = 98;}, /image metadata/], [r => {r.image.data_type_code = 2;}, /image metadata/],
+    [r => {r.image.is_unsigned = false;}, /image metadata/], [r => {delete r.image.is_integer;}, /image metadata/],
+    [r => {r.image.native_mean_supported = "false";}, /image metadata/],
+    [r => {r.file_saved = true;}, /no-save contract/], [r => {r.model_visual_verification = true;}, /no-save contract/],
+    [r => {r.operator = "ShowFront";}, /no-save contract/], [r => {r.image = null;}, /image metadata/],
+  ];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const result = describedShowFixture(); cases[Number(request.id.at(-1))][0](result);
+    socket.end(JSON.stringify(reply("completed", result, identity("SHOW", [99]))) + "\n");
+  });
+  try {
+    for (let i = 0; i < cases.length; ++i) {
+      const id = "bad-described-show-" + i;
+      for (const attempt of [() => host.bridge.execute("SHOW", [99], {requestId: id}), () => host.bridge.query(id)])
+        await assert.rejects(attempt(), error => error.details.code === "NATIVE_PROTOCOL" && cases[i][1].test(error.message), "target " + i);
+    }
   } finally {await host.close();}
 });
 

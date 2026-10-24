@@ -93,6 +93,28 @@ inline const AdapterProfile& profile() {
                 "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"}, false),
             operation_capability("native_uint32_read", true, "uint32 ordinary 2D exact little-endian ROI; <=16384 samples/65536 bytes", {
                 "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"}, false),
+            {"native_uint32_display", true, "limited synthetic qualification; own uint32 crop and Smooth/Sharpen filter outputs only", {
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
+            operation_capability("native_uint32_image_arithmetic", true, "limited synthetic qualification; uint32 2D same-dtype inputs; binary64 native arithmetic to float32; <=4MiB output; no bridge cast", {
+                "?Negate@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?Abs@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?Square@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "??HGMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV12@0@Z",
+                "??GGMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV12@0@Z",
+                "??DGMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV12@0@Z"}),
+            operation_capability("native_uint32_filters", true, "limited synthetic qualification; uint32 ordinary 2D axes5..256; Smooth/Sharpen saturated-truncated uint32, Sobel/Laplace float32", {
+                "?SmoothFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?SobelFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?LaplaceFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?SharpenFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z"}),
+            operation_capability("native_uint32_fft", true, "limited synthetic qualification; uint32 ordinary 2D power-of-two axes4..256; DM binary32 input conversion; full complex64; own paired inverse/components", {
+                "?Real_FFT@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?IFFT@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?Real@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?Imag@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?Arg@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+                "?Norm@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z"}),
             {"native_save", false, "NOT_QUALIFIED", {}, {}},
         },
         {

@@ -103,7 +103,8 @@ inline FftPlan353 fft_plan353(FftOperation353 operation, const FftImage353& sour
     // Resolve enum validity before any native allocation, including casted enums.
     (void)fft_operator353(operation);
     const auto expected_input = operation == FftOperation353::RealForward ? 2u : 3u;
-    if (source.dimensions != 2 || source.data_type != expected_input)
+    if (source.dimensions != 2 || (source.data_type != expected_input &&
+        !(operation == FftOperation353::RealForward && source.data_type == 11)))
         throw std::runtime_error("native_fft_input_type_or_dimensions_unsupported");
     if (source.packing != 1)
         throw std::runtime_error("native_fft_requires_ordinary_packing");

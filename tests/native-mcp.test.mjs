@@ -8,7 +8,7 @@ import {randomUUID} from "node:crypto";
 import {fileURLToPath} from "node:url";
 import {inflateSync} from "node:zlib";
 import {NativeBridge} from "../lib/native_bridge.mjs";
-import {operationFixture, readFixture, imageMetadata} from "./fixtures/native-operations.mjs";
+import {operationFixture, readFixture, imageMetadata, uint32BinaryFixture, uint32OperationFixture} from "./fixtures/native-operations.mjs";
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -108,6 +108,75 @@ test("existing native MCP tools carry uint32 statistics/crop/preview/READ withou
         assert.deepEqual(Array.from({length: 6}, (_, i) => bytes.readUInt32LE(i * 4)), [0, 16777215, 16777217, 2147483648, 4294967295, 1]);
       }
     }
+  } finally {await client.close(); await host.close();}
+});
+
+test("typed uint32 binary and described SHOW preserve actual output metadata through MCP QUERY", async () => {
+  const binary = uint32BinaryFixture(), show = {backend: "digitalmicrograph-native", image_id: 99,
+    image: imageMetadata(99, {unsigned: true}), delivery: "visible_dm_document", document_visible: true,
+    operator: "ImageGetOrCreateImageDocument + ImageDocumentShow", ownership: "synthetic only; no visible document exists",
+    source_write_requested: false, snapshot_atomic: false, file_saved: false, model_visual_verification: false};
+  const saved = new Map();
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation !== "QUERY") saved.set(request.id, request.operation === "BINARY" ? binary : show);
+    socket.end(JSON.stringify(reply("completed", saved.get(request.id))) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 14);
+    const result = toolOutput(await client.tool("dm_native_binary", {left_image_id: 77, right_image_id: 78, operation: "add", request_id: "candidate-binary"}));
+    assert.equal(result.image.dtype, "float32"); assert.deepEqual(result.sources.map(source => source.dtype), ["uint32", "uint32"]);
+    assert.match(result.dtype_semantics.precision, /not lossless/);
+    assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id: "candidate-binary"})), result);
+    const shown = await client.tool("dm_native_show", {image_id: 99, request_id: "candidate-show"});
+    assert.equal(shown.result.content.length, 1, "a DM document receipt never creates an MCP image block");
+    const text = toolOutput(shown); assert.equal(text.image.dtype, "uint32"); assert.equal(text.file_saved, false);
+    assert.equal(text.model_visual_verification, false);
+    assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id: "candidate-show"})), text);
+  } finally {await client.close(); await host.close();}
+});
+
+test("MCP maps uint32 unary/filter/forward FFT enums to their actual native result dtype without changing the catalog", async () => {
+  const results = new Map();
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation !== "QUERY") results.set(request.id, uint32OperationFixture(request.operation, request.args.map(Number)));
+    socket.end(JSON.stringify(reply("completed", results.get(request.id))) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 14);
+    const calls = [["dm_native_unary", {operation: "negate"}, "float32"], ["dm_native_unary", {operation: "abs"}, "float32"],
+      ["dm_native_unary", {operation: "square"}, "float32"], ["dm_native_filter", {operation: "smooth"}, "uint32"],
+      ["dm_native_filter", {operation: "sobel"}, "float32"], ["dm_native_filter", {operation: "laplace"}, "float32"],
+      ["dm_native_filter", {operation: "sharpen"}, "uint32"], ["dm_native_fft", {direction: "forward"}, "complex64"]];
+    for (let i = 0; i < calls.length; ++i) {
+      const [tool, args, expected] = calls[i], request_id = "native-u32-matrix-" + i;
+      const actual = toolOutput(await client.tool(tool, {image_id: 77, ...args, request_id}));
+      assert.equal(actual.image.dtype, expected); assert.equal(actual.dtype_semantics.output_dtype, expected);
+      assert.deepEqual(actual.dtype_semantics.input_dtypes, ["uint32"]);
+      assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id})), actual);
+    }
+  } finally {await client.close(); await host.close();}
+});
+
+test("unqualified prepared operation receipts never become successful MCP science or preview output", async () => {
+  const host = await nativeHost(({socket, request, reply}) => {
+    const result = uint32BinaryFixture();
+    if (request.id === "candidate-flag") result.candidate_probe = true;
+    else if (request.id === "candidate-qualification") result.qualification = "NOT_QUALIFIED";
+    else result.computation = "DM native unqualified probe";
+    socket.end(JSON.stringify(reply("completed", result, {original_operation: "BINARY", normalized_args: [77, 78, 1], result_type: "native_image_operation", result_version: 1})) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init();
+    for (const request_id of ["candidate-flag", "candidate-qualification", "candidate-computation"]) {
+      const response = await client.tool("dm_native_binary", {left_image_id: 77, right_image_id: 78, operation: "add", request_id});
+      const error = toolOutput(response, true); assert.equal(error.code, "NATIVE_PROTOCOL"); assert.equal(error.state, "unknown");
+      assert.equal(response.result.content.length, 1); assert.equal(Object.hasOwn(error, "image"), false);
+      assert.equal(toolOutput(await client.tool("dm_native_result", {request_id}), true).code, "NATIVE_PROTOCOL");
+    }
+    assert.equal(host.requests.filter(request => request.operation === "BINARY").length, 3);
   } finally {await client.close(); await host.close();}
 });
 

@@ -1,6 +1,6 @@
 // Include inside the adapter's anonymous namespace after fft_adapter.inc.
 // FILTER selects a reviewed named DM filter; no coefficients or pixel kernel
-// are implemented here. Admission is controlled by the prepared-host gate.
+// are implemented here. Exact-profile qualification controls admission.
 std::string execute_filter(const NativeRequest& request) {
     require_ready();
     if (request.args.size() != 2) throw std::runtime_error("native_filter_requires_image_id_and_kind");
@@ -19,8 +19,11 @@ std::string execute_filter(const NativeRequest& request) {
     ImageRef source(api.find_id, request.args[0]);
     const auto source_descriptor = fft_image353(source.value.image);
     if (source_descriptor.id != request.args[0]) throw std::runtime_error("image_identity_mismatch");
-    if (source_descriptor.dimensions != 2 || source_descriptor.data_type != 2 || source_descriptor.packing != 1)
+    const bool uint32 = source_descriptor.data_type == 11;
+    if (source_descriptor.dimensions != 2 || (source_descriptor.data_type != 2 && !uint32) || source_descriptor.packing != 1)
         throw std::runtime_error("native_filter_requires_float32_2d_ordinary_packing");
+    if (uint32) require_uint32_operation353("native_uint32_filters", api.packing && api.minimum && api.maximum &&
+        api.sum && api.mean && api.smooth_filter && api.sobel_filter && api.laplace_filter && api.sharpen_filter);
     if (!source_descriptor.width || !source_descriptor.height)
         throw std::runtime_error("invalid_image_dimensions");
     if (source_descriptor.width < 5 || source_descriptor.height < 5)
@@ -56,7 +59,8 @@ std::string execute_filter(const NativeRequest& request) {
     const auto actual = fft_image353(output.value.image);
     if (!actual.id || actual.id == source_descriptor.id || retained_results.count(actual.id))
         throw std::runtime_error("native_filter_output_identity_invalid");
-    if (actual.dimensions != 2 || actual.data_type != 2 || actual.packing != 1 ||
+    const auto expected_code = uint32 && (request.args[1] == 1 || request.args[1] == 4) ? 11u : 2u;
+    if (actual.dimensions != 2 || actual.data_type != expected_code || actual.packing != 1 ||
         actual.width != source_descriptor.width || actual.height != source_descriptor.height)
         throw std::runtime_error("native_filter_output_descriptor_mismatch");
     const auto output_info = metadata(output.value.image);
@@ -70,11 +74,16 @@ std::string execute_filter(const NativeRequest& request) {
         crop_calibration(source.value.image) != calibration || metadata(source.value.image) != source_info)
         throw std::runtime_error("native_filter_source_metadata_changed");
     require_ready();
-    const std::string semantics = "DM native filter; kernel and edge behavior vendor-defined pending independent qualification";
+    const std::string semantics = uint32 ? (expected_code == 11 ?
+        "DM native uint32 filter; binary64 kernel accumulation; saturated and truncated uint32 storage; bridge performs no pixel cast" :
+        "DM native uint32 filter; binary64 convolution then binary32 storage; not lossless for arbitrary uint32 inputs; bridge performs no pixel cast") :
+        "DM native filter; kernel and edge behavior vendor-defined pending independent qualification";
     auto stream = json_stream();
     stream << "{\"backend\":\"digitalmicrograph-native\",\"operation\":\"FILTER\",\"filter_kind\":" << request.args[1]
       << ",\"source_image_id\":" << source_descriptor.id << ",\"image_id\":" << actual.id
-      << ",\"source\":" << source_info << ",\"image\":" << output_info << ",\"operator\":" << nb::quote(name)
+      << ",\"source\":" << source_info << ",\"image\":" << output_info << ",\"operator\":" << nb::quote(name);
+    if (uint32) stream << ",\"dtype_semantics\":" << uint32_dtype_semantics353(1,11,expected_code);
+    stream
       << ",\"computation\":\"DM native\",\"kernel\":\"vendor_defined\",\"edge_behavior\":\"vendor_defined\""
       << ",\"semantics\":" << nb::quote(semantics) << ",\"output_bytes\":" << bytes
       << ",\"validation_peak_new_image_bytes\":" << peak_bytes
@@ -85,6 +94,6 @@ std::string execute_filter(const NativeRequest& request) {
     source.reset();
     require_ready();
     retain_native_result(output, actual.id, bytes, request, name, {source_descriptor.id},
-                         {source_info}, output_info, semantics);
+                         {source_info}, output_info, semantics, uint32);
     return result;
 }

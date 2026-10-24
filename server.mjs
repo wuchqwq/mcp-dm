@@ -435,23 +435,23 @@ const nativeTools = [
     rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "rect", "request_id"]),
-  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
+  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果（该 dtype 的交付能力也必须已合格）创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
     image_id: {...NATIVE_IMAGE_ID, description: "本插件仍持有的已合格原生结果 image_id（显式 uint32）；不接受任意源图、front 或数字字符串"},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "request_id"]),
-  tool("dm_native_unary", "DM 原生逐像素 negate/abs/square，显式二维 float32 image_id；产生插件持有的独立结果，源图不改。宿主空闲时串行调用，不回退或重发。", {
+  tool("dm_native_unary", "DM 原生逐像素 negate/abs/square，显式二维 float32 或经宿主逐项获准的 uint32 image_id；uint32 的原生结果为 float32，dtype_semantics 明示并非任意整数的无损运算。产生插件持有的独立结果，源图不改。宿主空闲时串行调用，不回退或重发。", {
     image_id: NATIVE_IMAGE_ID, operation: {type: "string", enum: Object.keys(NATIVE_UNARY)}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["image_id", "operation", "request_id"]),
-  tool("dm_native_binary", "DM 原生逐像素 add/subtract/multiply，显式且兼容的两个二维 float32 图像；产生独立结果，源图不改，不支持 divide。宿主空闲时串行调用，不回退或重发。", {
+  tool("dm_native_binary", "DM 原生逐像素 add/subtract/multiply，显式且兼容的两个二维 float32 图像或经宿主逐项获准的 uint32 输入；uint32 原生二元结果为 float32，按 dtype_semantics 报告精度限制，不是任意整数的无损运算。产生独立结果，源图不改，不支持 divide。宿主空闲时串行调用，不回退或重发。", {
     left_image_id: NATIVE_IMAGE_ID, right_image_id: NATIVE_IMAGE_ID, operation: {type: "string", enum: Object.keys(NATIVE_BINARY)}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["left_image_id", "right_image_id", "operation", "request_id"]),
-  tool("dm_native_fft", "有限 DM 原生二维 Fourier：forward 为正指数、未归一化并 fftshift 的 full complex；inverse 为负指数且除以像素数。仅显式 ID，最多每轴 256/65536 像素；不是旧 dm_fft。数学频率使用 frequency_grid，勿将 DM 半 bin 标定偏移当作 DC。产生独立结果，源图不改。", {
+  tool("dm_native_fft", "有限 DM 原生二维 Fourier：forward 接受 float32 或经宿主 dtype 能力获准的 uint32，原生 complex64 输出不是无损整数表示；按 dtype_semantics 报告单精度限制。forward 为正指数、未归一化并 fftshift 的 full complex；inverse 为负指数且除以像素数。仅显式 ID，最多每轴 256/65536 像素；不是旧 dm_fft。数学频率使用 frequency_grid，勿将 DM 半 bin 标定偏移当作 DC。产生独立结果，源图不改。", {
     image_id: NATIVE_IMAGE_ID, direction: {type: "string", enum: ["forward", "inverse"]}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["image_id", "direction", "request_id"]),
   tool("dm_native_complex", "DM 原生 full complex 分量：real、imaginary、phase（弧度）、power（平方模，不是幅值）；产生独立实数结果，源图不改，最多每轴 256/65536 像素。", {
     image_id: NATIVE_IMAGE_ID, component: {type: "string", enum: Object.keys(NATIVE_COMPLEX)}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["image_id", "component", "request_id"]),
-  tool("dm_native_filter", "DM 原生二维 float32 smooth/sobel/laplace/sharpen，产生独立结果且保留空间标定，源图不改；算法及边缘语义以回执为准。宿主空闲时串行调用，不回退或重发。", {
+  tool("dm_native_filter", "DM 原生二维 float32 或经宿主逐项获准的 uint32 smooth/sobel/laplace/sharpen。uint32 的 smooth/sharpen 原生输出 uint32，sobel/laplace 原生输出 float32；实际存储和精度限制由 dtype_semantics 明示，桥端不做像素 cast。产生独立结果且保留空间标定，源图不改；算法及边缘语义以回执为准。宿主空闲时串行调用，不回退或重发。", {
     image_id: NATIVE_IMAGE_ID, operation: {type: "string", enum: Object.keys(NATIVE_FILTER)}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["image_id", "operation", "request_id"]),
   tool("dm_native_preview", "显式二维 float32/uint32 图像的有界灰度 PNG 显示：原生点读取、最近邻采样，最大 128×128，不放大。仅显示适配，不是定量分析或科研文件导出，不修改源图；不代表模型已经看见。", {

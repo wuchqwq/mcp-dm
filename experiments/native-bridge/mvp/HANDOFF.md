@@ -9,12 +9,23 @@ oracle, original STOP release, normal exit and owned removal. The final
 production artifact separately passed the same chain in a fresh host, its own
 STOP/release, normal exit/removal and reopening of unchanged files afterwards.
 It does not inherit other float32 operators'
-qualification; uint32 SHOW/arithmetic/Fourier/filters remain explicit errors.
+qualification. Subsequent uint32 SHOW/arithmetic/Fourier/filter integration has
+[its own record](UINT32_OPERATIONS_ACCEPTANCE.md), including actual native
+output types and rounding. The initial discovery host's original STOP,
+document-held crop lifetime, last-document closure, normal exit and owned
+removal passed independently. The final normal-handler artifact then passed
+32 outputs through actual Node MCP and an independent same-PID oracle, followed
+by two-result SHOW, matched original STOP, last-document release, normal exit
+and manifest-owned removal. Historical unqualified observations are not rewritten.
+The uint32 filter and float32 arithmetic captures reopened unchanged afterwards,
+including ROI and calibration; explicit external examples ran again in new
+directories. All 49 original evidence/data files retained their hashes.
 
 The feature now has fourteen native MCP tools. DM performs negate/abs/square,
 add/subtract/multiply, limited real FFT/paired inverse and real/imaginary/phase/
 power derivation, and smooth/Sobel/Laplace/sharpen for their qualified float32
-inputs. Preview returns a bounded display PNG; READ returns an explicit float32
+and uint32 inputs. The uint32 operations preserve their native output types and
+rounding, including float32 arithmetic and complex64 FFT. Preview returns a bounded display PNG; READ returns an explicit float32
 or uint32 ROI and spatial calibration.
 The exact tool, dtype, dimension, lineage and lifecycle limits are in
 [the workflow](NATIVE_WORKFLOW.md) and [operation acceptance](OPERATIONS_ACCEPTANCE.md).
@@ -73,7 +84,7 @@ remain effective; newer NB2/STOP/handoff controls are additional. Detailed run
 artifacts remain private. No real experiment data processing was performed.
 
 Still unsupported or unqualified: native SaveAs/Open, direct full-complex
-scientific export, other integer native processing, native spectrum/4D,
+scientific export, integer types other than the explicit uint32 scope, native spectrum/4D,
 variance/stddev, other GMS builds, concurrent source edits and non-ASCII legacy
 name interoperability. Ordinary Agent/model-client acceptance is NOT_TESTED.
 Real uint32 ADF data remains NOT_TESTED. Use only explicitly authorized bounded

@@ -21,6 +21,14 @@ preparation switch was removed. This is limited synthetic qualification;
 see [the uint32 record](UINT32_ACCEPTANCE.md). No earlier float32 PASS is
 substituted for this production artifact's observations.
 
+The subsequent [uint32 operations extension](UINT32_OPERATIONS_ACCEPTANCE.md)
+has its own final normal-handler qualification: 32 newly created synthetic
+outputs through Node MCP and a same-PID numerical oracle, two-result visible
+delivery, original STOP, document-held/last-reference release, normal exit,
+manifest-owned removal and unchanged uint32/float32 NPY reopening afterwards.
+Its four additional operation groups do not admit another GMS build or expand
+the underlying five-module fingerprint gate.
+
 This is a multi-version **selection architecture**, not a claim of multi-version
 GMS support. Synthetic version tests do not qualify another GMS build. The new
 selection integration itself must be distinguished from historical host passes.
@@ -99,8 +107,12 @@ Statistics stop at 2,097,152 pixels. Uint32 crop checks its 4,194,304-pixel sour
 bound before allocation, keeps dtype and complete calibration, and limits output
 to 4 MiB. Preview/READ source bounds remain 4,194,304 pixels; preview samples at
 most 128x128, while READ returns at most 16,384 four-byte values. Their original
-float32 contracts are retained. No uint32 arithmetic, FFT, filter, SHOW or SaveAs
-qualification follows from these groups, nor support for other integers, native
+float32 contracts are retained. Four additional groups, `native_uint32_display`,
+`native_uint32_image_arithmetic`, `native_uint32_filters` and `native_uint32_fft`,
+have [separate operation qualification](UINT32_OPERATIONS_ACCEPTANCE.md).
+Their native input/output types and precision are explicit, including binary32
+rounding and integer-filter saturation/truncation. Qualification of one group
+does not qualify another. SaveAs remains unqualified, as do other integers, native
 4D, experimental data or model-client viewing.
 
 ## Adding one version

@@ -1,6 +1,6 @@
 // Include inside dm_adapter.cpp's anonymous namespace after shared retained-result
 // helpers. All scientific work remains in the exact vendor function pointers.
-// The caller admits these operations only through its prepared-host gate.
+// Exact-profile qualification admits operations; no runtime override exists.
 nb::FftImage353 fft_image353(void* image) {
     if (!api.packing) throw std::runtime_error("native_fft_packing_unavailable");
     nb::NativePacking353 packing{UINT32_MAX};
@@ -94,6 +94,10 @@ std::string execute_fft(const NativeRequest& request) {
     if (source_descriptor.id != request.args[0]) throw std::runtime_error("image_identity_mismatch");
     if (retained_source && source.value.image != retained_source->value.image)
         throw std::runtime_error("native_fft_retained_identity_mismatch");
+    const bool uint32_lineage = source_descriptor.data_type == 11 ||
+        (retained_source && retained_source->uint32_operation_lineage);
+    if (uint32_lineage) require_uint32_operation353("native_uint32_fft", api.packing && api.minimum && api.maximum &&
+        api.sum && api.mean && api.real_fft && api.ifft && api.real_component && api.imag_component && api.arg && api.norm);
     const auto plan = nb::fft_plan353(operation, source_descriptor,
                                      retained_result_bytes, retained_results.size());
     // Metadata and shared budget checks precede any vendor result allocation.
@@ -148,12 +152,16 @@ std::string execute_fft(const NativeRequest& request) {
         throw std::runtime_error("native_fft_source_metadata_changed");
     require_ready();
     const std::string semantics = std::string(nb::fft_representation353(operation)) +
-        "; positive-sign centered forward; normalized negative-sign paired inverse; native values and calibration unchanged by bridge";
+        "; positive-sign centered forward; normalized negative-sign paired inverse; native values and calibration unchanged by bridge" +
+        (uint32_lineage ? "; uint32 ancestry; DM rounds input to binary32 before Fourier transform; binary32-component results not lossless for arbitrary uint32 inputs; no bridge pixel cast" : "");
     auto stream = json_stream();
     stream << "{\"backend\":\"digitalmicrograph-native\",\"operation\":" << nb::quote(request.op)
       << ",\"source_image_id\":" << source_descriptor.id << ",\"image_id\":" << output_descriptor.id
       << ",\"source\":" << source_info << ",\"image\":" << output_info
-      << ",\"operator\":" << nb::quote(nb::fft_operator353(operation))
+      << ",\"operator\":" << nb::quote(nb::fft_operator353(operation));
+    if (uint32_lineage) stream << ",\"dtype_semantics\":" <<
+        uint32_dtype_semantics353(1,source_descriptor.data_type,output_descriptor.data_type);
+    stream
       << ",\"computation\":\"DM native\",\"representation\":" << nb::quote(nb::fft_representation353(operation))
       << ",\"normalization\":" << nb::quote(nb::fft_normalization353(operation))
       << ",\"centering\":" << nb::quote(frequency_output ? "fftshift_data" : "spatial_origin_zero")
@@ -178,6 +186,6 @@ std::string execute_fft(const NativeRequest& request) {
     require_ready();
     retain_native_result(output, output_descriptor.id, plan.output_bytes, request,
                          nb::fft_operator353(operation), {source_descriptor.id},
-                         {source_info}, output_info, semantics);
+                         {source_info}, output_info, semantics, uint32_lineage);
     return result;
 }

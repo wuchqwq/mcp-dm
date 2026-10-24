@@ -35,18 +35,19 @@ arithmetic 结果，不代表逐个显示了所有 Fourier/filter 输出。更�
 | --- | --- |
 | mean / summary | float32 2D 最多 4,194,304 像素；普通 packing uint32 2D 最多 2,097,152 像素，限制最坏整数总和在 binary64 精确范围；raw intensity，仅 min/max/sum/mean |
 | crop | float32 / uint32 2D，明确非空半开 ROI、不越界；输出最多 4 MiB；uint32 源最多 4,194,304 像素；完整空间标定，偏移须可精确表示，输出保持源 dtype |
-| negate / abs / square | finite float32 2D、普通 packing、完整空间标定；独立输出最多 4 MiB |
+| negate / abs / square | float32 或 uint32 2D、普通 packing、完整空间标定；独立 float32 输出最多 4 MiB；uint32 由 DM 以 binary64 计算后舍入 |
 | add / subtract / multiply | 同 unary；两源同形状和空间标定，不广播，不支持 divide |
-| FFT | finite float32 2D，普通 packing，完整有效空间标定；每轴为 4–256 的二次幂，最多 65,536 像素 |
+| FFT | float32 或 uint32 2D，普通 packing，完整有效空间标定；每轴为 4–256 的二次幂，最多 65,536 像素；uint32 先由 DM 舍入 binary32，输出 complex64 |
 | IFFT | 仅本插件仍持有的 FFT full-complex 结果；不接受任意外部非 Hermitian 复数源 |
 | real / imaginary / phase / power | 仅本插件仍持有的 FFT/IFFT full-complex 结果；产生独立 float32 图 |
-| smooth / sobel / laplace / sharpen | finite float32 2D、普通 packing、完整空间标定；每轴 5–256，最多 65,536 像素 |
+| smooth / sobel / laplace / sharpen | float32 或 uint32 2D、普通 packing、完整空间标定；每轴 5–256；uint32 Smooth/Sharpen 输出饱和/截断的 uint32，Sobel/Laplace 输出 float32 |
 | preview | float32 / uint32 2D、普通 packing，源最多 4,194,304 像素；输出每轴最多 128，不放大；非有限或无效 dtype 数值采样拒绝 |
 | READ | float32 / uint32 2D、普通 packing，源最多 4,194,304 像素；明确 ROI 最多 16,384 样本／64 KiB；缺失标定明确保留问题，不编造单位；uint32 原字节交接不经 float32 |
 
-uint32 是独立的限定合成资格，见 [专项记录](UINT32_ACCEPTANCE.md)。它不继承
-上表其它算子和 SHOW 的 float32 资格。原有 float32 实机记录不作为新 dtype 的
-证据；当前 uint32 的准备版与最终生产准入构建分别记录。
+基础 uint32 读取、统计和裁剪有[独立记录](UINT32_ACCEPTANCE.md)；新增算术、
+Fourier、filter 和指定保留结果 SHOW 有[另一份逐项验收](UINT32_OPERATIONS_ACCEPTANCE.md)。
+原有 float32 实机记录不作为新 dtype 的证据；准备版与最终生产构建分别记录。
+整数运算和 Fourier 的输出精度不能据输入 dtype 被标成无损整数结果。
 
 crop、算术、Fourier 和 filter 共用最多 32 个强引用、累计 16 MiB、单结果
 4 MiB 的保留池。Fourier 分量验证和 Sobel 的已知临时图也在入场预算中；厂商

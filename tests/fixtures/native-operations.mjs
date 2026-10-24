@@ -84,6 +84,29 @@ export function operationFixture(operation, args) {
     ownership: "synthetic protocol fixture; no actual image allocated"};
 }
 
+// Protocol-only candidate: native binary output storage is float32. This fixture
+// neither computes the vendor operation nor grants uint32 host qualification.
+export function uint32BinaryFixture(args = [77, 78, 1]) {
+  return uint32OperationFixture("BINARY", args);
+}
+
+export function uint32OperationFixture(operation, args) {
+  if (!["UNARY", "BINARY", "FILTER", "FFT"].includes(operation)) throw new Error("Unsupported uint32 protocol fixture");
+  const result = operationFixture(operation, args);
+  const sources = operation === "UNARY" || operation === "BINARY" ?
+    (result.sources = args.slice(0, -1).map(id => imageMetadata(id, {unsigned: true}))) :
+    [result.source = imageMetadata(args[0], {unsigned: true, shape: result.source.shape})];
+  if (operation === "FILTER" && [1, 4].includes(args[1])) result.image = imageMetadata(result.image_id, {unsigned: true, shape: result.image.shape});
+  const outputDtype = result.image.dtype;
+  result.dtype_semantics = {input_dtypes: sources.map(source => source.dtype), output_dtype: outputDtype,
+    selection: "DM native operator output; no bridge pixel cast",
+    precision: outputDtype === "uint32" ? "uint32 native result storage" : outputDtype === "complex64" ?
+      "complex binary32 result; not lossless for arbitrary uint32 inputs" : "binary32 result; not lossless for arbitrary uint32 inputs"};
+  result.output_bytes = result.image.pixels * (outputDtype === "complex64" ? 8 : 4);
+  result.visible_dm_document = false;
+  return result;
+}
+
 export function readFixture(args = [77, 1, 1, 4, 3], {source = imageMetadata(args[0]), provenance = null} = {}) {
   const rect = args.slice(1), [x0, y0, x1, y1] = rect, width = x1 - x0, height = y1 - y0;
   const bytes = Buffer.alloc(width * height * 4);

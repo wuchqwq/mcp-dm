@@ -98,8 +98,11 @@ READ has that source bound and at most 16,384 ROI samples/65,536 raw bytes.
 Explicit saved-response encoding preserves `<u4` NPY bytes; the external
 example records exact integer sum/float64 mean and provenance in a new directory.
 Do not convert uint32 to float32 or substitute PNG for numerical input.
-Arithmetic, FFT, filters and SHOW do not inherit uint32 qualification; native
-SaveAs remains unavailable. Other integers, native 4D, real data and model-client
+Arithmetic, Fourier, filters and eligible retained-result SHOW require their
+[separate uint32 operation capabilities](UINT32_OPERATIONS_ACCEPTANCE.md).
+Native output dtype and rounding are explicit; no bridge cast is performed.
+The scientific READ/NPY path exports the actual result dtype. Native SaveAs
+remains unavailable. Other integers, native 4D, real data and model-client
 use are not qualified by this trial. The default backend and client entries
 remain unchanged; the existing float32 commands below retain their own fixtures.
 

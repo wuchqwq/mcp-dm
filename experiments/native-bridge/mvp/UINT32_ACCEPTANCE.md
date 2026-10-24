@@ -1,5 +1,10 @@
 # uint32 ADF-like data: native processing and handoff
 
+This page retains the initial five-group qualification and its historical
+refusal tests. Later native arithmetic, filters, Fourier and visible delivery
+have their own [operation qualification](UINT32_OPERATIONS_ACCEPTANCE.md);
+the earlier refusal observations below are not current blanket refusals.
+
 This extension concerns ordinary-packed two-dimensional uint32 intensities,
 not detector identification or acquisition control. A uint32 image does not
 establish HAADF geometry, electron counts or intensity calibration.
@@ -60,7 +65,8 @@ cropped before statistics. No automatic clipping or hidden dtype conversion
 is performed. A full 2048 by 2048 uint32 image exceeds the statistics budget.
 
 Native arithmetic, FFT, filters and visible-document delivery do not inherit
-uint32 qualification. Their existing float32/complex scopes remain explicit.
+this five-group qualification; their later independent scope is linked above.
+Their existing float32/complex scopes remain explicit.
 Native SaveAs/Open are still unavailable. Encoding saved READ bytes as NPY is
 bridge-owned data handoff, not an unverified DM SaveAs call.
 
@@ -91,7 +97,13 @@ truncated high bits, incorrect scalar values, transposed arrays, changed
 calibration and falsely rehashed output must fail independent acceptance.
 Real experimental data and ordinary Agent/model-client use remain NOT_TESTED.
 
-## Reproduce without a resident Python bridge
+## Historical five-group procedure
+
+The following entrypoints preserve the earlier five-group trial, including
+its then-required operator refusals. They are not the current artifact's
+expanded-operation qualification. For the current build use the separate
+[uint32 operations procedure](UINT32_OPERATIONS_ACCEPTANCE.md); do not expect
+the historical refusal matrix to pass against newly qualified operators.
 
 Use a new idle synthetic host following [INSTALL](INSTALL.md), with a fresh
 `DM_NATIVE_SESSION` and private existing `DM_NATIVE_EVIDENCE_DIR` set before

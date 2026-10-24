@@ -88,7 +88,13 @@ reported for raw mean/SUMMARY and READ; crop still requires complete calibration
 The explicit encoder writes exact `<u4` NPY bytes without float32 conversion.
 Its optional external example records an exact integer sum and float64 mean,
 script, parameters and input hashes; it is never a native fallback.
-UNARY/BINARY, FFT/components, filters and SHOW do not inherit uint32 support.
+UNARY/BINARY, FFT/components, filters and eligible retained-result SHOW have
+[separate uint32 qualification](UINT32_OPERATIONS_ACCEPTANCE.md), with explicit
+native result types and precision. Arithmetic returns float32; Smooth/Sharpen
+return saturated/truncated uint32; Sobel/Laplace return float32; FFT rounds
+input to binary32 and returns complex64. They do not preserve arbitrary integer
+precision. The original uint32 READ path remains exact; export processed
+results using their actual dtype.
 Other integers, native 4D, real experimental data and model-client acceptance
 remain outside this extension. Native SaveAs/Open remains unavailable.
 

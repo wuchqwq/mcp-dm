@@ -53,8 +53,12 @@ float32 的一个短工作流是：枚举得到源 ID → 明确 ROI 做 crop �
 uint32 的工作流是：明确源 ID → preview 核对 → crop → 原生 mean / summary
 → READ → 无损 NPY 交接。统计最多 2,097,152 像素；crop 源最多 4,194,304 像素、
 输出最多 4 MiB。2048×2048 整图超过统计预算，需先明确选取较小区域。
-不能把 float32 的 square、FFT、滤波或 show 直接用于 uint32；这些会明确拒绝。
-具体资格与合成验收入口见 [uint32 专项](UINT32_ACCEPTANCE.md)。
+uint32 的算术、滤波、FFT 与指定工作结果显示见[独立操作资格](UINT32_OPERATIONS_ACCEPTANCE.md)。
+算术输出 float32，Smooth/Sharpen 输出饱和、截断的 uint32，Sobel/Laplace 输出
+float32；FFT 由 DM 先舍入为 binary32，再生成 complex64。这些是原生处理的实际
+类型规则，不能声称任意整数无损。滤波/FFT 每轴最多 256；其它尺寸和来源限制
+同该专项。结果可按其 ID 继续处理、SHOW 或 READ；NPY 使用实际输出 dtype。
+基础统计与原始无损交接入口仍在 [uint32 专项](UINT32_ACCEPTANCE.md)。
 
 `show` 不保存文件，也不等于模型已理解图像。插件正常 STOP 释放其强引用；
 已显示文档可继续持有结果，直至用户正常关闭该文档。不要关闭无关文档，

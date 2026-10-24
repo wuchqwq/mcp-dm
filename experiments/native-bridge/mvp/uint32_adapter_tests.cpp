@@ -180,7 +180,8 @@ void adapter_checks() {
     check(cropped->uint32_pixels == (std::vector<std::uint32_t>{2147483647u,2147483648u,2147483649u,UINT32_MAX,3,5}));
     check(fake.uint32_pixels == original && cropped->code == 11 && cropped->uint32_pixels.data() != fake.uint32_pixels.data());
     check(retained_result_bytes == 28 && retained_results.size() == 2 && cropped->references == 1);
-    reject_uint32({"show","SHOW",{id}}, "native_show_uint32_not_qualified");
+    // The separate uint32_operations_tests exercises the qualified document
+    // handoff. This suite keeps all its crops unshown for the STOP release check.
     check(!document_calls && !show_calls);
     // Production uses this exact pure admission guard. A copied unqualified
     // profile decision rejects without introducing an override in real code.
@@ -224,12 +225,13 @@ void adapter_checks() {
         reject_uint32({"other","PREVIEW",{17,1,1}}, "native_preview_requires_float32_2d_ordinary_packing");
         check(point_calls == before_calls);
     }
-    fake.code = 11;
+    fake.code = 9; // Signed/other integer storage must not inherit uint32 admission.
     reject_uint32({"unary","UNARY",{17,1}}, "native_arithmetic_requires_float32_2d");
     reject_uint32({"binary","BINARY",{17,17,1}}, "native_arithmetic_requires_float32_2d");
     reject_uint32({"fft","FFT",{17}}, "native_fft_input_type_or_dimensions_unsupported");
     reject_uint32({"filter","FILTER",{17,1}}, "native_filter_requires_float32_2d_ordinary_packing");
     check(!operation_calls && fake.uint32_pixels == original);
+    fake.code = 11;
     shutdown_native();
     check(retained_results.empty() && !retained_result_bytes && registry.size() == 1 && fake.references == 1);
 }

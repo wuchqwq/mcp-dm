@@ -13,6 +13,7 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include <winver.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstddef>
@@ -86,6 +87,7 @@ struct RetainedResult {
     std::vector<std::uint32_t> source_ids;
     std::vector<std::string> source_metadata;
     std::string metadata, semantics;
+    bool uint32_operation_lineage = false;
 };
 std::map<std::uint32_t, RetainedResult> retained_results;
 std::uint64_t retained_result_bytes = 0;
@@ -100,6 +102,22 @@ bool qualified_capability353(const char* name) {
 }
 void require_uint32_operation353(const char* group, bool bindings) {
     nb::require_uint32_admission353(qualified_capability353(group), bindings, group);
+}
+std::string uint32_dtype_semantics353(std::size_t count, std::uint32_t input, std::uint32_t output) {
+    const auto name = [](std::uint32_t code) -> const char* {
+        if (code == 2) return "float32";
+        if (code == 3) return "complex64";
+        if (code == 11) return "uint32";
+        throw std::runtime_error("native_uint32_dtype_semantics_unsupported");
+    };
+    const auto precision = output == 11 ? "uint32 native result storage" : output == 3 ?
+        "complex binary32 result; not lossless for arbitrary uint32 inputs" :
+        "binary32 result; not lossless for arbitrary uint32 inputs";
+    std::string result = "{\"input_dtypes\":[";
+    for (std::size_t i = 0; i < count; ++i) { if (i) result += ','; result += nb::quote(name(input)); }
+    result += "],\"output_dtype\":" + nb::quote(name(output)) +
+        ",\"selection\":\"DM native operator output; no bridge pixel cast\",\"precision\":" + nb::quote(precision) + '}';
+    return result;
 }
 
 struct WinHandle {
@@ -316,7 +334,8 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
                           const NativeRequest& request, const std::string& vendor_operator,
                           const std::vector<std::uint32_t>& source_ids,
                           const std::vector<std::string>& source_metadata,
-                          const std::string& output_metadata, const std::string& semantics) {
+                          const std::string& output_metadata, const std::string& semantics,
+                          bool uint32_lineage = false) {
     require_ready();
     if (!output.value.image || !output_id || api.id(output.value.image) != output_id || retained_results.count(output_id))
         throw std::runtime_error("native_result_output_identity_invalid");
@@ -327,7 +346,7 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
     const auto kind = request.op == "CROP" ? ResultKind::Crop : request.op == "UNARY" ? ResultKind::Unary :
                       request.op == "BINARY" ? ResultKind::Binary : ResultKind::NativeOperation;
     RetainedResult retained{output.value, bytes, kind, api.dtype(output.value.image), request.op, request.id,
-                            vendor_operator, source_ids, source_metadata, output_metadata, semantics};
+                            vendor_operator, source_ids, source_metadata, output_metadata, semantics, uint32_lineage};
     if (!retained_results.emplace(output_id, std::move(retained)).second)
         throw std::runtime_error("native_result_output_identity_invalid");
     retained_result_bytes += bytes;
@@ -494,11 +513,26 @@ std::string execute_show(const NativeRequest& request) {
     const auto id = request.args[0];
     const auto owned = retained_results.find(id);
     if (!id || owned == retained_results.end()) throw std::runtime_error("native_show_requires_plugin_result");
-    if (owned->second.data_type_code == nb::kUint32Code353)
-        throw std::runtime_error("native_show_uint32_not_qualified");
+    const bool uint32 = owned->second.data_type_code == nb::kUint32Code353;
+    if (uint32) {
+        require_uint32_operation353("native_uint32_display", api.get_document && api.show_document &&
+            api.destroy_document_holder && api.destroy_window && api.packing);
+        const bool filter = owned->second.operation == "FILTER" && owned->second.uint32_operation_lineage &&
+            (owned->second.vendor_operator == "GMSImageProcessing::SmoothFilter" ||
+             owned->second.vendor_operator == "GMSImageProcessing::SharpenFilter");
+        if (owned->second.kind != ResultKind::Crop && !filter)
+            throw std::runtime_error("native_show_uint32_requires_crop_or_qualified_filter");
+    }
     ImageRef image(api.find_id, id);
     if (image.value.image != owned->second.value.image || api.id(image.value.image) != id)
         throw std::runtime_error("image_identity_mismatch");
+    // Image IDs and pointers can survive user edits. Creation-time dtype must
+    // not admit a different current dtype through another display policy.
+    if (api.dtype(image.value.image) != owned->second.data_type_code)
+        throw std::runtime_error("native_show_result_descriptor_changed");
+    if (uint32 && (api.dtype(image.value.image) != 11 || api.ndim(image.value.image) != 2 ||
+        packing_style(image.value.image) != 1))
+        throw std::runtime_error("native_show_uint32_descriptor_mismatch");
     if (!api.get_document || !api.show_document || !api.destroy_document_holder || !api.destroy_window)
         throw std::runtime_error("native_show_entrypoint_unavailable");
     // Finish bounded local result construction before requesting any UI change.
@@ -508,7 +542,9 @@ std::string execute_show(const NativeRequest& request) {
       << ",\"operator\":\"ImageGetOrCreateImageDocument + ImageDocumentShow\""
       << ",\"ownership\":\"host document holds image; plugin result reference released at normal STOP/cleanup\""
       << ",\"source_write_requested\":false,\"snapshot_atomic\":false"
-      << ",\"file_saved\":false,\"model_visual_verification\":false}";
+      << ",\"file_saved\":false,\"model_visual_verification\":false";
+    if (uint32) s << ",\"image\":" << metadata(image.value.image);
+    s << '}';
     const auto result = s.str();
     if (!nb::valid_json(result)) throw std::runtime_error("native_show_result_invalid");
     require_ready();
@@ -620,19 +656,23 @@ std::string execute_crop(const NativeRequest& request) {
     return result;
 }
 struct ArithmeticImage {
-    std::uint32_t id, width, height;
+    std::uint32_t id, width, height, data_type;
     std::array<CropAxisCalibration, 2> calibration;
     std::string information;
 };
 ArithmeticImage arithmetic_image(void* image, std::uint32_t expected_id) {
     require_ready();
     if (api.id(image) != expected_id) throw std::runtime_error("image_identity_mismatch");
-    if (api.ndim(image) != 2 || api.dtype(image) != 2)
+    const auto code = api.dtype(image);
+    if (api.ndim(image) != 2 || (code != 2 && code != 11))
         throw std::runtime_error("native_arithmetic_requires_float32_2d");
+    if (code == 11) require_uint32_operation353("native_uint32_image_arithmetic", api.packing &&
+        api.negate && api.abs && api.square && api.add && api.subtract && api.multiply &&
+        api.minimum && api.maximum && api.sum && api.mean);
     if (packing_style(image) != 1) throw std::runtime_error("native_arithmetic_requires_ordinary_packing");
     const auto width = api.dimension(image, 0), height = api.dimension(image, 1);
     if (!width || !height) throw std::runtime_error("invalid_image_dimensions");
-    return {expected_id, width, height, crop_calibration(image), metadata(image)};
+    return {expected_id, width, height, code, crop_calibration(image), metadata(image)};
 }
 void validate_native_finite_image(const NativeRef& image, const char* nonfinite_error) {
     if (!api.minimum || !api.maximum || !api.sum || !api.mean)
@@ -646,7 +686,7 @@ void validate_native_finite_image(const NativeRef& image, const char* nonfinite_
     require_ready();
 }
 void arithmetic_source_unchanged(void* image, const ArithmeticImage& before) {
-    if (api.id(image) != before.id || api.ndim(image) != 2 || api.dtype(image) != 2 || packing_style(image) != 1 ||
+    if (api.id(image) != before.id || api.ndim(image) != 2 || api.dtype(image) != before.data_type || packing_style(image) != 1 ||
         api.dimension(image, 0) != before.width || api.dimension(image, 1) != before.height ||
         crop_calibration(image) != before.calibration || metadata(image) != before.information)
         throw std::runtime_error("native_arithmetic_source_metadata_changed");
@@ -684,6 +724,7 @@ std::string execute_arithmetic(const NativeRequest& request) {
     if (binary) {
         rhs = std::make_unique<ImageRef>(api.find_id, request.args[1]);
         right = std::make_unique<ArithmeticImage>(arithmetic_image(rhs->value.image, request.args[1]));
+        if (right->data_type != lhs.data_type) throw std::runtime_error("native_binary_dtype_mismatch");
         if (right->width != lhs.width || right->height != lhs.height)
             throw std::runtime_error("native_binary_shape_mismatch");
         if (right->calibration != lhs.calibration)
@@ -717,7 +758,9 @@ std::string execute_arithmetic(const NativeRequest& request) {
     for (std::size_t i = 0; i < source_ids.size(); ++i) { if (i) stream << ','; stream << source_ids[i]; }
     stream << "],\"sources\":[";
     for (std::size_t i = 0; i < source_metadata.size(); ++i) { if (i) stream << ','; stream << source_metadata[i]; }
-    stream << "],\"image\":" << output_info << ",\"operator\":" << nb::quote(vendor_operator)
+    stream << "],\"image\":" << output_info << ",\"operator\":" << nb::quote(vendor_operator);
+    if (lhs.data_type == 11) stream << ",\"dtype_semantics\":" << uint32_dtype_semantics353(binary ? 2u : 1u, 11, 2);
+    stream
       << ",\"computation\":\"DM native\",\"intensity_calibration_applied\":false,\"intensity_semantics\":\"raw pixel intensity\""
       << ",\"output_bytes\":" << bytes << ",\"ownership\":\"plugin retained strong reference until normal native STOP/cleanup; shown document may retain image\""
       << ",\"finite_check\":\"DM native GetMinimum/GetMaximum/GetSum/GetMean\",\"visible_dm_document\":false"
@@ -725,8 +768,11 @@ std::string execute_arithmetic(const NativeRequest& request) {
     auto result = stream.str();
     if (!nb::valid_json(result)) throw std::runtime_error("native_arithmetic_result_over_budget_or_invalid");
     source.reset(); if (rhs) rhs->reset(); require_ready();
+    const std::string semantics = lhs.data_type == 11 ?
+        "DM native uint32 inputs; binary64 native arithmetic then binary32 result; not lossless for arbitrary uint32 inputs; bridge performs no pixel cast" :
+        "DM native raw pixel arithmetic; intensity/spatial metadata copied from first input";
     retain_native_result(output, output_id, bytes, request, vendor_operator, source_ids, source_metadata,
-                         output_info, "DM native raw pixel arithmetic; intensity/spatial metadata copied from first input");
+                         output_info, semantics, lhs.data_type == 11);
     return result;
 }
 #include "fft_adapter.inc"
@@ -867,6 +913,11 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("crop_uint32_2d", available("native_uint32_crop", api.packing && api.crop));
         capability("sampled_preview_uint32_2d", available("native_uint32_preview", api.packing && api.real_value));
         capability("bounded_read_uint32_2d", available("native_uint32_read", api.packing && api.real_value));
+        capability("show_plugin_uint32_crop_or_filter_visible_document", available("native_uint32_display", display && api.packing));
+        capability("unary_uint32_to_float32_2d", available("native_uint32_image_arithmetic", arithmetic));
+        capability("binary_uint32_to_float32_2d", available("native_uint32_image_arithmetic", arithmetic));
+        capability("filter_small_uint32_2d", available("native_uint32_filters", filters));
+        capability("fourier_uint32_small_2d", available("native_uint32_fft", fourier));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
           << ",\"build_error\":" << (fatal_abi ? "\"native_abi_invalid_output_path_disabled\"" : gate_error.empty() ? "null" : nb::quote(gate_error)) << '}';

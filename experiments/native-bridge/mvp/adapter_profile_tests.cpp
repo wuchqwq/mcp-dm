@@ -62,14 +62,16 @@ int main() {
         check(selected.available("native_display") && selected.available("native_datasets"));
         for (const auto* name : {"native_mean", "native_statistics", "native_crop", "native_display", "native_datasets",
                                  "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read",
-                                 "native_uint32_mean", "native_uint32_statistics", "native_uint32_crop", "native_uint32_preview", "native_uint32_read"})
+                                 "native_uint32_mean", "native_uint32_statistics", "native_uint32_crop", "native_uint32_preview", "native_uint32_read",
+                                 "native_uint32_display", "native_uint32_image_arithmetic", "native_uint32_filters", "native_uint32_fft"})
             check(selected.available(name));
         for (const auto* name : {"native_save", "invented"}) {
             check(!selected.available(name)); attempt(selected, name); check(vendor_calls == 0);
         }
         // Complete addresses cannot qualify a deliberately unqualified group.
         for (const auto* name : {"native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read",
-                                 "native_uint32_mean", "native_uint32_statistics", "native_uint32_crop", "native_uint32_preview", "native_uint32_read"}) {
+                                 "native_uint32_mean", "native_uint32_statistics", "native_uint32_crop", "native_uint32_preview", "native_uint32_read",
+                                 "native_uint32_display", "native_uint32_image_arithmetic", "native_uint32_filters", "native_uint32_fft"}) {
             auto unqualified = nb::gms353::profile();
             for (auto& capability : unqualified.capabilities)
                 if (std::string(capability.name) == name) capability.qualified = false;

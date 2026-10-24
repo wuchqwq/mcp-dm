@@ -80,6 +80,29 @@ print('independent uint32 bytes/hash PASS')`;
   assert.match(execFileSync('python', ['-c', script, path.join(directory, 'capture')], {encoding: 'utf8'}), /uint32 bytes\/hash PASS/);
 });
 
+test('a saved native operation snapshot encodes its actual output dtype, independently of ancestor input dtype', t => {
+  // Fabricated receipts only: this does not qualify a native operator or guess
+  // which result dtype a vendor function will select for uint32 input.
+  for (const unsigned of [false, true]) {
+    const directory = temporary(t), value = payload({source: imageMetadata(77, {unsigned})});
+    value.source_provenance = {operation: 'UNARY', request_id: 'synthetic-uint32-parent', source_image_ids: [1234],
+      semantics: 'synthetic uint32 ancestor; saved snapshot describes actual native output storage; no bridge cast'};
+    const saved = prepare(directory, value), result = invoke(directory, saved);
+    assert.equal(result.dtype, unsigned ? 'uint32' : 'float32');
+    const script = String.raw`import json,sys,numpy as np
+from pathlib import Path
+p=Path(sys.argv[1]);dtype=sys.argv[2];i=json.loads((p/'input.json').read_text())
+a=np.load(p/'input.npy',allow_pickle=False)
+assert a.dtype==np.dtype('<u4' if dtype=='uint32' else '<f4') and i['dtype']==dtype
+expected=np.array([[0,16777215,16777217],[2147483648,4294967295,1]],dtype='<u4') if dtype=='uint32' else np.array([[-0.,-2.5,.125],[8.,-0.,-2.5]],dtype='<f4')
+assert a.tobytes()==expected.tobytes()
+assert i['native_source_provenance']['request_id']=='synthetic-uint32-parent'
+assert i['native_source_provenance']['source_image_ids']==[1234]
+print('actual native output dtype retained')`;
+    assert.match(execFileSync('python', ['-c', script, path.join(directory, 'capture'), result.dtype], {encoding: 'utf8'}), /actual native output dtype retained/);
+  }
+});
+
 test('uint32 saved snapshots reject dtype/code/unsigned contradictions before any journal or output creation', t => {
   const mutations = [p => p.source.data_type_code = 2, p => p.dtype = 'float32', p => p.source.is_integer = false,
     p => p.source.is_unsigned = false, p => delete p.source.is_unsigned, p => p.source.packing_style = 0,

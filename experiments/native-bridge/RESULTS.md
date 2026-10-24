@@ -13,7 +13,15 @@ original STOP release, normal exit and manifest-owned removal. The final
 production artifact independently repeated those checks in a fresh host, then
 the stored uint32 captures reopened unchanged after exit/removal and a new
 explicit external run. The float32 records below are retained as their
-own evidence; they do not qualify uint32 arithmetic, Fourier, filters or SHOW.
+own evidence. The subsequent native arithmetic, filters, Fourier and visible
+delivery extension has [separate uint32 qualification](mvp/UINT32_OPERATIONS_ACCEPTANCE.md),
+with native output dtype and rounding explicitly recorded. Its initial
+preparation-host SHOW/STOP/last-document release and normal cleanup passed.
+On 2026-10-24 the final normal-handler artifact independently passed 32 outputs
+through actual Node MCP and a same-PID numerical oracle, then two-result
+SHOW/STOP/last-document release, normal exit and manifest-owned removal.
+Its two actual uint32/float32 captures also reopened unchanged after host exit
+and removal; new explicit external runs matched the independent references.
 
 The following scopes use only newly created synthetic data on the exact pinned
 Windows x64 GMS profile, with an idle host, serial calls and no concurrent source
@@ -34,7 +42,7 @@ edits. They do not qualify real experimental files or another GMS version.
 | Safe errors and recovery | PASS, limited | Actual unsupported type/nonfinite/ID/bounds/filter-size/FFT-size/foreign-IFFT rejection; original-ID QUERY remains unchanged; unsupported tools do not switch backend |
 | Offline engineering regression | PASS | Core and ABI surrogates, version/rejection tests, Windows synthetic pipe, real Node stdio MCP, PNG/NPY tests, default Python compatibility and targeted oracle faults; these are not host ABI evidence |
 | Ordinary Agent/model client | NOT_TESTED | No model-client acceptance substitutes for the strict protocol client |
-| Native SaveAs/Open, other GMS, other integer/4D native processing | NOT_TESTED / unavailable | uint32 has only the separate five-operation subset; no guessed ABI, dtype conversion or hidden fallback |
+| Native SaveAs/Open, other GMS, other integer/4D native processing | NOT_TESTED / unavailable | uint32 has separately qualified per-operation scope and explicit native output precision; no guessed ABI or hidden fallback |
 | Non-ASCII legacy name interoperability | NOT_QUALIFIED | Historical failure retained; no heuristic recoding fix |
 
 New numerical qualification used prepared operator builds first, then a separate
@@ -48,6 +56,13 @@ identity is still UNVERIFIED and was not reconstructed.
 The original 106 oracle fault injections were explicitly rerun, not inferred
 from an older summary. Runtime counting also verified the expanded legacy/NB2
 negative set. Exact logs, per-case errors and source/binary hashes remain local.
+This uint32-operations turn executed the eight C++ offline suites, then the
+final SHOW-type guard's 219 assertions and 2,014 existing adapter assertions;
+110 Node tests (zero skips), 13 synthetic Windows-pipe tests, 553 Python tests
+and 21 default-backend self-tests passed. The final 14-method production-oracle
+suite also passed after the full run, including its later added dtype check.
+These are offline results, separate
+from the bounded real-host evidence above.
 See [operation boundaries](mvp/OPERATIONS_ACCEPTANCE.md),
 [the workflow](mvp/NATIVE_WORKFLOW.md) and [adapter matrix](mvp/ADAPTERS.md).
 

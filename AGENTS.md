@@ -150,12 +150,14 @@ Only each operation's listed dtypes/layouts are eligible; unsupported inputs
 remain errors, without silent conversion or a backend fallback.
 
 - UNARY is negate/abs/square; BINARY is add/subtract/multiply, not divide.
-  Both create separate bounded float32 2D results and require compatible
+  Both admit qualified float32 or uint32 sources, create bounded float32 2D
+  results and require matching source dtypes and compatible
   descriptors/calibration and finite native results. All image-producing
   operations share the bounded retained-result pool; they do not edit sources.
 - New FFT/complex submissions require native_fourier_operation version 2;
   version 1 remains explicitly recognizable for historical QUERY only.
-  The qualified scope is limited to ordinary-packing power-of-two dimensions
+  The qualified real-input scope admits float32 or separately qualified uint32,
+  limited to ordinary-packing power-of-two dimensions
   4..256, full-complex output and complete spatial calibration. Forward uses
   positive exponent, no normalization and fftshift data; inverse uses negative
   exponent divided by width*height and resets spatial origin to zero. Inverse
@@ -165,8 +167,10 @@ remain errors, without silent conversion or a backend fallback.
   half-bin calibration offset separately. Never relabel the native calibrated
   DC as zero or claim inverse restores the source origin/intensity calibration.
 - FILTER exposes only smooth/sobel/laplace/sharpen through DM operators:
-  ordinary float32 2D, dimensions 5..256, bounded finite source/output, preserved
-  spatial calibration. Do not invent another kernel or infer edge behavior.
+  ordinary float32 or separately qualified uint32 2D, dimensions 5..256,
+  bounded finite source/output, preserved spatial calibration. Uint32
+  Smooth/Sharpen retain uint32 with native saturation/truncation; Sobel/Laplace
+  return float32. Do not invent another kernel or infer edge behavior.
 - PREVIEW reads bounded native points into at most 128x128 gray8 pixels and
   returns an MCP PNG image block plus text, also after QUERY. It is nearest
   integer-index sampling without averaging or enlargement; display-only,
@@ -187,8 +191,14 @@ describe the fixed-build dtype contract, not nonexistent native flag getters.
 MEAN/SUMMARY use DM reductions with a 2,097,152-pixel conservative exact-integer
 sum budget. Fractional means remain binary64. uint32 CROP admits at most
 4,194,304 source pixels and 4 MiB output, preserves uint32 and requires complete
-spatial calibration. Uint32 SHOW, arithmetic, Fourier and filters remain
-unqualified and reject explicitly; never silently cast to float32. Saved READ
+spatial calibration. Uint32 SHOW, arithmetic, Fourier and filters have four
+separate profile groups and their own UINT32_OPERATIONS_ACCEPTANCE.md evidence.
+Arithmetic is DM binary64 computation then float32 storage; FFT first rounds
+the uint32 source to binary32 and outputs complex64. Neither is arbitrary
+integer-exact computation. The bridge never casts scientific pixels. SHOW
+admits only exact retained uint32 crops or qualified Smooth/Sharpen results,
+and verifies the actual dtype still matches its immutable retention record
+before requesting a document. Saved READ
 uint32 bytes use NPY <u4. The optional external example records an exact Python
 integer sum, checks NumPy uint64, and divides once for a raw binary64 mean.
 Only new synthetic images qualify this extension; real ADF files remain

@@ -5,7 +5,7 @@ feature's fourteen-tool native backend, pinned adapter and scientific handoff,
 use [the workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md) and
 [current handoff](experiments/native-bridge/mvp/HANDOFF.md); inspect the live catalog.
 
-The uint32 extension covers only native ordinary-packed 2D metadata, mean/SUMMARY,
+The initial uint32 subset covers native ordinary-packed 2D metadata, mean/SUMMARY,
 same-dtype crop, preview and READ. Statistics allow at most 2,097,152 pixels;
 crop allows at most 4,194,304 source pixels and 4 MiB output with complete spatial
 calibration; preview uses that source bound and at most 128x128 samples; READ
@@ -13,7 +13,11 @@ allows at most 16,384 ROI samples. Explicit NPY handoff preserves `<u4` bytes;
 the optional external example records an exact integer sum and float64 fractional
 mean. Prepared and final production qualification are separate; see
 [the current uint32 acceptance status](experiments/native-bridge/mvp/UINT32_ACCEPTANCE.md).
-Native arithmetic, FFT, filters and SHOW do not inherit uint32 qualification.
+Native arithmetic, filters, Fourier and eligible retained-result SHOW have
+[separate uint32 qualification](experiments/native-bridge/mvp/UINT32_OPERATIONS_ACCEPTANCE.md).
+Arithmetic returns float32; Smooth/Sharpen return saturated/truncated uint32;
+Sobel/Laplace return float32; FFT rounds input to binary32 and returns complex64.
+These are not lossless arbitrary-integer operations. Export the actual result dtype.
 Native SaveAs, other integer types, native 4D, experimental data and model-client
 acceptance remain outside this extension. The default-backend and historical
 records below retain their original scope.

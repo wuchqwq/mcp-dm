@@ -43,6 +43,24 @@ none passes through float32. Preview performs display scaling only. Neither path
 buffer or supports arbitrary dtype/layout. See the per-version contracts and
 [operation qualification](mvp/OPERATIONS_ACCEPTANCE.md) for the tested limits.
 
+The additional uint32 native operator paths use the same proven reference/POD
+signatures, not a new pixel-memory ABI. Static tracing distinguishes the
+scientific conversions: unary and paired arithmetic zero-extend uint32, convert
+to binary64, execute the vendor operator, then store binary32. Native 3x3
+convolution accumulates in binary64; uint32 stores saturate negatives/overflow
+and truncate toward zero. Sobel/Laplace use binary32 result storage, with Sobel
+combining its native gradient images. Real_FFT instead assigns uint32 directly
+to binary32 before invoking the native transform. These are vendor operations,
+not bridge-side conversion or numerical corrections. Runtime qualification and
+the empirical small dense-FFT acceptance policy are recorded separately in
+[uint32 operations](mvp/UINT32_OPERATIONS_ACCEPTANCE.md); no general FFT error
+theorem or arbitrary integer-exact result follows from these static findings.
+
+Fourier descendants carry explicit retained uint32 lineage for qualification
+and precision disclosure, with immediate input dtype complex64 where appropriate.
+SHOW checks the live image dtype against its retained type before requesting
+a document; mutable object identity does not freeze a descriptor or pixels.
+
 Real_FFT is followed by its reviewed native unpack path to obtain a full
 complex image. IFFT/component admission binds the exact retained parent object
 and immutable creation metadata. Fourier v2 reports the measured sign,
