@@ -1,0 +1,22 @@
+name: Isolated region identity source
+on:
+  push:
+    branches: [validation/region-id-source-20261025]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 19b3b23c9f9e980c46002670358f7a858d4cdab9
+          persist-credentials: false
+      - name: Archive exact public source, no experimental files
+        run: git archive --format=tar.gz -o baseline-19b3b23.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-source-19b3b23
+          path: baseline-19b3b23.tar.gz
+          retention-days: 3
+          if-no-files-found: error
