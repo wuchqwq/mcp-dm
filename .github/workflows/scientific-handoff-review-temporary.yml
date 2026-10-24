@@ -1,0 +1,113 @@
+name: Isolated Windows scientific handoff review
+on:
+  push:
+    branches: [validation/native-scientific-handoff-20261024]
+    paths: ['.github/workflows/scientific-handoff-review-temporary.yml', '.review/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: d59c0ce71875db0f0ca3bed1ba34eb6472427c00
+          path: product
+          fetch-depth: 100
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify and apply exact reviewed patch
+        shell: python
+        run: |
+          import base64,gzip,hashlib,pathlib,subprocess
+          root=pathlib.Path.cwd(); parts=root/'payload'/'.review'
+          text=''.join((parts/('science-patch-%d.b64'%i)).read_text().strip() for i in range(4))
+          raw=gzip.decompress(base64.b64decode(text,validate=True))
+          assert hashlib.sha256(raw).hexdigest()=='7e8d911010449d97a91396bee8592b3c1261133f9e2580f776ef8976fca1c462'
+          patch=root/'reviewed.patch'; patch.write_bytes(raw)
+          for args in (['git','apply','--check','--index',str(patch)],['git','apply','--index',str(patch)],['git','diff','--cached','--check']):
+              subprocess.run(args,cwd=root/'product',check=True)
+      - name: Install external test dependencies
+        working-directory: product
+        run: |
+          python -m pip install -r requirements-dev.txt -r requirements-analysis.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+      - name: Prepare pinned official LLVM-MinGW
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'llvm-mingw.zip'
+          Invoke-WebRequest -Uri 'https://github.com/mstorsjo/llvm-mingw/releases/download/20250528/llvm-mingw-20250528-ucrt-x86_64.zip' -OutFile $zip
+          $directory = Join-Path $env:RUNNER_TEMP 'llvm'
+          Expand-Archive -LiteralPath $zip -DestinationPath $directory
+          $compiler = Join-Path $directory 'llvm-mingw-20250528-ucrt-x86_64\bin\clang++.exe'
+          & $compiler --version
+          if ($LASTEXITCODE -ne 0) { throw 'Compiler failed' }
+          "DM_REVIEW_CXX=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build product and nine offline C++ suites (no DM loaded)
+        working-directory: product
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP 'native-build'
+          & .\experiments\native-bridge\mvp\build.ps1 -Cxx $env:DM_REVIEW_CXX -OutputDirectory $build
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          "DM_NATIVE_FAKE_HOST_EXE=$build\fake_host.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DM_NATIVE_SCIENTIFIC_FIXTURE=$build\scientific-surrogate-read.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DM_REVIEW_BUILD=$build" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: C++ contract and adapter surrogate checks
+        working-directory: product
+        run: |
+          foreach ($name in @('core_tests','adapter_tests','read_adapter_tests','uint32_adapter_tests','uint32_operations_tests','adapter_profile_tests','adapter_rejection_tests','candidate_calls_tests')) {
+            & (Join-Path $env:DM_REVIEW_BUILD "$name.exe")
+            if ($LASTEXITCODE -ne 0) { throw "$name failed" }
+          }
+          & (Join-Path $env:DM_REVIEW_BUILD 'scientific_handoff_tests.exe') $env:DM_NATIVE_SCIENTIFIC_FIXTURE
+          if ($LASTEXITCODE -ne 0) { throw 'Scientific adapter metadata surrogate failed' }
+      - name: Windows synthetic-host pipe checks
+        working-directory: product
+        run: |
+          python -B experiments/native-bridge/mvp/test_transport.py --exe $env:DM_NATIVE_FAKE_HOST_EXE
+          if ($LASTEXITCODE -ne 0) { throw 'Transport tests failed' }
+      - name: Complete Node suite including actual C++ surrogate packet
+        working-directory: product
+        run: |
+          node --test
+          if ($LASTEXITCODE -ne 0) { throw 'Node tests failed' }
+      - name: Complete Python synthetic suite
+        working-directory: product
+        run: |
+          python -B -m unittest discover -s tests -p 'test_*.py' -q
+          if ($LASTEXITCODE -ne 0) { throw 'Python tests failed' }
+      - name: Default mock and Python 3.7 syntax
+        working-directory: product
+        run: |
+          $env:DM_TEST_PYTHON = (Get-Command python).Source
+          node selftest.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Default mock failed' }
+          python -c "import ast,pathlib; [ast.parse(p.read_text(encoding='utf-8-sig'),feature_version=(3,7)) for p in pathlib.Path('bridge').glob('*.py')]; print('Bridge Python 3.7 syntax PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'Compatibility syntax failed' }
+          git diff --cached --check
+          if ($LASTEXITCODE -ne 0) { throw 'Whitespace check failed' }
+      - name: Publish tested product candidate only, never main
+        working-directory: product
+        run: |
+          $branch = 'repair/native-scientific-handoff-20261024'
+          $existing = git ls-remote --heads origin "refs/heads/$branch"
+          if ($LASTEXITCODE -ne 0 -or $existing) { throw 'Cannot create new candidate without overwriting' }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          git commit -m 'fix(native): preserve Fourier science through crop READ and NPY handoff'
+          if ($LASTEXITCODE -ne 0) { throw 'Product commit failed' }
+          git push origin "HEAD:refs/heads/$branch"
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate push failed' }
+          $sha = git rev-parse HEAD
+          "Tested candidate: $sha" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "Windows checks use synthetic callbacks only. No actual DM, Gatan DLL or user machine is loaded." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
