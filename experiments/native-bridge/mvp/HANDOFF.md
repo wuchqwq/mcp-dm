@@ -1,14 +1,20 @@
 # Native MVP continuation handoff
 
+## Current continuation: release, complete handoff and workspace findings
+
+The current work is on a feature branch based on the reviewed main integration; it is not merged back to main. The native catalog has sixteen tools, including explicit reference release/current availability. The existing small READ remains unchanged; a thin Node runner now saves a complete bounded region with exact per-block receipts and the original immediate source-creation QUERY parameters. See [the current contract and qualification boundaries](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md).
+
+Targeted actual synthetic DM checks qualified the P0 Fourier metadata path, reference release/reuse, document-held lifetime and chunked files. A separate authorized read-only ADF ROI trial preserved original data/files and exported values; its inverse round trip did not meet its predeclared accuracy threshold, and remains FAIL. Manual synthetic workspace switching preserved explicit image IDs and source documents; repeated SHOW did not activate an inactive result workspace. Native workspace switching and GUI ROI/profile/histogram/annotations remain NOT_QUALIFIED with concrete missing contracts in that guide.
+
+Historical sections below retain their original scope and evidence. Missing old STOP records remain UNVERIFIED. No ordinary model-client acceptance, stable release, backend default change or merge into main is implied.
+
 ## Integration follow-up: scientific metadata handoff
 
 The reviewed native feature is integrated as an opt-in experiment; default
 v0.6 remains unchanged. The new metadata-only follow-up preserves Fourier
 producer context through retained results, crop/READ and NPY packaging. It does
 not change vendor entrypoints, pixels, size/type limits or the build gate.
-The new path has offline/synthetic validation only; the d59c0ce real-host
-records below do not qualify the changed wire/metadata path. A focused actual-DM
-continuation remains NOT_TESTED. See [handoff contract](../../../docs/SCIENTIFIC_HANDOFF.md) and the
+The d59c0ce records alone did not qualify this path. A subsequent focused synthetic actual-DM continuation independently checked the metadata, pixels, composed coordinates and cleanup; see the current continuation above. See [handoff contract](../../../docs/SCIENTIFIC_HANDOFF.md) and the
 [next-stage official comparison](../../../docs/NATIVE_NEXT_STAGE.md).
 
 
@@ -33,7 +39,7 @@ The uint32 filter and float32 arithmetic captures reopened unchanged afterwards,
 including ROI and calibration; explicit external examples ran again in new
 directories. All 49 original evidence/data files retained their hashes.
 
-The feature now has fourteen native MCP tools. DM performs negate/abs/square,
+The earlier integrated feature had fourteen native MCP tools; this checkout adds the two lifecycle tools described above. DM performs negate/abs/square,
 add/subtract/multiply, limited real FFT/paired inverse and real/imaginary/phase/
 power derivation, and smooth/Sobel/Laplace/sharpen for their qualified float32
 and uint32 inputs. The uint32 operations preserve their native output types and

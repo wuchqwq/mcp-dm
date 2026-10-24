@@ -47,8 +47,8 @@ FFT 的频率峰也不是自动确认的晶面或物相。预览是否能被模�
 | 路径 | 当前范围 | 使用前要知道 |
 |---|---|---|
 | **主线默认：v0.6 Python 后端** | 图像与元数据读取、二维统计、剖面、FFT 摘要、裁剪、科学数据导出，以及可选的捕获与预览 | 通过 DM 内嵌 Python 连接；部分数值计算使用 NumPy。预览需要独立环境，详见安装指南。 |
-| **主线可选：原生 C++ 实验后端** | 14 个工具：原生摘要、裁剪、有限算术/FFT/滤波、PNG 预览、可见文档和有界数值交接 | 仅限 Windows x64 GMS **3.53.4137.0** 的精确指纹与各操作已验证的类型/尺寸。NPY 交接不等于 DM 原生文件保存；详见[原生工作流](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md)。 |
-| **下一阶段** | GUI 选区、原生剖面/直方图、分块交接和结果释放 | 见[官方功能对照与优先级](docs/NATIVE_NEXT_STAGE.md)；未实现的项目不是当前能力。 |
+| **可选：原生 C++ 实验后端** | 当前分支 16 个工具：原生摘要、裁剪、有限算术/FFT/滤波、PNG 预览、可见文档和有界数值交接 | 仅限 Windows x64 GMS **3.53.4137.0** 的精确指纹与各操作已验证的类型/尺寸。NPY 交接不等于 DM 原生文件保存；详见[原生工作流](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md)。 |
+| **下一阶段** | GUI 选区、原生剖面/直方图和工作区切换 | 见[官方功能对照与优先级](docs/NATIVE_NEXT_STAGE.md)；未实现的项目不是当前能力。 |
 
 **第一次试用，先用主线默认后端。** 原生版本请单独阅读[实验说明与版本限制](experiments/native-bridge/mvp/README.md)，不要直接在未知 GMS 版本上使用。
 
@@ -96,8 +96,10 @@ Node 服务没有 npm 运行依赖。随后按 [MCP 配置示例](mcp.json.examp
 
 [Agent 安装与使用指南](README.agent.md)说明如何接入、选对数据、处理错误和交接结果；[完整技术参考](REFERENCE.md)保留安装命令、工具参数和数值约定。修改代码请读 [AGENTS.md](AGENTS.md)，开发方向见 [ROADMAP.md](ROADMAP.md)。
 
-原生频谱导出同时保留数学频率坐标和 DM 原始标定；该新增元数据链的实机验收仍需单独完成，见[科学数据交接说明](docs/SCIENTIFIC_HANDOFF.md)。
+原生频谱导出同时保留数学频率坐标和 DM 原始标定；该元数据链已完成限定合成实机核对，见[科学数据交接说明](docs/SCIENTIFIC_HANDOFF.md)。
 
 多版本兼容层生成器目前只是[独立提案](https://github.com/wuchqwq/mcp-dm/pull/3)，不是现成的自动适配功能。
 
 项目代码采用 [MIT License](LICENSE)。DigitalMicrograph/GMS、Gatan 运行时、厂商文档和实验数据不随仓库分发；本项目不是 Gatan 官方产品。
+
+当前分支新增[中间结果释放与完整区域数值交接](docs/NATIVE_LIFECYCLE_HANDOFF.md)，继续保留实验后端的类型、尺寸和版本限制。SHOW 回执不保证当前工作区可见；原生工作区切换尚未接通。

@@ -12,11 +12,11 @@ import {operationFixture, readFixture, imageMetadata, uint32BinaryFixture, uint3
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const resultTypes = {STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop"};
+const resultTypes = {STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop", RELEASE: "native_result_release", RESULT_INFO: "native_result_availability"};
 Object.assign(resultTypes, {UNARY: "native_image_operation", BINARY: "native_image_operation", FILTER: "native_image_operation", PREVIEW: "native_preview", READ: "native_data_snapshot",
   FFT: "native_fourier_operation", IFFT: "native_fourier_operation", REAL: "native_fourier_operation", IMAG: "native_fourier_operation", VENDOR_ARG: "native_fourier_operation", VENDOR_NORM: "native_fourier_operation"});
 const nativeCatalog = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
-  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read"];
+  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release"];
 
 // Contract emulation only: no DM process/vendor computation is used here.
 function summaryFixture(imageId = 77) {
@@ -93,7 +93,7 @@ test("existing native MCP tools carry uint32 statistics/crop/preview/READ withou
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 14);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 16);
     const calls = [["dm_native_mean", {}], ["dm_native_summary", {}], ["dm_crop", {rect}],
       ["dm_native_preview", {max_width: 2, max_height: 2}], ["dm_native_read", {rect}]];
     for (let index = 0; index < calls.length; ++index) {
@@ -123,7 +123,7 @@ test("typed uint32 binary and described SHOW preserve actual output metadata thr
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 14);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 16);
     const result = toolOutput(await client.tool("dm_native_binary", {left_image_id: 77, right_image_id: 78, operation: "add", request_id: "candidate-binary"}));
     assert.equal(result.image.dtype, "float32"); assert.deepEqual(result.sources.map(source => source.dtype), ["uint32", "uint32"]);
     assert.match(result.dtype_semantics.precision, /not lossless/);
@@ -144,7 +144,7 @@ test("MCP maps uint32 unary/filter/forward FFT enums to their actual native resu
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 14);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 16);
     const calls = [["dm_native_unary", {operation: "negate"}, "float32"], ["dm_native_unary", {operation: "abs"}, "float32"],
       ["dm_native_unary", {operation: "square"}, "float32"], ["dm_native_filter", {operation: "smooth"}, "uint32"],
       ["dm_native_filter", {operation: "sobel"}, "float32"], ["dm_native_filter", {operation: "laplace"}, "float32"],
@@ -205,6 +205,57 @@ async function nativeHost(handler) {
   await new Promise((resolve, reject) => {server.once("error", reject); server.listen(bridge.pipePath, resolve);});
   return {session, requests, async close() {for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve));}};
 }
+
+test('release requires pre-saved ID and token before pipe dispatch; readonly availability preserves identity', async () => {
+  const host = await nativeHost(({socket, request, reply}) => {
+    socket.end(JSON.stringify(reply('completed', {backend:'digitalmicrograph-native',image_id:88,retention_token:3,
+      creation_request_id:'created',plugin_retained:request.operation==='RESULT_INFO',available_for_native_processing:request.operation==='RESULT_INFO',
+      released:request.operation==='RELEASE',released_now:request.operation==='RELEASE',result_bytes:24,
+      retained_result_count:request.operation==='RESULT_INFO'?1:0,retained_result_bytes:request.operation==='RESULT_INFO'?24:0,
+      document_closed:false,source_write_requested:false,native_object_existence:'not_probed',
+      scope:'plugin reference only; shown document may still hold the image; old creation receipt is unchanged'}))+'\n');
+  });
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session});
+  try {
+    await client.init();
+    for(const args of [{image_id:88,retention_token:3},{image_id:88,retention_token:0,request_id:'saved'},
+      {image_id:0,retention_token:3,request_id:'saved'},{image_id:88,retention_token:3,request_id:'invalid id'},
+      {image_id:88,request_id:'saved'}]) assert.equal((await client.tool('dm_native_release',args)).error.code,-32602);
+    assert.equal(host.requests.length,0);
+    const info=toolOutput(await client.tool('dm_native_result_info',{image_id:88,retention_token:3}));
+    assert.equal(info.plugin_retained,true);assert.equal(info.native_receipt.original_operation,'RESULT_INFO');
+    const released=toolOutput(await client.tool('dm_native_release',{image_id:88,retention_token:3,request_id:'release-saved'}));
+    assert.equal(released.released,true);assert.equal(released.native_receipt.request_id,'release-saved');
+    assert.deepEqual(host.requests.map(r=>[r.operation,r.args]),[['RESULT_INFO',['88','3']],['RELEASE',['88','3']]]);
+  } finally {await client.close();await host.close();}
+});
+
+test('cancelled release is recovered by a fresh MCP client using original identity; corrupt late result is rejected', async () => {
+  let releases=0;
+  const result={backend:'digitalmicrograph-native',image_id:88,retention_token:3,creation_request_id:'created',
+    plugin_retained:false,available_for_native_processing:false,released:true,released_now:true,result_bytes:24,
+    retained_result_count:0,retained_result_bytes:0,document_closed:false,source_write_requested:false,native_object_existence:'not_probed',
+    scope:'plugin reference only; shown document may still hold the image; old creation receipt is unchanged'};
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.operation==='RELEASE') {++releases;socket.end(JSON.stringify(reply('running',null))+'\n');}
+    else socket.end(JSON.stringify(reply('completed',request.id==='release-wrong-token'?{...result,retention_token:4}:result))+'\n');
+  });
+  const first=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_MCP_TIMEOUT_MS:'2000'});
+  let second;
+  try {
+    await first.init();
+    first.send({id:701,method:'tools/call',params:{name:'dm_native_release',arguments:{image_id:88,retention_token:3,request_id:'release-cancel'}}});
+    for(let i=0;i<100&&!releases;++i)await sleep(5);
+    assert.equal(releases,1);first.send({method:'notifications/cancelled',params:{requestId:701,reason:'cancel waiting'}});
+    await first.close();second=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session});await second.init();
+    const recovered=toolOutput(await second.tool('dm_native_result',{request_id:'release-cancel'}));
+    assert.equal(recovered.native_receipt.original_operation,'RELEASE');assert.equal(recovered.retention_token,3);assert.equal(releases,1);
+    // A different stored result cannot cross the ID/token boundary, including QUERY.
+    toolOutput(await second.tool('dm_native_release',{image_id:88,retention_token:3,request_id:'release-wrong-token'}),true);
+    toolOutput(await second.tool('dm_native_result',{request_id:'release-wrong-token'}),true);
+    assert.equal(releases,2);
+  } finally {await first.close();if(second)await second.close();await host.close();}
+});
 
 test("default backend retains v0.6 and all original 21 tool schemas", async () => {
   const client = mcpClient({}, true);
@@ -665,7 +716,7 @@ test("native SUMMARY exposes only four raw reductions with explicit image ID and
   try {
     const init = await client.init(); assert.match(init.instructions, /dm_native_summary/); assert.match(init.instructions, /四个原生摘要/);
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 14);
+    assert.equal(catalog.length, 16);
     const summary = catalog.find(tool => tool.name === "dm_native_summary");
     assert.deepEqual(summary.inputSchema.required, ["image_id"]);
     assert.equal(summary.inputSchema.properties.image_id.type, "integer");
@@ -782,7 +833,7 @@ test("new native tools expose finite enums and require saved side-effect IDs bef
   try {
     await client.init();
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 14); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
+    assert.equal(catalog.length, 16); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
     for (const name of nativeCatalog.slice(7, 12)) assert.ok(catalog.find(tool => tool.name === name).inputSchema.required.includes("request_id"));
     const preview = catalog.find(tool => tool.name === "dm_native_preview");
     assert.deepEqual(preview.inputSchema.required, ["image_id"]);
@@ -945,7 +996,7 @@ test("native READ requires explicit bounded half-open ROI and rejects paths or i
   try {
     await client.init();
     const catalog = (await client.rpc("tools/list")).result.tools, read = catalog.find(tool => tool.name === "dm_native_read");
-    assert.equal(catalog.length, 14); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
+    assert.equal(catalog.length, 16); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
     assert.match(read.description, /16384/); assert.match(read.description, /不生成图片.*不保存文件/);
     for (const args of [{}, {image_id: 77}, {rect: [0, 0, 1, 1]}, {image_id: "front", rect: [0, 0, 1, 1]},
       {image_id: "77", rect: [0, 0, 1, 1]}, {image_id: -1, rect: [0, 0, 1, 1]}, {image_id: 77, rect: []},

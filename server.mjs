@@ -49,7 +49,7 @@ const INSTRUCTIONS = [
 ].join("\n");
 const NATIVE_INSTRUCTIONS = [
   "实验性 DigitalMicrograph C++ NB2 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
-  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read；未实现工具明确拒绝，绝不回退到 Python。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
+  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_result_info、dm_native_release；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
   "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。crop、show、unary、binary、fft、complex、filter 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
@@ -411,6 +411,7 @@ const NATIVE_REQUEST_ID = {type: "string", minLength: 1, maxLength: 64, pattern:
 const NATIVE_IMAGE_ID = {type: "integer", minimum: 0, maximum: 4294967295, description: "dm_datasets 返回的显式 uint32 图像 ID；不接受 front 或数字字符串"};
 // Read-only tools may generate an ID; side-effect tools require a saved ID.
 const NATIVE_OPTIONAL_REQUEST_ID_TOOLS = new Set(["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_preview", "dm_native_read"]);
+NATIVE_OPTIONAL_REQUEST_ID_TOOLS.add('dm_native_result_info');
 const NATIVE_SAVED_REQUEST_ID = {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 只查询此 ID，不自动重发"};
 const NATIVE_UNARY = {negate: 1, abs: 2, square: 3};
 const NATIVE_BINARY = {add: 1, subtract: 2, multiply: 3};
@@ -435,7 +436,7 @@ const nativeTools = [
     rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "rect", "request_id"]),
-  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果（该 dtype 的交付能力也必须已合格）创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
+  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果（该 dtype 的交付能力也必须已合格）创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。首次创建在当前工作区；复用已有文档不保证激活其工作区标签页。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
     image_id: {...NATIVE_IMAGE_ID, description: "本插件仍持有的已合格原生结果 image_id（显式 uint32）；不接受任意源图、front 或数字字符串"},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "request_id"]),
@@ -461,9 +462,16 @@ const nativeTools = [
   tool("dm_native_read", "DM 原生读取显式二维 float32/uint32 图像的半开 ROI，最多 16384 样本/65536 原始字节；返回保留源 dtype 的 little-endian 4 字节标量 base64、行优先 shape/轴序和 ROI 标定。源图只读，源图最多 4194304 像素；不裁夹、不生成图片、不保存文件，不是 DM SaveAs。只在宿主空闲且不编辑源图时调用，snapshot_atomic:false；用于调用方显式数值交接，不回退 Python。", {
     image_id: NATIVE_IMAGE_ID, rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}}, request_id: NATIVE_REQUEST_ID,
   }, ["image_id", "rect"]),
+  tool('dm_native_result_info', '查询明确结果的当前插件引用状态。必须同时提供创建回执中的 image_id 和 retention.token；这是该次查询执行时的快照；刷新状态用新查询 ID，旧 ID 的 QUERY 保持历史。已释放结果可能仍由用户文档持有，但不能继续作为插件处理输入。', {
+    image_id: {...NATIVE_IMAGE_ID, minimum: 1}, retention_token: {type: 'integer', minimum: 1, maximum: 4294967295}, request_id: NATIVE_REQUEST_ID,
+  }, ['image_id', 'retention_token']),
+  tool('dm_native_release', '只释放本 session 插件自己持有的明确结果引用，要求 image_id、创建回执中的 retention.token 及预先保存的 request_id；不关闭文档、不销毁源图、不自动清理祖先，不篡改旧 completed 回执。超时只查询原请求 ID。', {
+    image_id: {...NATIVE_IMAGE_ID, minimum: 1}, retention_token: {type: 'integer', minimum: 1, maximum: 4294967295}, request_id: NATIVE_SAVED_REQUEST_ID,
+  }, ['image_id', 'retention_token', 'request_id']),
 ];
 
 function nativeInvocation(name, args) {
+  if (name === 'dm_native_release' || name === 'dm_native_result_info') return [name === 'dm_native_release' ? 'RELEASE' : 'RESULT_INFO', [args.image_id, args.retention_token]];
   if (name === "dm_native_unary") return ["UNARY", [args.image_id, NATIVE_UNARY[args.operation]]];
   if (name === "dm_native_binary") return ["BINARY", [args.left_image_id, args.right_image_id, NATIVE_BINARY[args.operation]]];
   if (name === "dm_native_fft") return [args.direction === "forward" ? "FFT" : "IFFT", [args.image_id]];

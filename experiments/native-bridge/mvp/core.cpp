@@ -18,6 +18,8 @@ constexpr OperationContract kContracts[] = {
     {"FILTER", 2, "native_image_operation"},
     {"PREVIEW", 3, "native_preview"},
     {"READ", 5, "native_data_snapshot"},
+    {"RELEASE", 2, "native_result_release"},
+    {"RESULT_INFO", 2, "native_result_availability"},
     {"FFT", 1, "native_fourier_operation", 2}, {"IFFT", 1, "native_fourier_operation", 2},
     {"REAL", 1, "native_fourier_operation", 2}, {"IMAG", 1, "native_fourier_operation", 2},
     {"VENDOR_ARG", 1, "native_fourier_operation", 2}, {"VENDOR_NORM", 1, "native_fourier_operation", 2},

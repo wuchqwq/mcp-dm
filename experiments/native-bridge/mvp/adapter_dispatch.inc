@@ -108,7 +108,8 @@ std::string execute_native(const NativeRequest& request) {
         request.op == "FFT" || request.op == "IFFT" || request.op == "REAL" || request.op == "IMAG" ||
             request.op == "VENDOR_ARG" || request.op == "VENDOR_NORM" ? "native_fft" :
         request.op == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
-        request.op == "READ" ? "native_read" : nullptr;
+        request.op == "READ" ? "native_read" :
+        request.op == "RELEASE" || request.op == "RESULT_INFO" ? "native_result_release" : nullptr;
     if (required && !selected_adapter.available(required))
         throw std::runtime_error(std::string("native_capability_unavailable:") + required);
     return active_implementation->execute(request);

@@ -15,11 +15,16 @@ int main(int argc, char** argv) {
         const auto fft = retained_results.rbegin()->first;
         const auto phase_receipt = execute_native({"phase-source", "VENDOR_ARG", {fft}});
         const auto phase = retained_results.rbegin()->first;
-        check(retained_results.at(phase).scientific_result == phase_receipt);
+        // Current availability tokens are an outer creation-receipt addition;
+        // scientific lineage deliberately stores no ownership/liveness claim.
+        const auto retention_at = phase_receipt.rfind(",\"retention\":");
+        check(retention_at != std::string::npos);
+        const auto phase_science = phase_receipt.substr(0, retention_at) + "}";
+        check(retained_results.at(phase).scientific_result == phase_science);
         check(retained_results.at(phase).scientific_operation == "VENDOR_ARG");
         execute_native({"crop-phase", "CROP", {phase, 1, 1, 7, 7}});
         const auto cropped = retained_results.rbegin()->first;
-        check(retained_results.at(cropped).scientific_result == phase_receipt);
+        check(retained_results.at(cropped).scientific_result == phase_science);
         check(retained_results.at(cropped).scientific_offset[0] == 1);
         check(retained_results.at(cropped).scientific_offset[1] == 1);
         const auto read = execute_native({"read-phase", "READ", {cropped, 2, 1, 5, 4}});

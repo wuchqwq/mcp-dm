@@ -25,6 +25,7 @@ RESULT_CONTRACTS = {
     "STATUS": (0, "status"), "DATASETS": (0, "datasets"), "INFO": (1, "image_info"),
     "MEAN": (1, "native_mean"), "SUMMARY": (1, "native_summary"), "CROP": (5, "image_crop"),
     "SHOW": (1, "image_delivery"), "STOP": (0, "ipc_stop"),
+    "RELEASE": (2, "native_result_release"), "RESULT_INFO": (2, "native_result_availability"),
     "UNARY": (2, "native_image_operation"), "BINARY": (3, "native_image_operation"),
     "FILTER": (2, "native_image_operation"), "FFT": (1, "native_fourier_operation"),
     "PREVIEW": (3, "native_preview"), "READ": (5, "native_data_snapshot"),
@@ -159,7 +160,9 @@ class StdioClient:
                     operations = {"dm_status": ("STATUS", []), "dm_datasets": ("DATASETS", []),
                         "dm_native_mean": ("MEAN", [args.get("image_id")]), "dm_native_summary": ("SUMMARY", [args.get("image_id")]),
                         "dm_crop": ("CROP", [args.get("image_id")] + args.get("rect", [])),
-                        "dm_native_show": ("SHOW", [args.get("image_id")]), "dm_native_result": ("QUERY", []),
+                        "dm_native_show": ("SHOW", [args.get("image_id")]),
+                        "dm_native_release": ("RELEASE", [args.get("image_id"), args.get("retention_token")]),
+                        "dm_native_result_info": ("RESULT_INFO", [args.get("image_id"), args.get("retention_token")]), "dm_native_result": ("QUERY", []),
                         "dm_native_read": ("READ", [args.get("image_id")] + args.get("rect", [])),
                         "dm_native_preview": ("PREVIEW", [args.get("image_id"), args.get("max_width", 128), args.get("max_height", 128)]),
                         "dm_native_unary": ("UNARY", [args.get("image_id"), {"negate": 1, "abs": 2, "square": 3}.get(args.get("operation"))]),
@@ -291,7 +294,7 @@ def run_acceptance(client, fixture, backend, build, expected_pid=None, repeats=1
     names = {tool["name"] for tool in catalog}
     require(len(catalog) == len(names) and core_names <= names <= core_names | {
         "dm_crop", "dm_native_show", "dm_native_summary", "dm_native_unary", "dm_native_binary",
-        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read"}, "Unexpected native tool catalog")
+        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info"}, "Unexpected native tool catalog")
     if "dm_native_summary" in names:
         summary_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_summary")
         require(set(summary_schema.get("required", [])) == {"image_id"}

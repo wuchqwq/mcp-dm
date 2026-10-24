@@ -47,8 +47,8 @@ The priorities are straightforward: use the intended image, do not silently chan
 | Path | Current scope | What to know |
 |---|---|---|
 | **Default on main: v0.6 Python backend** | Images and metadata, 2D statistics, profiles, FFT summaries, cropping, scientific exports, and optional capture/preview | Connects through DM's embedded Python. Some numerical operations use NumPy. Previews require a separate environment. |
-| **Optional on main: experimental native C++ backend** | Fourteen tools: native summaries, crop, bounded arithmetic/FFT/filters, PNG preview, visible documents and numerical handoff | Exact Windows x64 GMS **3.53.4137.0** fingerprints and per-operation dtype/size limits. NPY handoff is not native DM file saving; see the [native workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md). |
-| **Next stage** | GUI selections, native profiles/histograms, chunked handoff and result release | See the [official-feature comparison and priorities](docs/NATIVE_NEXT_STAGE.md). Planned items are not current capabilities. |
+| **Optional experimental native C++ backend** | Sixteen tools in this checkout: native summaries, crop, bounded arithmetic/FFT/filters, PNG preview, visible documents and numerical handoff | Exact Windows x64 GMS **3.53.4137.0** fingerprints and per-operation dtype/size limits. NPY handoff is not native DM file saving; see the [native workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md). |
+| **Next stage** | GUI selections, native profiles/histograms and workspace switching | See the [official-feature comparison and priorities](docs/NATIVE_NEXT_STAGE.md). Planned items are not current capabilities. |
 
 **For a first trial, use the default backend on main.** Read the [native guide and build restrictions](experiments/native-bridge/mvp/README.md) before trying the C++ experiment. Do not use it on an unrecognized GMS build.
 
@@ -101,3 +101,5 @@ The agent-assisted multi-version compatibility generator is an [independent prop
 Project code is licensed under the [MIT License](LICENSE). DigitalMicrograph/GMS, Gatan runtimes, vendor documentation and experimental datasets are not distributed here. This is not an official Gatan product.
 
 Native Fourier metadata: [scientific handoff and validation scope](docs/SCIENTIFIC_HANDOFF.md).
+
+This checkout adds [explicit result release and complete bounded numerical handoff](docs/NATIVE_LIFECYCLE_HANDOFF.md), retaining the experimental build/type/size limits. SHOW does not guarantee active-workspace visibility; native workspace activation is not implemented.

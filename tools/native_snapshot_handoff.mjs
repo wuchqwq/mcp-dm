@@ -97,7 +97,7 @@ function writeAll(fd, bytes) {
 function writeFd(fd, value) { const bytes = Buffer.from(JSON.stringify(value, null, 2) + '\n'); fs.ftruncateSync(fd, 0); writeAll(fd, bytes); fs.fsyncSync(fd); }
 function writeNew(filename, bytes) { const fd = fs.openSync(filename, 'wx'); try { writeAll(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
 function within(root, candidate) { const relative = path.relative(root, candidate); return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative)); }
-function newTarget(workspace, relative) {
+export function newTarget(workspace, relative) {
   requireThat(typeof relative === 'string' && relative && !path.isAbsolute(relative) && !/[:\x00-\x1f]/.test(relative), 'Output must be a new relative subdirectory');
   const parts = relative.split(/[\\/]/); requireThat(parts.every(part => part && part !== '.' && part !== '..' && !/[. ]$/.test(part) && !reserved.test(part)), 'Unsafe output subdirectory');
   const target = path.join(workspace, ...parts), parent = fs.realpathSync(path.dirname(target));
@@ -133,14 +133,21 @@ export function encodeNpy(shape, values, dtype = 'float32') {
   const descriptor = dtype === 'float32' ? '<f4' : dtype === 'uint32' ? '<u4' : null;
   requireThat(Array.isArray(shape) && shape.length === 2 && shape.every(n => Number.isSafeInteger(n) && n > 0) &&
     descriptor && shape[0] * shape[1] <= 16384 && values.length === shape[0] * shape[1] * 4, 'Bounded float32/uint32 shape/bytes required');
+  return Buffer.concat([encodeNpyHeader(shape, dtype), values]);
+}
+
+export function encodeNpyHeader(shape, dtype = 'float32') {
+  const descriptor = dtype === 'float32' ? '<f4' : dtype === 'uint32' ? '<u4' : null;
+  requireThat(Array.isArray(shape) && shape.length === 2 && shape.every(n => Number.isSafeInteger(n) && n > 0) &&
+    shape[0]*shape[1] <= 4194304 && descriptor, 'Bounded 2D numeric NPY header required');
   const dict = `{'descr': '${descriptor}', 'fortran_order': False, 'shape': (${shape[0]}, ${shape[1]}), }`;
   const padding = (64 - ((10 + Buffer.byteLength(dict) + 1) % 64)) % 64;
   const header = Buffer.from(dict + ' '.repeat(padding) + '\n', 'ascii');
   const prefix = Buffer.from([0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 1, 0, 0, 0]); prefix.writeUInt16LE(header.length, 8);
-  return Buffer.concat([prefix, header, values]); // Copy exact bytes, including float -0 and all uint32 high bits.
+  return Buffer.concat([prefix, header]);
 }
 
-function packageInfo(snapshot, captureId, npy) {
+export function packageInfo(snapshot, captureId, npy) {
   const {result, receipt, pixelHash, snapshotHash, receiptHash} = snapshot;
   const scientific = nativeScientificSemantics(result, {requireFourierContext: true});
   const sourceCal = result.source.calibration.map((axis, index) => ({...axis, axis: index === 0 ? 'x' : 'y'}));
@@ -156,7 +163,8 @@ function packageInfo(snapshot, captureId, npy) {
     native_calibration_semantics: 'native DM calibration; not necessarily mathematical Fourier bin coordinates',
     calibration_complete: result.calibration_complete, source_metadata: result.source,
     intensity_calibration: {origin: null, scale: null, unit: null, status: 'NOT_READ'}, intensity_calibration_applied: false,
-    input_file: 'input.npy', input_sha256: sha(npy), input_file_bytes: npy.length, raw_bytes: result.raw_bytes,
+    input_file: 'input.npy', input_sha256: Buffer.isBuffer(npy) ? sha(npy) : npy.sha256,
+    input_file_bytes: Buffer.isBuffer(npy) ? npy.length : npy.byteLength, raw_bytes: result.raw_bytes,
     sample_count: result.sample_count, pixel_sha256: pixelHash, source_path_included: false,
     native_receipt: receipt, native_receipt_sha256: receiptHash, saved_snapshot_sha256: snapshotHash,
     native_source_provenance: result.source_provenance, native_source_provenance_scope: result.source_provenance_scope,

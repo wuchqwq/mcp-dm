@@ -78,6 +78,8 @@ def run(workspace_arg, capture_arg, output_relative):
     require(output != capture and capture not in output.parents, "External output must not be inside its source capture")
     raw = {name: read_file(capture / name) for name in ("input.npy", "input.json", "capture.json")}
     manifest, info = parse_json(raw["capture.json"]), parse_json(raw["input.json"])
+    require(info.get("capture_mode") != "native_chunked_read",
+            "This optional example accepts a single saved READ only; use the chunked capture verifier for multi-READ inputs")
     require(manifest.get("schema_version") == info.get("schema_version") == 1 and manifest.get("state") == "captured" and
             manifest.get("capture_id") == info.get("capture_id") and info.get("input_file") == "input.npy" and
             sha(raw["input.npy"]) == info.get("input_sha256") == manifest.get("input_sha256") and

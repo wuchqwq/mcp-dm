@@ -8,9 +8,11 @@ vendor entrypoint, changes no scientific pixels and keeps the exact GMS build
 and default v0.6 backend gates. The native backend remains experimental.
 
 The existing real-host records in `d59c0ce` qualify their original operators and
-lifecycle. They do **not** constitute real-host acceptance of this additive
-metadata path. Its new tests use synthetic callbacks and hand-built receipts;
-a focused actual-DM continuation is still required before claiming that scope.
+lifecycle. A separate targeted synthetic real-host continuation on the exact
+fingerprinted GMS 3.53 profile has now qualified this additive metadata path.
+It used actual Node MCP requests, an independent oracle in the receipt's actual
+host process, and independently reopened numeric files. This does not qualify
+GUI selection, real experimental inputs or an ordinary model client.
 
 ## Why native calibration alone is insufficient
 
@@ -73,8 +75,14 @@ It can write one synthetic READ packet; set `DM_NATIVE_SCIENTIFIC_FIXTURE` to
 that file when running Node tests for cross-language validation. No real DM or
 physical FFT is performed by either test.
 
-Before claiming new actual-host qualification, use a fresh authorized idle
-synthetic session and explicit IDs: FFT -> phase/real -> offset crop -> READ ->
-NPY; independently verify zero-frequency bins, radians/power labels, native
-calibration unchanged, exact bytes, source invariance and normal cleanup.
-Retain an honest NOT_TESTED boundary until those observations exist.
+The targeted actual-host continuation exercised FFT -> real/imaginary/phase/
+power, nonzero crop and READ offsets (including DC outside the ROI), and NPY
+reopening. The independent oracle checked numeric values, both coordinate
+conventions, accumulated offsets, radians/power meaning, processed phase,
+inverse spatial-origin/intensity limitations, exact READ/NPY bytes, separate
+result memory and unchanged synthetic source. Original-ID queries were stable.
+Original STOP and same-PID release checks passed, followed by normal host exit,
+manifest-owned removal and a further independent NPY reopen. None of these
+records imply experimental-data, GUI ROI, profile/histogram, concurrent-edit
+or model-client acceptance. The first offline cross-language run's missing
+fixture failure remains preserved separately from its corrected passing run.

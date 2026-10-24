@@ -75,7 +75,7 @@ receipts and session before numerical work. `mock-native` is synthetic evidence
 only. Also inspect compatibility: `SUPPORTED` admits the matching profile;
 `UNSUPPORTED_BUILD`, `ABI_MISMATCH` and `NOT_READY` reject image operations.
 `native_statistics` is the complete four-reduction SUMMARY group, with
-`native_mean` reported separately. The fourteen-tool catalog additionally exposes
+`native_mean` reported separately. The sixteen-tool catalog additionally exposes
 limited arithmetic, Fourier, filters, preview and numeric READ; see the
 [tool table](README.md#public-native-tools) and [data handoff workflow](NATIVE_WORKFLOW.md).
 Explicit-ID half-open `dm_crop` creates a separate
@@ -257,3 +257,5 @@ process list. They cover ownership, conflicts, changed hashes, escaped paths,
 reparse points, WhatIf and interrupted manifest updates. They do not install
 into a Gatan directory or validate loading, numerical results or real-host
 process detection.
+
+See [result lifetime and complete bounded handoff](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md) for the additive release/availability tools, original-ID recovery and the explicit chunked NPY helper. Existing backend selection and installation boundaries are unchanged.
