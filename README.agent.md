@@ -30,7 +30,7 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 | Opt-in native | Eighteen catalog entries in this feature checkout; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
-This feature checkout's native catalog has eighteen
+This feature checkout's native catalog has nineteen
 tools, including qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect

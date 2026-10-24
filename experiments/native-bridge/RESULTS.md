@@ -2,7 +2,7 @@
 
 ## Current continuation: GUI line and true native 1D profile
 
-The native catalog has eighteen entries. `dm_native_profile` and ROIS v2 line
+The native catalog has nineteen entries. `dm_native_profile` and ROIS v2 line
 geometry have their own limited synthetic-host qualification;
 `native_line_profile` profile admission is enabled. The final qualified
 artifact independently passed a fresh session with exact loaded module identity
@@ -461,3 +461,28 @@ The earlier suggestion to try concurrent image calls first is also withdrawn.
 Acceptance starts with an idle host and serialized read-only operations.
 Thread affinity and a working message pump do not establish general native
 API concurrency safety or exception isolation.
+
+## Rank-one delivery and native histogram (2026-10-25 audit round)
+
+Both are limited synthetic actual-host qualifications on the pinned build, run in
+one idle test host with a synthetic 24x32 float32 image (raw intensity, 0.25 nm
+per pixel on both axes) and an independent DM-Python observer that never calls
+the bridge.
+
+| Scope | Result |
+|---|---|
+| Build gate, `native_profile_display`, `native_histogram_display`, `native_histogram` advertised by STATUS | PASS |
+| GUI line enumeration and PROFILE of the explicit line | PASS, completed receipt |
+| PROFILE result delivered by `dm_native_show` | PASS, document holds a rank-one image, display type code 3 (source raster type code 1), `rank:1` descriptor |
+| HISTOGRAM of the same source, 8 bins over a covering range | PASS, native counts `[15,64,133,167,179,139,60,11]` |
+| Those counts against an independent NumPy binning of the same pixels | PASS, identical per bin, total 768 = pixel count |
+| HISTOGRAM result delivered by `dm_native_show` | PASS, rank-one document, display type code 3 |
+| `dm_native_result_info` for the retained histogram | PASS, plugin-retained and available |
+| Source pixels, intensity calibration, name and its document | PASS, unchanged and still present |
+| Repeated SHOW of the same PROFILE id | PASS, same document/window reused (offline surrogate) |
+| Intensity axis written through `SetDimensionCalibration` | FAIL, read-back did not reproduce the requested physical zero; the setter is not bound and the axis is reported as a bin index |
+| Host shutdown | PASS, normal window close, manifest-owned DLL removal |
+
+Not qualified by this round: diagonal/wide/fractional profiles, uint32 or complex
+histogram sources, non-covering ranges, other builds, file saving, model-side
+visual review and concurrent host use.

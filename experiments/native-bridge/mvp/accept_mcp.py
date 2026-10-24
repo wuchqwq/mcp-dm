@@ -299,7 +299,7 @@ def run_acceptance(client, fixture, backend, build, expected_pid=None, repeats=1
     names = {tool["name"] for tool in catalog}
     require(len(catalog) == len(names) and core_names <= names <= core_names | {
         "dm_crop", "dm_native_show", "dm_native_summary", "dm_native_unary", "dm_native_binary",
-        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info", "dm_native_rois", "dm_native_profile"}, "Unexpected native tool catalog")
+        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info", "dm_native_rois", "dm_native_profile", "dm_native_histogram"}, "Unexpected native tool catalog")
     if "dm_native_summary" in names:
         summary_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_summary")
         require(set(summary_schema.get("required", [])) == {"image_id"}

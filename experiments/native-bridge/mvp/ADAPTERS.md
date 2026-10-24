@@ -30,7 +30,7 @@ Its four additional operation groups do not admit another GMS build or expand
 the underlying five-module fingerprint gate.
 
 The line/profile continuation adds `native_line_profile` and ROIS version 2
-under this same exact adapter. The catalog now has eighteen entries. Limited
+under this same exact adapter. The catalog now has nineteen entries. Limited
 prepared synthetic-host acceptance passed explicit GUI line identity, true 1D
 float64 extraction/NPY, unchanged source/GUI/documents, original-ID recovery,
 RELEASE/STOP after-idle invalidation and normal exit/removal. Profile admission

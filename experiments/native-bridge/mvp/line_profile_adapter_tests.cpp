@@ -78,9 +78,51 @@ int main(int argc,char** argv) {
             check(rois.good());
         }
         const auto id=retained_results.begin()->first,token=retained_results.begin()->second.retention_token;
-        const auto before_docs=document_calls;
-        try{execute_native({"show-profile","SHOW",{id}});check(false);}catch(const std::runtime_error& e){check(std::string(e.what())=="native_show_requires_qualified_2d_result");}
-        check(document_calls==before_docs);
+        // The true rank-one result now has its own delivery group. The document
+        // call shape is the already qualified one; only the descriptor admission
+        // differs, and the reply must never carry a fabricated 2D descriptor.
+        const auto before_docs=document_calls,before_windows=show_calls;
+        auto shown=execute_native({"show-profile","SHOW",{id}});
+        check(nb::valid_json(shown));
+        check(document_calls==before_docs+1 && show_calls==before_windows+1);
+        check(shown.find("\"rank\":1")!=std::string::npos);
+        check(shown.find("\"retained_operation\":\"PROFILE\"")!=std::string::npos);
+        check(shown.find("\"display_family\":\"native_1d_image_document\"")!=std::string::npos);
+        check(shown.find("\"display_class\":\"host_selected\"")!=std::string::npos);
+        check(shown.find("\"one_dimensional_display\":{")!=std::string::npos);
+        check(shown.find("\"shape\":[6]")!=std::string::npos);
+        check(shown.find("\"dtype\":\"float64\"")!=std::string::npos);
+        check(shown.find("\"ndim\":1")!=std::string::npos);
+        check(shown.find("\"image\":{")==std::string::npos);
+        check(shown.find("\"delivery\":\"visible_dm_document\"")!=std::string::npos);
+        check(shown.find("\"file_saved\":false")!=std::string::npos && shown.find("\"model_visual_verification\":false")!=std::string::npos);
+        check(host_documents.size()==1 && host_windows.size()==1);
+        auto* profile_document=host_documents.at(id);
+        auto* profile_window=host_windows.at(id);
+        const auto repeated=execute_native({"show-profile-again","SHOW",{id}});
+        check(nb::valid_json(repeated) && document_calls==before_docs+2 && show_calls==before_windows+2);
+        check(host_documents.at(id)==profile_document && host_windows.at(id)==profile_window);
+        check(host_documents.size()==1 && host_windows.size()==1);
+        check(profile_document->references==1 && profile_window->references==1);
+        // Descriptor admission is rechecked against the live image, so a mutated
+        // rank/dtype/sample count cannot ride the qualified receipt.
+        auto* profile_image=registry.at(id);
+        profile_image->dimensions=2;
+        try{execute_native({"show-profile-rank","SHOW",{id}});check(false);}catch(const std::runtime_error& e){check(std::string(e.what())=="native_profile_display_descriptor_changed");}
+        profile_image->dimensions=1;profile_image->code=2;
+        try{execute_native({"show-profile-dtype","SHOW",{id}});check(false);}catch(const std::runtime_error& e){check(std::string(e.what())=="native_profile_display_descriptor_changed");}
+        profile_image->code=12;profile_image->packing=2;
+        try{execute_native({"show-profile-packing","SHOW",{id}});check(false);}catch(const std::runtime_error& e){check(std::string(e.what())=="native_profile_display_descriptor_changed");}
+        profile_image->packing=1;++profile_image->width;
+        try{execute_native({"show-profile-samples","SHOW",{id}});check(false);}catch(const std::runtime_error& e){check(std::string(e.what())=="native_profile_display_sample_count_changed");}
+        --profile_image->width;
+        check(document_calls==before_docs+2 && show_calls==before_windows+2);
+        // Losing the document entrypoints disables the 1D group instead of
+        // falling back to the 2D one.
+        auto* saved_show=api.show_document;api.show_document=nullptr;
+        try{execute_native({"show-profile-unbound","SHOW",{id}});check(false);}catch(const std::runtime_error& e){check(std::string(e.what())=="native_profile_display_not_qualified");}
+        api.show_document=saved_show;
+        check(document_calls==before_docs+2 && show_calls==before_windows+2);
         for(const auto* op:{"MEAN","SUMMARY","FFT","PREVIEW","READ","CROP"}) {
             NativeRequest req{"old-2d",op,{id}};
             if(req.op=="PREVIEW")req.args={id,8,8};
@@ -90,7 +132,16 @@ int main(int argc,char** argv) {
             check(profile_value_calls353==calls);
         }
         check(execute_native({"release-profile","RELEASE",{id,token}}).find("\"released_now\":true")!=std::string::npos);
-        check(registry.size()==1 && retained_result_bytes==0);
+        // Releasing the plugin reference leaves the shown document's own hold.
+        check(retained_results.empty() && retained_result_bytes==0 && registry.count(id)==1);
+        // The shown 1D document survives a plugin release and a native STOP: only
+        // our reference is dropped, and no unrelated document is closed.
+        check(host_documents.at(id)==profile_document && profile_document->references==1);
+        const auto stop_windows=window_destructions;
+        shutdown_native();
+        check(window_destructions==stop_windows && host_documents.at(id)==profile_document);
+        close_surrogate_documents();
+        check(host_documents.empty() && host_windows.empty());
         for(const auto& item:std::vector<std::pair<const char*,const char*>>{
             {"null","native_profile_missing_output"},{"alias","native_profile_output_identity_invalid"},
             {"rank","native_profile_output_descriptor_mismatch"},{"dtype","native_profile_output_descriptor_mismatch"},

@@ -84,6 +84,30 @@ retain their separate coordinate contracts.
 node tools/native_snapshot_handoff.mjs --workspace EXISTING_WORKSPACE --output NEW_PROFILE_DIR --request-id profile-file-01 --snapshot SAVED_PROFILE_RESPONSE.json
 ```
 
+## Showing the one-dimensional result
+
+The true rank-one PROFILE result can be delivered to a visible DM document with
+`dm_native_show` and that exact `image_id`. This goes through a separate
+admission group, `native_profile_display`; the 2D display group is never used and
+the result is never relabelled as a `[1,N]` raster.
+
+The reply keeps the honest one-dimensional identity (`rank:1`,
+`display_family:"native_1d_image_document"`, `one_dimensional_display` with the
+true `[N]` shape and one native axis), and `display_class` is `host_selected`
+because the bridge does not assert a display class name. Writing the descriptor
+under a 2D key, or presenting the samples as `[1,N]`, is rejected by the MCP
+client.
+
+Actual-host observation (synthetic line, pinned build): the profile document
+appeared as a rank-one image and its display type code was 3, while the
+two-dimensional source document reported type 1. That is the host's own behaviour
+for a rank-one image; repeated SHOW reused the same document and window, and the
+plugin reference was released independently of the document.
+
+Not claimed: model-side visual verification, an active-tab assertion, file
+saving, a stable display-class ABI, or any acceptance for 1D results that do not
+come from this plugin's qualified PROFILE (or, separately, HISTOGRAM) record.
+
 `dm_native_result_info` and `dm_native_release` use the same output ID and
 retention token. Release drops only the plugin reference. The original PROFILE
 receipt remains unchanged. Existing native READ/SHOW/MEAN/crop/FFT/filter tools

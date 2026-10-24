@@ -49,8 +49,8 @@ const INSTRUCTIONS = [
 ].join("\n");
 const NATIVE_INSTRUCTIONS = [
   "实验性 DigitalMicrograph C++ NB2 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
-  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_result_info、dm_native_release、dm_native_rois、dm_native_profile；rois 仅在对应能力已合格时只读枚举明确图像的显示对象和选区，不自动挑选或裁剪；GUI 选区是非原子执行时快照，旧 ID 的 QUERY 不会刷新当前选区，不把小数或越界选区舍入为分析区域；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
-  "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。crop、show、unary、binary、fft、complex、filter、profile 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
+  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_result_info、dm_native_release、dm_native_rois、dm_native_profile、dm_native_histogram；rois 仅在对应能力已合格时只读枚举明确图像的显示对象和选区，不自动挑选或裁剪；GUI 选区是非原子执行时快照，旧 ID 的 QUERY 不会刷新当前选区，不把小数或越界选区舍入为分析区域；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
+  "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。crop、show、unary、binary、fft、complex、filter、profile、histogram 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
 
@@ -436,7 +436,7 @@ const nativeTools = [
     rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "rect", "request_id"]),
-  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果（该 dtype 的交付能力也必须已合格）创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。首次创建在当前工作区；复用已有文档不保证激活其工作区标签页。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
+  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果（该 dtype 的交付能力也必须已合格）创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。接受二维原生结果，以及 dm_native_profile 产生的真一维 float64 结果（走独立的 native_profile_display 准入，条目仍是真实 [N] 形状和单条原生轴，不伪装成 [1,N] 光栅）。首次创建在当前工作区；复用已有文档不保证激活其工作区标签页，也不由 Bridge 断言显示类名。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
     image_id: {...NATIVE_IMAGE_ID, description: "本插件仍持有的已合格原生结果 image_id（显式 uint32）；不接受任意源图、front 或数字字符串"},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "request_id"]),
@@ -480,10 +480,24 @@ const nativeTools = [
       description: '从明确 GUI line 快照保存的 [x0,y0,x1,y1] 像素中心，端点包含；不是半开矩形边缘'},
     width: {type: 'integer', enum: [1]}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ['image_id', 'document_id', 'display_id', 'roi_id', 'expected_line', 'width', 'request_id']),
+  tool('dm_native_histogram', '用 DM 自带 GMSImageProcessing::CalcHistogram 计算明确 image_id 的强度直方图：原生 Image::CreateImage 建立一维计数图，Bridge 只做参数核对与有界读取，不写自己的分箱内核、不用 NumPy 顶替。源为普通二维 float32、最多4194304像素；bins 2..4096；min/max 为 binary32 原始强度边界，必须覆盖源的原生 minimum/maximum，否则明确拒绝而不是猜测越界归属。逐 bin 计数必须是精确非负整数且总和等于源像素数，否则失败关闭。不应用强度标定；若源有完整强度标定与单位，则原生一维轴按左侧 bin 边界与 bin 宽度标定，否则明确报告为 bin 索引轴。产生插件持有的独立一维结果，源图不改；显示用 dm_native_show。必须提前保存 request_id；超时/取消只查询同 ID。', {
+    image_id: NATIVE_IMAGE_ID,
+    bins: {type: 'integer', minimum: 2, maximum: 4096, description: '原生一维计数图的 bin 数（目的图维度）'},
+    min: {type: 'number', description: 'binary32 原始强度下界；必须 <= 源原生 minimum'},
+    max: {type: 'number', description: 'binary32 原始强度上界；必须 >= 源原生 maximum'},
+    request_id: NATIVE_SAVED_REQUEST_ID,
+  }, ['image_id', 'bins', 'min', 'max', 'request_id']),
 ];
+
+function nativeFloatBits(value) {
+  const buffer = new ArrayBuffer(4);
+  new Float32Array(buffer)[0] = value;
+  return new Uint32Array(buffer)[0];
+}
 
 function nativeInvocation(name, args) {
   if (name === 'dm_native_profile') return ['PROFILE', [args.image_id, args.document_id, args.display_id, args.roi_id, ...args.expected_line, args.width]];
+  if (name === 'dm_native_histogram') return ['HISTOGRAM', [args.image_id, args.bins, nativeFloatBits(args.min), nativeFloatBits(args.max)]];
   if (name === 'dm_native_rois') return ['ROIS', [args.image_id]];
   if (name === 'dm_native_release' || name === 'dm_native_result_info') return [name === 'dm_native_release' ? 'RELEASE' : 'RESULT_INFO', [args.image_id, args.retention_token]];
   if (name === "dm_native_unary") return ["UNARY", [args.image_id, NATIVE_UNARY[args.operation]]];

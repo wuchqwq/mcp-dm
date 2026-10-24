@@ -75,7 +75,7 @@ std::string execute_line_profile353(const NativeRequest& request) {
     if (api.ndim(output.value.image)!=1 || api.dtype(output.value.image)!=nb::kProfileFloat64Code353 ||
         packing_style(output.value.image)!=1 || api.dimension(output.value.image,0)!=samples)
         throw std::runtime_error("native_profile_output_descriptor_mismatch");
-    const auto output_info=metadata(output.value.image,true,true);
+    const auto output_info=metadata(output.value.image,true,"one-dimensional native profile samples");
     const auto output_cal=crop_axis_calibration(output.value.image,0);
     if (output_cal.origin!=0 || output_cal.zero!=0 || output_cal.scale!=cal[0].scale || output_cal.unit!=cal[0].unit)
         throw std::runtime_error("native_profile_output_calibration_mismatch");
@@ -91,7 +91,7 @@ std::string execute_line_profile353(const NativeRequest& request) {
     if (collect_rois353(source.value,before.id,before.width,before.height,true,&after_target)!=snapshot ||
         !after_target.found || after_target.json!=target.json || metadata(source.value.image)!=source_info ||
         crop_calibration(source.value.image)!=cal || profile_intensity353(source.value.image)!=source_intensity ||
-        metadata(output.value.image,true,true)!=output_info || profile_intensity353(output.value.image)!=intensity)
+        metadata(output.value.image,true,"one-dimensional native profile samples")!=output_info || profile_intensity353(output.value.image)!=intensity)
         throw std::runtime_error("native_profile_metadata_or_gui_snapshot_changed");
     const double step_x=(static_cast<double>(expected.x1)-expected.x0)/(samples-1);
     const double step_y=(static_cast<double>(expected.y1)-expected.y0)/(samples-1);

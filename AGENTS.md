@@ -54,10 +54,10 @@ before per-operator ABI, scientific and ownership qualification.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has eighteen entries: dm_status,
+The separate experimental native catalog has nineteen entries: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
-dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info, dm_native_release, dm_native_rois and dm_native_profile.
+dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile and dm_native_histogram.
 The corrected ROIS direct-source-layout/mapping has limited synthetic real-host
 qualification and its profile admission is enabled. The final qualified artifact
 also passed its separate actual-host source/ROI and final-reference checks. A catalog entry is not capability
@@ -82,6 +82,28 @@ known Fourier/unresolved scientific lineage until it has its own profile context
 Old READ/SHOW/MEAN/crop/FFT/filter contracts do not gain 1D admission. See
 docs/NATIVE_LINE_PROFILE.md. Diagonal/fractional/wide profiles, histogram and
 annotations remain unqualified. Tool count alone does not qualify a capability.
+A true rank-one result is delivered to a visible document only through its own
+group: native_profile_display (float64 PROFILE samples) or
+native_histogram_display (uint32 HISTOGRAM counts). Both reuse the already
+qualified document factory/show entrypoints, but neither may enter through the
+2D display group, carry an `image` 2D descriptor, or be presented as a `[1,N]`
+raster. The reply keeps `rank:1`, `display_family:native_1d_image_document`,
+`display_class:host_selected` and a `one_dimensional_display` block with the true
+shape and one native axis; the bridge never asserts a display class name.
+See docs/NATIVE_LINE_PROFILE.md and docs/NATIVE_HISTOGRAM.md.
+
+native_histogram creates its destination with the exported
+`Image::CreateImage(DataSize, type, char_range)` and fills it with the exported
+`GMSImageProcessing::CalcHistogram`; there is no bridge binning kernel. Only
+ordinary float32 2D sources up to 4,194,304 pixels, 2..4096 bins and a caller
+range that covers the complete native source minimum/maximum are admitted, so no
+undocumented under/overflow rule is ever exercised. Each bin must be an exact
+non-negative integer and the counts must total the source pixel count exactly.
+The count axis is a bin index: `SetDimensionCalibration` is deliberately not
+bound because its live read-back did not reproduce the requested physical zero.
+Never relabel these counts as calibrated intensity, and never widen the range
+silently.
+
 The prepared ROI host passed explicit-ID GUI rectangle to native crop/mean/READ
 and multiblock handoff with independent source/selection/calibration checks.
 Preserve earlier mapping and slice-ID eligibility FAILs. Immediate same-stack
@@ -104,7 +126,8 @@ Result-reference release requires an exact image ID plus the creation retention 
 
 New operation admission requires its qualified, available profile group before
 entering the version implementation: native_image_arithmetic, native_fft,
-native_filters, native_preview, native_read or native_line_profile. There is no qualification
+native_filters, native_preview, native_read, native_line_profile or
+native_histogram. There is no qualification
 environment bypass; setting an old qualification variable cannot enable an
 unavailable group. A missing required symbol disables that group. An available
 symbol or synthetic test alone does not qualify a capability.

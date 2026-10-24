@@ -58,8 +58,21 @@ inline const AdapterProfile& profile() {
                 {"roi_is_line", "roi_line", "line_profile_extract", "roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_display_image",
                  "roi_raster_count", "roi_raster_at", "roi_id", "roi_is_rectangle", "roi_rectangle", "roi_is_selected", "roi_raster_dimensions", "roi_raster_mapping", "roi_raster_slice_id",
                  "roi_simple_source_count", "roi_simple_source_slice_id", "roi_simple_source_extents", "roi_destroy_display_holder", "roi_destroy_roi"}},
-            {"native_datasets", true, "bounded native registry and metadata", {}, {}},
-            {"native_result_release", true, "explicit own image ID plus bridge retention token; plugin reference only; no document closure", {}, {}},
+            // Rank-one PROFILE delivery is a separate admission group. It reuses
+            // the same document factory/entrypoints already qualified for 2D
+            // results, but a 1D result must never enter through the 2D group or
+            // be presented as a rewritten [1,N] raster.
+            {"native_profile_display", true, "limited synthetic qualification; plugin-owned rank-1 float64 PROFILE result only; no file save; host decides the 1D display", {},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
+            {"native_histogram_display", true, "limited synthetic qualification; plugin-owned rank-1 uint32 HISTOGRAM count image only; no file save; host decides the 1D display", {},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
+            // Histogram creation and binning are vendor calls: the destination
+            // is a native 1D uint32 image from Image::CreateImage and the counts
+            // come from GMSImageProcessing::CalcHistogram. No bridge kernel.
+            {"native_histogram", true, "limited synthetic qualification; float32 ordinary 2D <=4194304 pixels; caller range must cover the complete native source min/max; 2..4096 bins; uint32 native counts; count axis reported as bin index", {
+                {"GMSImage.dll", "?CreateImage@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSize@Imaging@4@KAEBV?$char_range_t@_WU?$char_traits@_W@std@@@4@@Z"},
+                {"GMSImageProcessing.dll", "?CalcHistogram@GMSImageProcessing@@YAXAEBV?$ref_ptr@VImage@GMS@@@Gatan@@0NN@Z"}}, {}},
+            {"native_datasets", true, "bounded native registry and metadata", {}, {}},            {"native_result_release", true, "explicit own image ID plus bridge retention token; plugin reference only; no document closure", {}, {}},
             {"native_gui_rois", true, "readonly explicit ordinary 2D direct ImageSource_Simple raster; bounded rectangle snapshots; limited idle-host synthetic qualification",
                 {{"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}},
                 {"roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_display_image",

@@ -412,6 +412,48 @@ sequential with `snapshot_atomic:false`. Generic NB1 QUERY carries no original
 operation; independent acceptance continues semantic checks using its original
 tool/ID/parameter ledger. See [SUMMARY acceptance](mvp/SUMMARY_ACCEPTANCE.md).
 
+
+## Native one-dimensional results, image creation and histogram
+
+A rank-one image needs no new document interface. `ImageGetOrCreateImageDocument`
+receives only an `Image*` and selects the display itself, so the same qualified
+document factory and show entrypoint deliver a PROFILE or histogram result. The
+actual host reports display type code 3 for those rank-one documents while a
+two-dimensional raster reports 1. The bridge keeps that as an observation, not as
+a promised enum: `display_class` is `host_selected` and no class name is claimed.
+Admission is split into `native_profile_display` (float64 samples) and
+`native_histogram_display` (uint32 counts) so neither rides the 2D display group.
+
+`Image::CreateImage(DataSize const&, uint32 type, char_range_t<wchar_t> const&)`
+is an exported static member. The hidden `ref_ptr<Image>` destination is argument
+one, `DataSize` is argument two, the scalar type code is argument three and the
+name range is argument four; the image reference is read from the destination,
+never from the returned pointer. Two PODs were closed statically:
+
+```cpp
+struct DataSize353 { std::uint32_t dimensions, padding; std::int64_t size[5]; }; // 48 bytes
+struct CharRange353 { const wchar_t* begin, *end; };                            // 16 bytes
+```
+
+`Check_ImageDataSize` reads the rank dword at offset 0 and non-zero `int64`
+extents from offset 8, which fixes the first layout; `SetUnicodeName` computes
+`(end - begin) / 2` and compares elements, which fixes the second.
+
+`GMSImageProcessing::CalcHistogram(ref_ptr<Image> const&, ref_ptr<Image> const&,
+double, double)` is exported and is the operator behind the script
+`ImageCalculateHistogram`. The destination is a caller-created one-dimensional
+image; the bridge creates it with type code 11, reads every bin back through the
+already qualified rank-one `GetRealValue` path and requires the counts to be
+exact integers whose total equals the source pixel count.
+
+`Image::SetDimensionCalibration(uint32, float, float, char_range_t const&, int32)`
+is exported but **not bound**: on this build a `format=0` write of the requested
+physical value at pixel zero did not read back through the qualified getter, so
+the guard failed closed (`native_histogram_axis_origin_mismatch`). The histogram
+therefore reports a bin-index axis with explicit bin geometry instead of an
+intensity axis it cannot substantiate. Do not re-add the setter without a live
+read-back that reproduces the documented left-edge convention exactly.
+
 ## Minimum runtime verification order
 
 ### GUI line extraction and true one-dimensional handoff

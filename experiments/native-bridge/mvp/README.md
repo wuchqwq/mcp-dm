@@ -48,7 +48,7 @@ catalog; it never starts or falls back to the resident Python bridge.
 Future processing extensions call DM's own operators; the bridge handles
 parameters, ownership and result delivery. It does not implement a parallel
 analysis engine. Arithmetic, [FFT and components](FFT_READINESS.md), filters,
-preview and bounded numeric READ are explicit tools in the eighteen-entry native
+preview and bounded numeric READ are explicit tools in the nineteen-entry native
 catalog. Each still requires the selected adapter's qualified capability.
 Follow [the researcher workflow](NATIVE_WORKFLOW.md) for scientific handoff;
 the saved-response encoder and external example never run as hidden fallbacks.

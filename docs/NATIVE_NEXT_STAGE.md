@@ -10,7 +10,7 @@
 | 优先级 | 研究者要做的事 | Gatan 官方依据 | 当前原生缺口与接入要求 |
 |---|---|---|---|
 | P0 | 用刚刚在 GUI 画好的选区继续分析 | [官方 ROI 示例](https://www.gatan.com/Software/Scripts/Python-Library/Live-FFT-color-map) 使用 ImageDisplay 的 CountROIs/GetROI、ROI ID 和 GetRectangle | 已接通明确 image/document/display/ROI 身份的矩形和线只读快照；保持直接图像来源和映射限制。不得静默采用最新窗口或找不到 ROI 就改成全图；不恢复示例里的 Python listener。 |
-| P0 | 沿线/条带测强度、看分布 | [应用说明](https://www.gatan.com/Resources/Applications-Library/Application-Notes/Frame-Control-mode-for-optimized-imaging-and-diffraction-with-ClearView-camera) 描述内置 profile/histogram；[直方图官方脚本](https://www.gatan.com/Software/Scripts/DigitalMicrograph-Library/Interactive-histogram) 展示 ImageCalculateHistogram | 限定原生水平/竖直整数端点、宽度 1 的剖面及真实一维交接已完成合成实机验收。斜线、宽条带及直方图仍未接通；bin 边界、计数与非有限值政策须另行验证。方差/标准差/中位数候选需各自验收，不手写替代核冒充 DM。 |
+| P0 | 沿线/条带测强度、看分布 | [应用说明](https://www.gatan.com/Resources/Applications-Library/Application-Notes/Frame-Control-mode-for-optimized-imaging-and-diffraction-with-ClearView-camera) 描述内置 profile/histogram；[直方图官方脚本](https://www.gatan.com/Software/Scripts/DigitalMicrograph-Library/Interactive-histogram) 展示 ImageCalculateHistogram | 限定原生水平/竖直整数端点、宽度 1 的剖面、真实一维交接与一维结果显示已完成合成实机验收（见[线剖面契约](NATIVE_LINE_PROFILE.md)）。原生强度直方图经 `Image::CreateImage` + `GMSImageProcessing::CalcHistogram` 已接通并完成合成实机验收，计数与独立 NumPy 分箱逐 bin 一致（见[直方图契约](NATIVE_HISTOGRAM.md)）；其原生强度横轴仍阻塞于未闭合的标定设置器约定，当前如实报告为 bin 索引轴。斜线与宽条带仍未接通；方差/标准差/中位数候选需各自验收，不手写替代核冒充 DM。 |
 | P1 | 标出本次测量区域和结果 | [ImageDisplay annotation 示例](https://www.gatan.com/Software/Scripts/Python-Library/Adding-annotations-to-an-image-display) 展示线、箭头、框、椭圆 | 有 PNG 和 Show 但没有明确的原生注释管理；对受控结果文档添加命名/标识注释，不烘焙到科学像素，不清除用户原有注释，重复请求不重复创建。 |
 | P1 | 比较 FFT/衍射斑点、晶格间距和角度 | [DIFPack 模块](https://www.gatan.com/Products/TEM-Software/Digital-Imaging-Modules/DIFPack-Module) 介绍峰定位、间距/夹角、中心与标定转移 | 本项目只有小尺寸 FFT/分量；没有掩膜→逆变换测量流程或峰测量。DIFPack 是单列模块：需要检查安装/许可/API，不能认作每个 DM 的基础功能，也不绕过许可。先做通用标定和明确点/线测量，不直接输出物相。 |
 | P2 | 做径向/角向分析 | [Rotational average 官方脚本](https://www.gatan.com/ja/Software/Scripts/DigitalMicrograph-Library/Rotational-average) 使用 warp、极坐标和投影 | 属于官方脚本组合示例，不证明存在同名稳定 C++ 算子。明确中心、采样、插值、环边界、单位后再研究已验证原生操作的组合；不从脚本名猜 ABI。 |
@@ -58,4 +58,4 @@
 
 ## 当前 feature 的收尾进展
 
-结果引用释放和确定性有界分块交接已实现，并有独立合成实机证据；原始 READ 及算子尺寸限制保持不变。明确 GUI 矩形及宽度 1 的水平/竖直原生剖面已完成限定合成实机验收，后者保留真实一维 float64 数值、原生轴标定和源采样轨迹，见[线剖面契约](NATIVE_LINE_PROFILE.md)。更一般的剖面、直方图和原生工作区枚举/切换尚未通过资格确认。手动切换工作区已用于验证显式 image_id 和 SHOW 的行为；SHOW 不保证激活结果所在标签页。参见[生命周期与分块交接](NATIVE_LIFECYCLE_HANDOFF.md)。
+结果引用释放和确定性有界分块交接已实现，并有独立合成实机证据；原始 READ 及算子尺寸限制保持不变。明确 GUI 矩形及宽度 1 的水平/竖直原生剖面已完成限定合成实机验收，后者保留真实一维 float64 数值、原生轴标定和源采样轨迹，见[线剖面契约](NATIVE_LINE_PROFILE.md)。真一维结果现在可以经 `dm_native_show` 进入可见文档（`native_profile_display` / `native_histogram_display` 两个独立准入组）。原生强度直方图已接通，见[直方图契约](NATIVE_HISTOGRAM.md)。更一般的剖面（斜线/宽条带/小数端点）、原生强度横轴以及原生工作区枚举/切换尚未通过资格确认。手动切换工作区已用于验证显式 image_id 和 SHOW 的行为；SHOW 不保证激活结果所在标签页。参见[生命周期与分块交接](NATIVE_LIFECYCLE_HANDOFF.md)。

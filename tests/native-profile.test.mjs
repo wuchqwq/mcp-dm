@@ -4,13 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {validateNativeLineProfile,validateNativeGuiRois,validateNativeDataSnapshot} from '../lib/native_bridge.mjs';
+import {validateNativeLineProfile,validateNativeGuiRois,validateNativeDataSnapshot,validateNativeShow} from '../lib/native_bridge.mjs';
 import {encodeNpy,encodeNpyHeader,encodeProfileNpy,validateSavedSnapshot,handoff} from '../tools/native_snapshot_handoff.mjs';
 import {profileArgs,profileFixture,savedProfileFixture} from './fixtures/native-profile.mjs';
 import {guiRoisFixture,normalizedGuiMapping} from './fixtures/native-rois.mjs';
 
-test('PROFILE preserves true 1D f64, signed native axis, raw intensity and exact GUI trajectory',()=>{
-  for (const args of [profileArgs,[77,0,0x7fffffff,0,5,1,2,1,1],[77,31,9,4,2,6,2,1,1]]) {
+test('PROFILE preserves true 1D f64, signed native axis, raw intensity and exact GUI trajectory',()=>{  for (const args of [profileArgs,[77,0,0x7fffffff,0,5,1,2,1,1],[77,31,9,4,2,6,2,1,1]]) {
     const result=profileFixture(args); validateNativeLineProfile(result,args,'saved-profile');
     assert.equal(Buffer.from(result.values_base64,'base64').readDoubleLE(16),16777217);
     assert.equal(result.image.calibration[0].scale,-result.distance_step);
@@ -107,4 +106,32 @@ test('saved PROFILE handoff exclusively writes, reopens with NumPy and recovers 
     assert.throws(()=>handoff({...args,requestId:'other-export'}));
     fs.appendFileSync(path.join(workspace,'capture','input.npy'),'x');assert.throws(()=>handoff(args));
   } finally {fs.rmSync(workspace,{recursive:true,force:true});}
+});
+
+test('rank-one PROFILE delivery keeps its own SHOW descriptor and never a fabricated 2D raster',()=>{
+  const profile=profileFixture();
+  const delivery=()=>({backend:'digitalmicrograph-native',image_id:profile.image_id,delivery:'visible_dm_document',document_visible:true,
+    operator:'ImageGetOrCreateImageDocument + ImageDocumentShow',rank:1,display_family:'native_1d_image_document',
+    display_class:'host_selected',retained_operation:'PROFILE',one_dimensional_display:structuredClone(profile.image),
+    ownership:'host document holds image; plugin result reference released at normal STOP/cleanup',
+    source_write_requested:false,snapshot_atomic:false,file_saved:false,model_visual_verification:false});
+  validateNativeShow(delivery(),profile.image_id);
+  const changes=[r=>r.rank=2,r=>delete r.retained_operation,r=>r.retained_operation='CROP',r=>r.display_family='raster_2d',
+    r=>r.display_class='line_plot',r=>r.image=r.one_dimensional_display,r=>r.one_dimensional_display.ndim=2,r=>r.one_dimensional_display.shape=[1,8],
+    r=>r.one_dimensional_display.shape=[1],r=>r.one_dimensional_display.dm_dimensions=[1,8],r=>r.one_dimensional_display.dtype='float32',
+    r=>r.one_dimensional_display.data_type_code=2,r=>r.one_dimensional_display.packing_style=2,r=>r.one_dimensional_display.pixels=7,
+    r=>r.one_dimensional_display.calibration_complete=false,r=>r.one_dimensional_display.calibration=[],r=>r.one_dimensional_display.calibration[0].unit='',
+    r=>r.one_dimensional_display.calibration[0].scale=0,r=>r.one_dimensional_display.calibration[0].usable=false,
+    r=>r.one_dimensional_display.calibration[0].numpy_axis=1,r=>r.one_dimensional_display.shape_order='numpy (last axis is X)',
+    r=>r.one_dimensional_display.coordinate_rule='index',r=>r.file_saved=true,r=>r.document_visible=false,r=>r.image_id=77,
+    r=>r.snapshot_atomic=true,r=>r.model_visual_verification=true,r=>r.ownership='',
+    r=>{delete r.one_dimensional_display;r.image=structuredClone(profile.image);}];
+  for(const change of changes){const copy=delivery();change(copy);assert.throws(()=>validateNativeShow(copy,profile.image_id),change.toString());}
+  // The 4096-sample budget and the true one-dimensional shape are both enforced.
+  const wide=profileFixture([77,31,9,4,0,0,4095,0,1],'saved-profile',{shape:[1,4096]});
+  const wideDelivery=delivery();wideDelivery.image_id=wide.image_id;wideDelivery.one_dimensional_display=wide.image;
+  validateNativeShow(wideDelivery,wide.image_id);
+  const oversized=delivery();oversized.one_dimensional_display={...structuredClone(profile.image),shape:[4097],dm_dimensions:[4097],pixels:4097,
+    calibration:[{...profile.image.calibration[0],size:4097}]};
+  assert.throws(()=>validateNativeShow(oversized,profile.image_id));
 });

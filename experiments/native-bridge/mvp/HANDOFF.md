@@ -2,7 +2,7 @@
 
 ## Current continuation: GUI line to native one-dimensional profile
 
-The native catalog now has eighteen entries, adding `dm_native_profile` and
+The native catalog now has nineteen entries, adding `dm_native_profile` and
 ROIS version 2 line geometry. `native_line_profile` has limited synthetic
 prepared-host qualification and profile admission is enabled. The final
 qualified artifact also passed its own fresh-host confirmation, with loaded
