@@ -60,7 +60,8 @@ dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
 dm_native_complex, dm_native_filter, dm_native_preview and dm_native_read.
 SUMMARY calls DM's built-in GetMinimum/GetMaximum/GetSum/GetMean directly;
 it is not full dm_stats and does not perform preview or file saving. Its
-scope is float32 2D up to 4,194,304 pixels, raw intensity without intensity
+scope is float32 2D up to 4,194,304 pixels, or ordinary uint32 2D up to
+2,097,152 pixels, raw intensity without intensity
 calibration, serialized idle-host execution with snapshot_atomic:false.
 The shared selector rejects UNSUPPORTED_BUILD, ABI_MISMATCH and NOT_READY
 before image calls; only SUPPORTED admits the selected profile. Unknown builds
@@ -170,13 +171,28 @@ remain errors, without silent conversion or a backend fallback.
   returns an MCP PNG image block plus text, also after QUERY. It is nearest
   integer-index sampling without averaging or enlargement; display-only,
   not a quantitative result or scientific export.
-- READ requires an explicit half-open rect: source float32 2D ordinary packing
+- READ requires an explicit half-open rect: source float32 or uint32 2D ordinary packing
   up to 4,194,304 pixels, ROI up to 16,384 samples/65,536 raw bytes. Validate
-  canonical base64, finite little-endian float32, row-major [y,x] shape, exact
+  canonical base64, exact little-endian float32/uint32, row-major [y,x] shape, exact
   source/ROI identity, translated signed calibration and immutable creation
   provenance when present. Preserve signed zero. Known missing/invalid spatial
   calibration is reported, not invented; READ does not require optional stats
   bindings, create a native image, return a PNG or write a path/file.
+
+The separate uint32 scope is documented in UINT32_ACCEPTANCE.md. Its five
+profile subgroups are native_uint32_mean, native_uint32_statistics,
+native_uint32_crop, native_uint32_preview and native_uint32_read. Code 11,
+ordinary packing and explicit integer/unsigned metadata must agree; these flags
+describe the fixed-build dtype contract, not nonexistent native flag getters.
+MEAN/SUMMARY use DM reductions with a 2,097,152-pixel conservative exact-integer
+sum budget. Fractional means remain binary64. uint32 CROP admits at most
+4,194,304 source pixels and 4 MiB output, preserves uint32 and requires complete
+spatial calibration. Uint32 SHOW, arithmetic, Fourier and filters remain
+unqualified and reject explicitly; never silently cast to float32. Saved READ
+uint32 bytes use NPY <u4. The optional external example records an exact Python
+integer sum, checks NumPy uint64, and divides once for a raw binary64 mean.
+Only new synthetic images qualify this extension; real ADF files remain
+NOT_TESTED and must not be edited as part of that trial.
 
 Only explicit saved READ data may feed the external handoff CLI. Persist the
 caller handoff ID/parameters and fsync the complete journal before creating a

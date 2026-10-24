@@ -423,7 +423,7 @@ const nativeTools = [
     image_id: NATIVE_IMAGE_ID,
     request_id: NATIVE_REQUEST_ID,
   }, ["image_id"]),
-  tool("dm_native_summary", "实验性指定构建的 DM 原生二维 float32 摘要，仅 minimum、maximum、sum、mean 四值，不提供完整 stats、stddev 或 variance；显式数字 image_id，最多 4194304 像素。不应用强度标定；已识别的缺失/无效空间标定通过 calibration_complete 和每轴 issue 报告，仍可计算 raw pixel intensity。只在 DM 空闲且不编辑源图时调用，源图只读；超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
+  tool("dm_native_summary", "实验性指定构建的 DM 原生二维 float32/uint32 摘要，仅 minimum、maximum、sum、mean 四值，不提供完整 stats、stddev 或 variance；显式数字 image_id；float32 最多 4194304 像素，uint32 最多 2097152 像素以保持最坏整数和小于 2^53。不应用强度标定；已识别的缺失/无效空间标定通过 calibration_complete 和每轴 issue 报告，仍可计算 raw pixel intensity。只在 DM 空闲且不编辑源图时调用，源图只读；超时/取消后同 ID 查询，不自动重发，不回退 Python。", {
     image_id: NATIVE_IMAGE_ID,
     request_id: NATIVE_REQUEST_ID,
   }, ["image_id"]),
@@ -454,11 +454,11 @@ const nativeTools = [
   tool("dm_native_filter", "DM 原生二维 float32 smooth/sobel/laplace/sharpen，产生独立结果且保留空间标定，源图不改；算法及边缘语义以回执为准。宿主空闲时串行调用，不回退或重发。", {
     image_id: NATIVE_IMAGE_ID, operation: {type: "string", enum: Object.keys(NATIVE_FILTER)}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["image_id", "operation", "request_id"]),
-  tool("dm_native_preview", "显式二维 float32 图像的有界灰度 PNG 显示：原生点读取、最近邻采样，最大 128×128，不放大。仅显示适配，不是定量分析或科研文件导出，不修改源图；不代表模型已经看见。", {
+  tool("dm_native_preview", "显式二维 float32/uint32 图像的有界灰度 PNG 显示：原生点读取、最近邻采样，最大 128×128，不放大。仅显示适配，不是定量分析或科研文件导出，不修改源图；不代表模型已经看见。", {
     image_id: NATIVE_IMAGE_ID, max_width: {type: "integer", minimum: 1, maximum: 128, default: 128},
     max_height: {type: "integer", minimum: 1, maximum: 128, default: 128}, request_id: NATIVE_REQUEST_ID,
   }, ["image_id"]),
-  tool("dm_native_read", "DM 原生读取显式二维 float32 图像的半开 ROI，最多 16384 样本/65536 原始字节；返回 little-endian float32 base64、行优先 shape/轴序和 ROI 标定。源图只读，源图最多 4194304 像素；不裁夹、不生成图片、不保存文件，不是 DM SaveAs。只在宿主空闲且不编辑源图时调用，snapshot_atomic:false；用于调用方显式数值交接，不回退 Python。", {
+  tool("dm_native_read", "DM 原生读取显式二维 float32/uint32 图像的半开 ROI，最多 16384 样本/65536 原始字节；返回保留源 dtype 的 little-endian 4 字节标量 base64、行优先 shape/轴序和 ROI 标定。源图只读，源图最多 4194304 像素；不裁夹、不生成图片、不保存文件，不是 DM SaveAs。只在宿主空闲且不编辑源图时调用，snapshot_atomic:false；用于调用方显式数值交接，不回退 Python。", {
     image_id: NATIVE_IMAGE_ID, rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}}, request_id: NATIVE_REQUEST_ID,
   }, ["image_id", "rect"]),
 ];

@@ -98,6 +98,9 @@ bool qualified_capability353(const char* name) {
         if (std::string(capability.name) == name) return capability.qualified;
     return false;
 }
+void require_uint32_operation353(const char* group, bool bindings) {
+    nb::require_uint32_admission353(qualified_capability353(group), bindings, group);
+}
 
 struct WinHandle {
     HANDLE value;
@@ -404,8 +407,10 @@ std::string metadata(void* image, bool strict_calibration = true) {
     auto s = json_stream();
     s << "{\"id\":" << api.id(image) << ",\"name\":" << nb::quote(name.utf8(1024))
       << ",\"ndim\":" << ndim << ",\"data_type_code\":" << code
-      << ",\"dtype\":" << (code == 2 ? "\"float32\"" : code == 3 ? "\"complex64\"" : "null")
-      << ",\"packing_style\":" << (api.packing ? std::to_string(packing_style(image)) : "null")
+      << ",\"dtype\":" << (code == 2 ? "\"float32\"" : code == 3 ? "\"complex64\"" : code == nb::kUint32Code353 ? "\"uint32\"" : "null");
+    if (code == nb::kUint32Code353) s << ",\"is_integer\":true,\"is_unsigned\":true";
+    const auto packing = api.packing ? packing_style(image) : UINT32_MAX;
+    s << ",\"packing_style\":" << (api.packing ? std::to_string(packing) : "null")
       << ",\"shape\":[";
     for (std::uint32_t i = 0; i < ndim; ++i) { if (i) s << ','; s << sizes[ndim - i - 1]; }
     s << "],\"dm_dimensions\":[";
@@ -442,8 +447,12 @@ std::string metadata(void* image, bool strict_calibration = true) {
     }
     require_ready();
     s << "],\"calibration_complete\":" << (calibration_complete ? "true" : "false")
-      << ",\"native_mean_supported\":" << (api.mean && code == 2 && ndim == 2 && pixels <= 4194304 ? "true" : "false")
-      << ",\"native_summary_supported\":" << (api.minimum && api.maximum && api.sum && api.mean && code == 2 && ndim == 2 && pixels <= 4194304 ? "true" : "false")
+      << ",\"native_mean_supported\":" << (api.mean && ndim == 2 &&
+          ((code == 2 && pixels <= 4194304) || (code == nb::kUint32Code353 && packing == 1 &&
+            pixels <= nb::kUint32StatisticsPixels353 && qualified_capability353("native_uint32_mean"))) ? "true" : "false")
+      << ",\"native_summary_supported\":" << (api.minimum && api.maximum && api.sum && api.mean && ndim == 2 &&
+          ((code == 2 && pixels <= 4194304) || (code == nb::kUint32Code353 && packing == 1 &&
+            pixels <= nb::kUint32StatisticsPixels353 && qualified_capability353("native_uint32_statistics"))) ? "true" : "false")
       << ",\"coordinate_rule\":\"physical(i)=calibrated_value_at_pixel_zero+i*scale\"}";
     return s.str();
 }
@@ -485,6 +494,8 @@ std::string execute_show(const NativeRequest& request) {
     const auto id = request.args[0];
     const auto owned = retained_results.find(id);
     if (!id || owned == retained_results.end()) throw std::runtime_error("native_show_requires_plugin_result");
+    if (owned->second.data_type_code == nb::kUint32Code353)
+        throw std::runtime_error("native_show_uint32_not_qualified");
     ImageRef image(api.find_id, id);
     if (image.value.image != owned->second.value.image || api.id(image.value.image) != id)
         throw std::runtime_error("image_identity_mismatch");
@@ -527,9 +538,17 @@ std::string execute_crop(const NativeRequest& request) {
     ImageRef source(api.find_id, request.args[0]);
     void* source_image = source.value.image;
     if (api.id(source_image) != request.args[0]) throw std::runtime_error("image_identity_mismatch");
-    if (api.ndim(source_image) != 2 || api.dtype(source_image) != 2)
+    const auto source_code = api.dtype(source_image);
+    const bool uint32 = source_code == nb::kUint32Code353;
+    if (api.ndim(source_image) != 2 || (source_code != 2 && !uint32))
         throw std::runtime_error("native_crop_requires_float32_2d");
+    if (uint32) {
+        require_uint32_operation353("native_uint32_crop", api.crop && api.packing);
+        if (packing_style(source_image) != 1) throw std::runtime_error("native_uint32_requires_ordinary_packing");
+    }
     const auto width = api.dimension(source_image, 0), height = api.dimension(source_image, 1);
+    if (uint32 && static_cast<std::uint64_t>(width) * height > nb::kUint32SourcePixels353)
+        throw std::runtime_error("native_uint32_crop_source_over_budget");
     const auto plan = nb::crop_plan(width, height,
         {request.args[1], request.args[2], request.args[3], request.args[4]},
         retained_crop_bytes, retained_crops.size());
@@ -546,7 +565,8 @@ std::string execute_crop(const NativeRequest& request) {
     const auto output_id = api.id(output_image);
     if (output_image == source_image || !output_id || output_id == request.args[0] || retained_crops.count(output_id))
         throw std::runtime_error("native_crop_output_identity_invalid");
-    if (api.ndim(output_image) != 2 || api.dtype(output_image) != 2 ||
+    if (api.ndim(output_image) != 2 || api.dtype(output_image) != source_code ||
+        (uint32 && packing_style(output_image) != 1) ||
         api.dimension(output_image, 0) != plan.width || api.dimension(output_image, 1) != plan.height)
         throw std::runtime_error("native_crop_output_descriptor_mismatch");
     const auto output_info = metadata(output_image);
@@ -565,7 +585,8 @@ std::string execute_crop(const NativeRequest& request) {
     }
     // Matching descriptors/calibration do not establish an atomic pixel snapshot.
     // This operation is admitted only under the documented idle/no-edit contract.
-    if (api.id(source_image) != request.args[0] || api.ndim(source_image) != 2 || api.dtype(source_image) != 2 ||
+    if (api.id(source_image) != request.args[0] || api.ndim(source_image) != 2 || api.dtype(source_image) != source_code ||
+        (uint32 && packing_style(source_image) != 1) ||
         api.dimension(source_image, 0) != width || api.dimension(source_image, 1) != height ||
         crop_calibration(source_image) != source_calibration || metadata(source_image) != source_info)
         throw std::runtime_error("native_crop_source_descriptor_changed");
@@ -841,6 +862,11 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("filter_small_float32_2d", filters);
         capability("sampled_preview_float32_2d", available("native_preview", api.packing && api.real_value));
         capability("bounded_read_float32_2d", available("native_read", api.packing && api.real_value));
+        capability("mean_uint32_2d", available("native_uint32_mean", api.packing && api.mean));
+        capability("summary_uint32_2d", available("native_uint32_statistics", api.packing && finite_checks));
+        capability("crop_uint32_2d", available("native_uint32_crop", api.packing && api.crop));
+        capability("sampled_preview_uint32_2d", available("native_uint32_preview", api.packing && api.real_value));
+        capability("bounded_read_uint32_2d", available("native_uint32_read", api.packing && api.real_value));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
           << ",\"build_error\":" << (fatal_abi ? "\"native_abi_invalid_output_path_disabled\"" : gate_error.empty() ? "null" : nb::quote(gate_error)) << '}';
@@ -910,11 +936,21 @@ static std::string execute_operation(const NativeRequest& request) {
             return s.str();
         }
         require_ready();
-        if (api.ndim(image.value.image) != 2 || api.dtype(image.value.image) != 2)
+        const auto source_code = api.dtype(image.value.image);
+        const bool uint32 = source_code == nb::kUint32Code353;
+        if (api.ndim(image.value.image) != 2 || (source_code != 2 && !uint32))
             throw std::runtime_error(summary ? "native_summary_requires_float32_2d" : "native_mean_requires_float32_2d");
+        if (uint32) {
+            require_uint32_operation353(summary ? "native_uint32_statistics" : "native_uint32_mean",
+                api.packing && api.mean && (!summary || (api.minimum && api.maximum && api.sum)));
+            if (packing_style(image.value.image) != 1) throw std::runtime_error("native_uint32_requires_ordinary_packing");
+        }
         auto w = api.dimension(image.value.image, 0), h = api.dimension(image.value.image, 1);
         if (!w || !h) throw std::runtime_error("invalid_image_dimensions");
-        if (static_cast<std::uint64_t>(w) * h > 4194304)
+        const auto pixels = static_cast<std::uint64_t>(w) * h;
+        if (uint32 && pixels > nb::kUint32StatisticsPixels353)
+            throw std::runtime_error("native_uint32_statistics_exact_sum_budget_exceeded");
+        if (pixels > 4194304)
             throw std::runtime_error(summary ? "native_summary_working_region_over_budget" : "native_mean_working_region_over_budget");
         // Raw intensity does not depend on a usable spatial calibration. Keep
         // recognized missing/invalid calibration visible in metadata, while
@@ -932,12 +968,20 @@ static std::string execute_operation(const NativeRequest& request) {
             // acceptance before this new operation is qualified on a real host.
             const double minimum = finite_result(api.minimum(&image.value));
             require_ready();
+            if (uint32) nb::require_uint32_sample353(minimum, "native_uint32_summary_invalid_integer_result");
             const double maximum = finite_result(api.maximum(&image.value));
             require_ready();
+            if (uint32) nb::require_uint32_sample353(maximum, "native_uint32_summary_invalid_integer_result");
             const double sum = finite_result(api.sum(&image.value));
             require_ready();
+            if (uint32) nb::require_uint32_sum353(sum, pixels);
             const double mean = finite_result(api.mean(&image.value));
             require_ready();
+            if (uint32) {
+                nb::validate_uint32_summary353(minimum, maximum, sum, mean, pixels);
+                if (metadata(image.value.image, false) != info)
+                    throw std::runtime_error("native_uint32_statistics_source_metadata_changed");
+            }
             auto s = json_stream();
             s << "{\"backend\":\"digitalmicrograph-native\",\"image_id\":" << request.args[0]
               << ",\"image\":" << info << ",\"minimum\":" << minimum << ",\"maximum\":" << maximum
@@ -949,6 +993,11 @@ static std::string execute_operation(const NativeRequest& request) {
         }
         double mean = api.mean(&image.value);
         if (!std::isfinite(mean)) throw std::runtime_error("native_mean_nonfinite_result");
+        if (uint32) {
+            nb::require_uint32_mean353(mean);
+            if (metadata(image.value.image, false) != info)
+                throw std::runtime_error("native_uint32_statistics_source_metadata_changed");
+        }
         auto s = json_stream();
         s << "{\"backend\":\"digitalmicrograph-native\",\"image_id\":" << request.args[0]
           << ",\"image\":" << info << ",\"mean\":" << mean

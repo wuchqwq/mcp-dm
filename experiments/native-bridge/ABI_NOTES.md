@@ -35,9 +35,11 @@ or Fourier path.
 The real-value getter returns `double` and consumes only the proven 2D index
 prefix: dimension count at byte 0, signed X at byte 8, signed Y at byte 16.
 This is not a complete definition of the vendor's multidimensional class.
-Only ordinary-packed float32 2D is admitted. READ rejects nonfinite or inexact
-float32 conversion, preserves signed zero and writes explicit little-endian
-bytes; preview performs display scaling only. Neither path maps a generic pixel
+Only ordinary-packed float32 and the separately qualified uint32 2D paths are
+admitted. READ rejects nonfinite or inexact float32 conversion, preserves signed
+zero, or validates an unsigned integral double in [0, 2^32-1] before writing
+explicit little-endian uint32 bytes. Every uint32 value is exact in double;
+none passes through float32. Preview performs display scaling only. Neither path maps a generic pixel
 buffer or supports arbitrary dtype/layout. See the per-version contracts and
 [operation qualification](mvp/OPERATIONS_ACCEPTANCE.md) for the tested limits.
 
@@ -106,10 +108,16 @@ previously obtained dimension count. DM dimension 0 is x and dimension 1 is y;
 an exported row-major 2D shape is consequently `[size_y, size_x]`.
 
 `GetDataType` reads the native descriptor and does not require touching pixels.
-The first numerical adapter can accept only known code 2 (`float32`) and two
-dimensions. Other codes must remain explicitly unsupported rather than being
-inferred from byte count or appearance. Existing Python dtype mapping can be
-reused later only with separately accepted native cases.
+The initial numerical adapter admitted code 2 (`float32`) and two dimensions.
+The separate uint32 trial binds code 11 to a host-created NumPy uint32 view and
+exact native high-bit reads, rather than relying on the older Python dtype
+table alone. Integer/unsigned metadata is derived from that fixed descriptor
+contract; no new opaque descriptor layout or guessed flag getter is used.
+The existing native slice passes the source descriptor and packing into result
+creation; runtime checks require matching source/output type before retaining
+the independent copy. uint32 mean/SUMMARY are limited to 2,097,152 pixels so
+the worst possible sum stays below 2^53. Other codes remain unsupported.
+See [uint32 qualification](mvp/UINT32_ACCEPTANCE.md) for actual evidence status.
 
 Calibration's explicit call shape is:
 

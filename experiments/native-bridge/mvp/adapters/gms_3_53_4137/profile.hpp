@@ -82,6 +82,17 @@ inline const AdapterProfile& profile() {
                 "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"}, false),
             operation_capability("native_read", true, "float32 2D <=4194304 source pixels; explicit ROI <=16384 samples/65536 bytes; numeric handoff, not native SaveAs", {
                 "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"}, false),
+            {"native_uint32_mean", true, "uint32 ordinary 2D raw mean; <=2097152 pixels", {
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
+                {"GMSImageProcessing.dll", "?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z"}}, {}},
+            operation_capability("native_uint32_statistics", true, "uint32 ordinary 2D raw statistics; <=2097152 pixels; exact integer sum budget", {}),
+            {"native_uint32_crop", true, "uint32 ordinary 2D independent same-dtype crop; <=4194304 source pixels; <=4MiB output", {
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
+                {"GMSImage.dll", "?GetSubSliceAsImage@Image@GMS@@QEBA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSlice@Imaging@4@@Z"}}, {}},
+            operation_capability("native_uint32_preview", true, "uint32 ordinary 2D display-only sampled preview", {
+                "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"}, false),
+            operation_capability("native_uint32_read", true, "uint32 ordinary 2D exact little-endian ROI; <=16384 samples/65536 bytes", {
+                "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"}, false),
             {"native_save", false, "NOT_QUALIFIED", {}, {}},
         },
         {

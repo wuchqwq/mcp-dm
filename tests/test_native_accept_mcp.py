@@ -95,6 +95,27 @@ class NativeStrictClientTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 accept.strict_json(source)
 
+    def test_uint32_image_type_flags_and_exact_reduction_budget_are_explicit(self):
+        fixture, _ = self.fixture()
+        truth = fixture["images"][0]
+        truth["dtype"] = "uint32"; truth["mean"] = 4294967295
+        accept.validate_fixture(fixture)
+        actual = {"id": truth["id"], "name": truth["name"], "shape": truth["shape"], "dtype": "uint32",
+                  "ndim": 2, "pixels": 77, "dm_dimensions": list(reversed(truth["shape"])),
+                  "data_type_code": 11, "is_integer": True, "is_unsigned": True, "packing_style": 1,
+                  "native_mean_supported": True, "coordinate_rule": "physical(i)=calibrated_value_at_pixel_zero+i*scale",
+                  "calibration": [{"dm_dimension": axis["dm_axis"], "numpy_axis": 1-axis["dm_axis"],
+                                   "size": truth["shape"][1-axis["dm_axis"]], "unit": axis["unit"],
+                                   "scale": axis["scale"], "calibrated_value_at_pixel_zero": axis["origin"]}
+                                  for axis in truth["calibration"]]}
+        accept.validate_image(actual, truth)
+        for key, value in (("data_type_code", 2), ("is_integer", False), ("is_unsigned", 1), ("packing_style", 0)):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "uint32 dtype/code/integer/unsigned/packing/budget"):
+                accept.validate_image(dict(actual, **{key: value}), truth)
+        truth["shape"] = [1, 2097153]
+        with self.assertRaisesRegex(ValueError, "fixture shape/mean"):
+            accept.validate_fixture(fixture)
+
     def test_read_and_fourier_versions_bind_the_declared_result_contract(self):
         def receipt(operation, args, result_type, version):
             return {"protocol": "NB2", "original_operation": operation, "normalized_args": args,

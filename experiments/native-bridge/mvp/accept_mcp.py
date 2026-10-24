@@ -217,10 +217,10 @@ def validate_fixture(fixture):
     for image in images:
         require(isinstance(image, dict) and integer(image.get("id"), 0, 0xffffffff) and image["id"] not in ids, "Invalid/duplicate fixture image ID")
         ids.add(image["id"])
-        require(isinstance(image.get("name"), str) and image["name"] and image.get("dtype") == "float32", "Invalid fixture name/dtype")
+        require(isinstance(image.get("name"), str) and image["name"] and image.get("dtype") in ("float32", "uint32"), "Invalid fixture name/dtype")
         shape = image.get("shape")
         require(isinstance(shape, list) and len(shape) == 2 and all(integer(n, 1, 4194304) for n in shape)
-                and math.prod(shape) <= 4194304 and finite(image.get("mean")), "Invalid fixture shape/mean")
+                and math.prod(shape) <= (2097152 if image["dtype"] == "uint32" else 4194304) and finite(image.get("mean")), "Invalid fixture shape/mean")
         calibration = image.get("calibration")
         require(isinstance(calibration, list) and len(calibration) == 2, "Missing fixture calibration")
         require({axis.get("dm_axis") for axis in calibration if isinstance(axis, dict)} == {0, 1}, "Invalid fixture calibration axes")
@@ -256,6 +256,10 @@ def validate_image(actual, truth):
             and integer(actual.get("ndim"), 2, 2) and integer(actual.get("pixels"), 1)
             and actual.get("dm_dimensions") == list(reversed(truth["shape"])) and actual.get("pixels") == math.prod(truth["shape"]), "Image shape/dtype mismatch")
     require(actual.get("native_mean_supported") is True, "Fixture not marked as supported native mean input")
+    if truth["dtype"] == "uint32":
+        require(actual.get("data_type_code") == 11 and actual.get("is_integer") is True and
+                actual.get("is_unsigned") is True and actual.get("packing_style") == 1 and
+                actual["pixels"] <= 2097152, "Native uint32 dtype/code/integer/unsigned/packing/budget mismatch")
     require(actual.get("coordinate_rule") == "physical(i)=calibrated_value_at_pixel_zero+i*scale", "Unknown coordinate rule")
     axes = actual.get("calibration")
     require(isinstance(axes, list) and len(axes) == 2, "Missing native image calibration")

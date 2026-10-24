@@ -55,8 +55,10 @@ std::string execute_read(const NativeRequest& request) {
     ImageRef source(api.find_id, request.args[0]);
     const auto before = fft_image353(source.value.image);
     if (before.id != request.args[0]) throw std::runtime_error("image_identity_mismatch");
-    if (before.dimensions != 2 || before.data_type != 2 || before.packing != 1)
+    const bool uint32 = before.data_type == nb::kUint32Code353;
+    if (before.dimensions != 2 || (before.data_type != 2 && !uint32) || before.packing != 1)
         throw std::runtime_error("native_read_requires_float32_2d_ordinary_packing");
+    if (uint32) require_uint32_operation353("native_uint32_read", api.packing && api.real_value);
     const auto plan = nb::read_plan353(before.width, before.height,
                        {request.args[1], request.args[2], request.args[3], request.args[4]});
     const auto source_info = metadata(source.value.image, false);
@@ -85,7 +87,8 @@ std::string execute_read(const NativeRequest& request) {
             const auto index = nb::read_index353(plan, x, y);
             const double value = api.real_value(source.value.image, &index);
             require_ready();
-            nb::append_read_float32_le353(bytes, value);
+            if (uint32) nb::append_read_uint32_le353(bytes, value);
+            else nb::append_read_float32_le353(bytes, value);
         }
     }
     if (bytes.size() != plan.bytes) throw std::runtime_error("native_read_snapshot_size_mismatch");
@@ -103,7 +106,8 @@ std::string execute_read(const NativeRequest& request) {
     stream << ",\"effective_rect\":";
     write_rect(stream, plan.rect);
     stream << ",\"shape\":[" << plan.height << ',' << plan.width
-      << "],\"dtype\":\"float32\",\"byte_order\":\"little\",\"axes\":[\"y\",\"x\"],\"array_order\":\"C\""
+      << "],\"dtype\":" << (uint32 ? "\"uint32\"" : "\"float32\"")
+      << ",\"byte_order\":\"little\",\"axes\":[\"y\",\"x\"],\"array_order\":\"C\""
       << ",\"data_encoding\":\"base64\",\"values_base64\":" << nb::quote(base64)
       << ",\"sample_count\":" << plan.samples << ",\"raw_bytes\":" << plan.bytes
       << ",\"roi_calibration\":" << calibration << ",\"calibration_complete\":" << (calibration_complete ? "true" : "false")

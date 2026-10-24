@@ -86,6 +86,23 @@ An unavailable adapter capability rejects before image lookup. Do not infer
 support from tool discovery or symbol presence alone. Preview is display-only;
 READ plus the explicit external encoder is NPY data handoff, not native SaveAs.
 
+For ordinary 2D uint32, follow the separate [uint32 acceptance](UINT32_ACCEPTANCE.md)
+and check its dtype capabilities and current prepared/production qualification.
+The prepared trial, original-STOP release, normal exit and owned-plugin removal
+are separate from final production acceptance. Mean/SUMMARY allow at most
+2,097,152 pixels, preserving the worst-case integer-sum bound below 2^53;
+fractional mean remains binary64. Crop requires complete spatial calibration,
+a source of at most 4,194,304 pixels, and same-dtype output of at most 4 MiB
+(1,048,576 pixels). Preview has that source bound and at most 128x128 samples;
+READ has that source bound and at most 16,384 ROI samples/65,536 raw bytes.
+Explicit saved-response encoding preserves `<u4` NPY bytes; the external
+example records exact integer sum/float64 mean and provenance in a new directory.
+Do not convert uint32 to float32 or substitute PNG for numerical input.
+Arithmetic, FFT, filters and SHOW do not inherit uint32 qualification; native
+SaveAs remains unavailable. Other integers, native 4D, real data and model-client
+use are not qualified by this trial. The default backend and client entries
+remain unchanged; the existing float32 commands below retain their own fixtures.
+
 Qualified real-host name checks use ASCII synthetic names. An independent
 comparison of non-ASCII names between legacy GMS Python bindings and native
 `GetUnicodeName` failed and remains NOT_QUALIFIED. Do not silently recode image

@@ -1,5 +1,6 @@
 #pragma once
 #include "preview_contract.hpp"
+#include "uint32_contract.hpp"
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -50,6 +51,12 @@ inline std::uint32_t read_float32_bits353(double value) {
 }
 inline void append_read_float32_le353(std::string& bytes, double value) {
     const auto bits = read_float32_bits353(value);
+    for (unsigned shift = 0; shift < 32; shift += 8)
+        bytes.push_back(static_cast<char>((bits >> shift) & 255u));
+}
+inline void append_read_uint32_le353(std::string& bytes, double value) {
+    require_uint32_sample353(value, "native_read_value_not_exact_uint32");
+    const auto bits = static_cast<std::uint32_t>(value);
     for (unsigned shift = 0; shift < 32; shift += 8)
         bytes.push_back(static_cast<char>((bits >> shift) & 255u));
 }

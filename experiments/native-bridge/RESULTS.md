@@ -7,6 +7,14 @@ acceptance. Private run artifacts and scientific data are not distributed.
 
 ## Current feature: native operations and scientific handoff
 
+The uint32 extension has a separate [qualification record](mvp/UINT32_ACCEPTANCE.md).
+Its prepared synthetic real host passed raw/scalar/calibration/source/NPY checks,
+original STOP release, normal exit and manifest-owned removal. The final
+production artifact independently repeated those checks in a fresh host, then
+the stored uint32 captures reopened unchanged after exit/removal and a new
+explicit external run. The float32 records below are retained as their
+own evidence; they do not qualify uint32 arithmetic, Fourier, filters or SHOW.
+
 The following scopes use only newly created synthetic data on the exact pinned
 Windows x64 GMS profile, with an idle host, serial calls and no concurrent source
 edits. They do not qualify real experimental files or another GMS version.
@@ -26,7 +34,7 @@ edits. They do not qualify real experimental files or another GMS version.
 | Safe errors and recovery | PASS, limited | Actual unsupported type/nonfinite/ID/bounds/filter-size/FFT-size/foreign-IFFT rejection; original-ID QUERY remains unchanged; unsupported tools do not switch backend |
 | Offline engineering regression | PASS | Core and ABI surrogates, version/rejection tests, Windows synthetic pipe, real Node stdio MCP, PNG/NPY tests, default Python compatibility and targeted oracle faults; these are not host ABI evidence |
 | Ordinary Agent/model client | NOT_TESTED | No model-client acceptance substitutes for the strict protocol client |
-| Native SaveAs/Open, other GMS, integer/4D native processing | NOT_TESTED / unavailable | No guessed ABI, dtype conversion or hidden fallback |
+| Native SaveAs/Open, other GMS, other integer/4D native processing | NOT_TESTED / unavailable | uint32 has only the separate five-operation subset; no guessed ABI, dtype conversion or hidden fallback |
 | Non-ASCII legacy name interoperability | NOT_QUALIFIED | Historical failure retained; no heuristic recoding fix |
 
 New numerical qualification used prepared operator builds first, then a separate

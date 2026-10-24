@@ -1,7 +1,8 @@
 // Hand-built protocol fixtures only. No vendor API or scientific computation.
-export function imageMetadata(id, {complex = false, shape = [4, 8]} = {}) {
-  return {id, name: "synthetic protocol fixture", ndim: 2, data_type_code: complex ? 3 : 2,
-    dtype: complex ? "complex64" : "float32", packing_style: 1, shape: [...shape], dm_dimensions: [...shape].reverse(),
+export function imageMetadata(id, {complex = false, unsigned = false, shape = [4, 8]} = {}) {
+  return {id, name: "synthetic protocol fixture", ndim: 2, data_type_code: complex ? 3 : unsigned ? 11 : 2,
+    dtype: complex ? "complex64" : unsigned ? "uint32" : "float32", ...(unsigned ? {is_integer: true, is_unsigned: true} : {}),
+    packing_style: 1, shape: [...shape], dm_dimensions: [...shape].reverse(),
     pixels: shape[0] * shape[1], shape_order: "numpy (last axis is X)", calibration_complete: true,
     native_mean_supported: !complex, native_summary_supported: !complex,
     coordinate_rule: "physical(i)=calibrated_value_at_pixel_zero+i*scale",
@@ -86,7 +87,10 @@ export function operationFixture(operation, args) {
 export function readFixture(args = [77, 1, 1, 4, 3], {source = imageMetadata(args[0]), provenance = null} = {}) {
   const rect = args.slice(1), [x0, y0, x1, y1] = rect, width = x1 - x0, height = y1 - y0;
   const bytes = Buffer.alloc(width * height * 4);
-  for (let index = 0; index < width * height; index++) bytes.writeFloatLE([-0, -2.5, 0.125, 8][index % 4], index * 4);
+  for (let index = 0; index < width * height; index++) {
+    if (source.dtype === "uint32") bytes.writeUInt32LE([0, 2 ** 24 - 1, 2 ** 24 + 1, 2 ** 31, 2 ** 32 - 1, 1][index % 6], index * 4);
+    else bytes.writeFloatLE([-0, -2.5, 0.125, 8][index % 4], index * 4);
+  }
   const offsets = [x0, y0], sizes = [width, height];
   const roi = source.calibration.map((axis, index) => {
     const origin = axis.origin === null ? NaN : axis.origin - offsets[index];
@@ -100,7 +104,7 @@ export function readFixture(args = [77, 1, 1, 4, 3], {source = imageMetadata(arg
       scale: axis.scale, unit: axis.unit, usable, issue: usable ? null : numbersUsable ? "unknown_units" : unitKnown ? "invalid_calibration" : "invalid_calibration_and_unknown_units"};
   });
   return {backend: "digitalmicrograph-native", operation: "READ", source_image_id: args[0], source,
-    requested_rect: rect, effective_rect: [...rect], shape: [height, width], dtype: "float32", byte_order: "little", axes: ["y", "x"], array_order: "C",
+    requested_rect: rect, effective_rect: [...rect], shape: [height, width], dtype: source.dtype, byte_order: "little", axes: ["y", "x"], array_order: "C",
     data_encoding: "base64", values_base64: bytes.toString("base64"), sample_count: width * height, raw_bytes: bytes.length,
     operator: "GMS::Image::GetRealValue", computation: "DM native point reads; data handoff only",
     intensity_calibration_applied: false, intensity_semantics: "raw pixel intensity", source_write_requested: false, snapshot_atomic: false,

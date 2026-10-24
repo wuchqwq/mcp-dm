@@ -26,7 +26,7 @@ manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 
 | --- | --- |
 | `dm_status` | 构建、适配器、能力、宿主状态 |
 | `dm_datasets` | 有界原生图像枚举及元数据 |
-| `dm_native_mean` | 指定二维 float32 图像的原始强度均值 |
+| `dm_native_mean` | 指定二维 float32 / uint32 图像的原始强度均值；各有像素预算 |
 | `dm_native_summary` | 原生 minimum、maximum、sum、mean 四值 |
 | `dm_native_result` | 同 session、同 request_id 查询原 NB2 记录 |
 | `dm_crop` | 半开像素矩形的独立原生副本 |
@@ -37,7 +37,7 @@ manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 
 | `dm_native_complex` | `real`、`imaginary`、`phase`、`power` |
 | `dm_native_filter` | `smooth`、`sobel`、`laplace`、`sharpen` |
 | `dm_native_preview` | 最大 128×128 的显示用灰度 PNG |
-| `dm_native_read` | 明确 ROI 的 float32 原始数值与标定快照 |
+| `dm_native_read` | 明确 ROI 的 float32 / uint32 原始数值与标定快照 |
 
 宿主空闲且不编辑源图时串行调用。先保存 session、request_id 和原参数，再提交
 创建结果或显示文档的操作。超时、取消或断连后只用 `dm_native_result` 查询原 ID；
@@ -45,10 +45,16 @@ manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 
 NB2 保留原操作、规范参数、结果类型及版本；Fourier 新提交使用 v2，旧 v1 QUERY
 只用于恢复其原始记录。STOP、退出或新 session 不保证旧记录可恢复。
 
-一个短工作流是：枚举得到源 ID → 明确 ROI 做 crop → 对返回的新 ID 做 square
+float32 的一个短工作流是：枚举得到源 ID → 明确 ROI 做 crop → 对返回的新 ID 做 square
 或其它支持的原生处理 → preview 查看显示内容 → 按需 show 或 read。二元操作
 要求同形状、同空间标定，不广播。复数预览或 READ 前先请求明确的实数分量，
 不要把 complex 图像当作两列 float32。
+
+uint32 的工作流是：明确源 ID → preview 核对 → crop → 原生 mean / summary
+→ READ → 无损 NPY 交接。统计最多 2,097,152 像素；crop 源最多 4,194,304 像素、
+输出最多 4 MiB。2048×2048 整图超过统计预算，需先明确选取较小区域。
+不能把 float32 的 square、FFT、滤波或 show 直接用于 uint32；这些会明确拒绝。
+具体资格与合成验收入口见 [uint32 专项](UINT32_ACCEPTANCE.md)。
 
 `show` 不保存文件，也不等于模型已理解图像。插件正常 STOP 释放其强引用；
 已显示文档可继续持有结果，直至用户正常关闭该文档。不要关闭无关文档，
@@ -56,7 +62,7 @@ NB2 保留原操作、规范参数、结果类型及版本；Fourier 新提交�
 
 ## 保存一份 READ 数值快照
 
-READ 是只读调用，不创建结果图，不写文件。它返回原始 little-endian float32
+READ 是只读调用，不创建结果图，不写文件。它返回原始 little-endian float32 或 uint32
 base64、`shape:[y,x]`、C 行序、源元数据、逻辑 ROI 标定和原生回执。上限为
 16,384 样本／65,536 原始字节；矩形为 `[x0,y0,x1,y1]`，右下界不包含，不裁夹。
 源图上限 4,194,304 像素。它不是原子快照，不能在并发编辑下保证一致性。
@@ -73,7 +79,7 @@ node tools/native_snapshot_handoff.mjs `
 
 工具只验证和编码保存的响应，不连接 DM。产物复用已有 schema 1：
 
-- `input.npy`：精确保留传回的 float32 字节，包括负零。
+- `input.npy`：float32 使用 `<f4` 并保留负零；uint32 使用 `<u4`，保留全部高位整数原字节。
 - `input.json`：源/ROI、轴角色、原始 origin、物理零点、带符号 scale、单位、
   来源、NB2 回执和字节／像素／文件哈希。
 - `capture.json`：`capturing` 后经写入、flush/fsync 和读回验证成为 `captured`；
@@ -97,7 +103,9 @@ python examples/native_handoff_mean.py `
   --output external-mean
 ```
 
-这个独立示例用 NumPy float64 累加计算一次 raw mean，核对 capture、原始 READ
+这个独立示例对 float32 使用 NumPy float64 累加；对 uint32 使用精确 Python
+整数求和并交叉核对 NumPy uint64，再除以样本数取得 binary64 raw mean。
+它核对 capture、原始 READ
 身份、文件和像素哈希，并在结束前复核输入文件。输出到新的目录，保存当前
 脚本副本、`parameters.json`、`results.json`、`run.json`，记录 Python/NumPy
 版本及脚本、参数和输入哈希。它不调用 DM、不改 capture、不把结果回传 DM。

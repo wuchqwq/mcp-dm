@@ -54,6 +54,70 @@ console.log(JSON.stringify(handoff({workspace:directory,output:'capture',request
         self.assertEqual({name: (digest(self.capture / name), (self.capture / name).stat().st_mtime_ns)
                           for name in self.before}, self.before)
 
+    def use_uint32_capture(self):
+        tool = (ROOT / "tools" / "native_snapshot_handoff.mjs").as_uri()
+        fixture = (ROOT / "tests" / "fixtures" / "native-operations.mjs").as_uri()
+        script = """import fs from 'node:fs';import path from 'node:path';
+import {handoff} from %s;import {readFixture,imageMetadata} from %s;
+const directory=process.argv[1],args=[77,1,1,4,3];
+const payload={...readFixture(args,{source:imageMetadata(77,{unsigned:true})}),native_receipt:{protocol:'NB2',session:'a'.repeat(32),id:'synthetic-uint32-read',request_id:'synthetic-uint32-read',state:'completed',host_pid:1234,exec_tid:10,worker_tid:20,timings_us:{queue:3,execute:4},original_operation:'READ',normalized_args:args,result_type:'native_data_snapshot',result_version:1}};
+const saved=path.join(directory,'synthetic-uint32.json');fs.writeFileSync(saved,JSON.stringify(payload));
+console.log(JSON.stringify(handoff({workspace:directory,output:'uint32-capture',requestId:'external-uint32-test',snapshot:saved})));""" % (json.dumps(tool), json.dumps(fixture))
+        result = subprocess.run(["node", "--input-type=module", "-e", script, str(self.directory)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.capture = self.directory / "uint32-capture"
+        self.before = {name: (digest(self.capture / name), (self.capture / name).stat().st_mtime_ns)
+                       for name in ("input.npy", "input.json", "capture.json")}
+
+    def test_uint32_exact_integer_sum_float64_mean_without_float32_conversion(self):
+        self.use_uint32_capture()
+        values = np.load(self.capture / "input.npy", allow_pickle=False)
+        self.assertEqual(values.dtype, np.dtype("<u4"))
+        np.testing.assert_array_equal(values, [[0, 16777215, 16777217], [2147483648, 4294967295, 1]])
+        code, report, process = self.call()
+        self.assertEqual(code, 0, process.stderr)
+        self.assertEqual(report["sum"], 6476005376)
+        self.assertIs(report["sum_exact"], True)
+        self.assertEqual(report["mean"], 6476005376 / 6)
+        self.assertEqual(report["dtype"], "uint32")
+        self.assertEqual(report["accumulator_dtype"], "uint64")
+        self.assertEqual(report["mean_dtype"], "float64")
+        self.assertEqual(report["integer_sum_bound"], 6 * 4294967295)
+        self.assertEqual(report["max_exact_float64_integer"], 2**53 - 1)
+        parameters = json.loads((self.directory / "external-result" / "parameters.json").read_text())
+        self.assertIn("exact Python integer sum", parameters["integer_reduction"])
+        self.assertEqual(parameters["dtype"], "uint32")
+        self.assertEqual(parameters["script_sha256"], digest(EXAMPLE))
+        self.assert_source_unchanged()
+
+    def test_uint32_rehashed_type_flags_and_wrong_npy_dtype_refuse_before_output(self):
+        self.use_uint32_capture()
+        paths = {name: self.capture / name for name in self.before}
+        original = {name: path.read_bytes() for name, path in paths.items()}
+        for index, failure in enumerate(("code", "integer", "unsigned", "unsigned-number", "packing", "manifest-dtype", "npy-float32")):
+            try:
+                info, manifest = json.loads(original["input.json"]), json.loads(original["capture.json"])
+                if failure == "code": info["source_metadata"]["data_type_code"] = 2
+                elif failure == "integer": info["source_metadata"]["is_integer"] = False
+                elif failure == "unsigned": info["source_metadata"].pop("is_unsigned")
+                elif failure == "unsigned-number": info["source_metadata"]["is_unsigned"] = 1
+                elif failure == "packing": info["source_metadata"]["packing_style"] = 0
+                elif failure == "manifest-dtype": manifest["source_dtype"] = "float32"
+                else:
+                    values = np.load(paths["input.npy"], allow_pickle=False).astype("<f4")
+                    np.save(paths["input.npy"], values, allow_pickle=False)
+                    info["input_sha256"] = manifest["input_sha256"] = digest(paths["input.npy"])
+                    info["pixel_sha256"] = hashlib.sha256(values.tobytes()).hexdigest()
+                manifest["input_metadata_sha256"] = hashlib.sha256(canonical(info)).hexdigest()
+                paths["input.json"].write_bytes(canonical(info)); paths["capture.json"].write_bytes(canonical(manifest))
+                code, report, _ = self.call("bad-uint32-%d" % index)
+                self.assertEqual(code, 1); self.assertEqual(report["state"], "failed")
+                target = "NPY shape/bytes" if failure == "npy-float32" else "manifest/input" if failure == "manifest-dtype" else "dtype/code/integer/unsigned/packing"
+                self.assertIn(target, report["error"])
+                self.assertFalse((self.directory / ("bad-uint32-%d" % index)).exists())
+            finally:
+                for name, path in paths.items(): path.write_bytes(original[name])
+
     def test_explicit_external_raw_mean_and_software_script_provenance(self):
         values = np.load(self.capture / "input.npy", allow_pickle=False)
         expected = np.array([[-0., -2.5, .125], [8., -0., -2.5]], dtype="<f4")

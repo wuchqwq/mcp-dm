@@ -11,6 +11,16 @@ does not qualify a host ABI or any processing operation.
 | Other GMS 3.x | None | NOT_TESTED; native operation admission is UNSUPPORTED_BUILD |
 | Unknown build or architecture | None | UNSUPPORTED_BUILD when identity is readable; otherwise NOT_READY |
 
+The uint32 extension is separate from the float32/complex production evidence
+above. Its prepared synthetic trial passed `PASS_BOUNDED_UINT32`, original-STOP
+output release, normal host exit and manifest-owned plugin removal. The final
+uint32 production DLL independently repeated the full workflow and same-PID
+oracle in a fresh host, including its own original STOP, output release,
+normal exit/removal and saved-data reopening afterwards. Its temporary
+preparation switch was removed. This is limited synthetic qualification;
+see [the uint32 record](UINT32_ACCEPTANCE.md). No earlier float32 PASS is
+substituted for this production artifact's observations.
+
 This is a multi-version **selection architecture**, not a claim of multi-version
 GMS support. Synthetic version tests do not qualify another GMS build. The new
 selection integration itself must be distinguished from historical host passes.
@@ -76,6 +86,22 @@ qualified available groups and no candidate-execution bypass. A catalog listing
 or a broader default Python tool does not override admission. Native SaveAs
 remains unqualified; the explicit saved-READ-to-NPY encoder does not implement
 DM file saving.
+
+Uint32 has five separate dtype capabilities: `native_uint32_mean`,
+`native_uint32_statistics`, `native_uint32_crop`, `native_uint32_preview` and
+`native_uint32_read`. A capability must be qualified and have its complete
+bindings; uint32 mean does not require the optional SUMMARY reductions.
+The fixed-build descriptor is code 11 with `is_integer:true`,
+`is_unsigned:true` and packing 1. The booleans describe that fixed-build type
+mapping, not calls to additional vendor type getters. Type-code, actual uint32
+storage and high-bit numerical reads need joint real-host acceptance.
+Statistics stop at 2,097,152 pixels. Uint32 crop checks its 4,194,304-pixel source
+bound before allocation, keeps dtype and complete calibration, and limits output
+to 4 MiB. Preview/READ source bounds remain 4,194,304 pixels; preview samples at
+most 128x128, while READ returns at most 16,384 four-byte values. Their original
+float32 contracts are retained. No uint32 arithmetic, FFT, filter, SHOW or SaveAs
+qualification follows from these groups, nor support for other integers, native
+4D, experimental data or model-client viewing.
 
 ## Adding one version
 

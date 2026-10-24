@@ -2,10 +2,20 @@
 
 ## Current: qualified native processing and bounded scientific handoff
 
+The added uint32 subset has its own [qualification record](UINT32_ACCEPTANCE.md):
+native mean/SUMMARY, same-dtype crop, display preview and exact READ-to-`<u4`
+handoff. Its prepared synthetic host passed the same-PID raw/scalar/calibration
+oracle, original STOP release, normal exit and owned removal. The final
+production artifact separately passed the same chain in a fresh host, its own
+STOP/release, normal exit/removal and reopening of unchanged files afterwards.
+It does not inherit other float32 operators'
+qualification; uint32 SHOW/arithmetic/Fourier/filters remain explicit errors.
+
 The feature now has fourteen native MCP tools. DM performs negate/abs/square,
 add/subtract/multiply, limited real FFT/paired inverse and real/imaginary/phase/
-power derivation, and smooth/Sobel/Laplace/sharpen. Preview returns a bounded
-display PNG; READ returns an explicit float32 ROI and spatial calibration.
+power derivation, and smooth/Sobel/Laplace/sharpen for their qualified float32
+inputs. Preview returns a bounded display PNG; READ returns an explicit float32
+or uint32 ROI and spatial calibration.
 The exact tool, dtype, dimension, lineage and lifecycle limits are in
 [the workflow](NATIVE_WORKFLOW.md) and [operation acceptance](OPERATIONS_ACCEPTANCE.md).
 No arbitrary scripts, new scientific engine, Python fallback or native SaveAs
@@ -63,11 +73,13 @@ remain effective; newer NB2/STOP/handoff controls are additional. Detailed run
 artifacts remain private. No real experiment data processing was performed.
 
 Still unsupported or unqualified: native SaveAs/Open, direct full-complex
-scientific export, uint32/integer native processing, native spectrum/4D,
+scientific export, other integer native processing, native spectrum/4D,
 variance/stddev, other GMS builds, concurrent source edits and non-ASCII legacy
 name interoperability. Ordinary Agent/model-client acceptance is NOT_TESTED.
-Next, prioritize a separately proven dtype/data-handoff extension before
-attempting the user's uint32 ADF data; do not silently cast or use a thumbnail.
+Real uint32 ADF data remains NOT_TESTED. Use only explicitly authorized bounded
+regions in a later trial; do not silently cast, read a thumbnail or modify the
+user's original image. Whole 2048-square uint32 statistics exceed this extension's
+exact-sum budget; see the separate per-operation bounds.
 
 The researcher homepages from main's documentation change must be retained,
 together with README.agent.md and REFERENCE.md/en. Technical feature details

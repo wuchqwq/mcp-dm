@@ -4,6 +4,14 @@
 限定版本与科学数据交接见[原生工作流](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md)
 及[当前交接记录](experiments/native-bridge/mvp/HANDOFF.md)；不要把历史目录当作当前工具发现结果。
 
+当前 uint32 扩展仅涉及原生二维 metadata、mean/SUMMARY、同 dtype 裁剪、预览与
+READ：统计最多 2,097,152 像素；裁剪源最多 4,194,304 像素、输出最多 4 MiB，
+且须完整空间标定；预览源同上、显示最多 128×128；READ 的 ROI 最多 16,384 样本。
+显式 NPY 交接保留 `<u4` 原字节；可选外部示例记录精确整数和及 float64 小数均值。
+prepared 试验与最终 production 资格分开，见[uint32 当前验收状态](experiments/native-bridge/mvp/UINT32_ACCEPTANCE.md)。
+该资格不延伸到原生算术、FFT、滤波或 SHOW；原生 SaveAs、其它整数类型、原生 4D、
+真实实验数据与模型客户端仍不因此获准。以下默认后端与历史验收内容保持其原有范围。
+
 [English](README.en.md) · [给编程代理的说明](AGENTS.md)
 
 **让通用 Agent 能够了解 DigitalMicrograph 中的数据、查看指定图像、正确调用常用的采集后分析操作，并取得带标定、可继续处理的结果。**

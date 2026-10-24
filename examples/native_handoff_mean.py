@@ -3,7 +3,8 @@
 
 Run by the user in a separate existing workspace. Never imported by the MCP
 server or plugin. No DigitalMicrograph import, socket, script dispatch or return
-to DM occurs. This one raw float64 mean is optional user-owned postprocessing.
+to DM occurs. Raw float64 mean (with an exact integer sum for uint32 input) is
+optional user-owned postprocessing, never a missing-native-operator fallback.
 """
 import argparse
 import hashlib
@@ -81,10 +82,17 @@ def run(workspace_arg, capture_arg, output_relative):
             manifest.get("capture_id") == info.get("capture_id") and info.get("input_file") == "input.npy" and
             sha(raw["input.npy"]) == info.get("input_sha256") == manifest.get("input_sha256") and
             sha(canonical(info)) == manifest.get("input_metadata_sha256"), "Capture identity/file/metadata hash mismatch")
-    require(info.get("dtype") == "float32" and info.get("byte_order") == "little" and info.get("array_order") == "C" and
+    dtype = info.get("dtype")
+    require(dtype in ("float32", "uint32") and info.get("byte_order") == "little" and info.get("array_order") == "C" and
             info.get("axes") == ["y", "x"] and info.get("intensity_calibration_applied") is False and
             info.get("intensity_calibration") == {"origin": None, "scale": None, "unit": None, "status": "NOT_READ"},
             "Explicit raw native handoff calibration/type required")
+    code = 11 if dtype == "uint32" else 2
+    source_metadata = info.get("source_metadata", {})
+    require(type(source_metadata) is dict and source_metadata.get("dtype") == dtype and
+            source_metadata.get("data_type_code") == code and source_metadata.get("packing_style") == 1 and
+            (dtype != "uint32" or (source_metadata.get("is_integer") is True and source_metadata.get("is_unsigned") is True)),
+            "Source native dtype/code/integer/unsigned/packing mismatch")
     receipt = info.get("native_receipt", {})
     uint32 = lambda value: type(value) is int and 0 <= value <= 0xffffffff
     rect = info.get("source_rect_xyxy")
@@ -107,15 +115,15 @@ def run(workspace_arg, capture_arg, output_relative):
             sha(canonical(receipt)) == info.get("native_receipt_sha256"),
             "Original native READ receipt/hash missing")
     require(manifest.get("source_image_id") == info["source_image_id"] and manifest.get("source_rect_xyxy") == rect and
-            manifest.get("source_shape_yx") == info.get("source_shape_yx") and manifest.get("source_dtype") == "float32" and
-            manifest.get("source_data_type_code") == 2 and manifest.get("native_session") == receipt["session"] and
+            manifest.get("source_shape_yx") == info.get("source_shape_yx") and manifest.get("source_dtype") == dtype and
+            manifest.get("source_data_type_code") == code and manifest.get("native_session") == receipt["session"] and
             manifest.get("native_request_id") == receipt["id"] and
             manifest.get("native_receipt_sha256") == info["native_receipt_sha256"] and
             type(info.get("saved_snapshot_sha256")) is str and re.fullmatch(r"[a-f0-9]{64}", info["saved_snapshot_sha256"]) and
             manifest.get("saved_snapshot_sha256") == info["saved_snapshot_sha256"],
             "Capture manifest/input/native session-request identity mismatch")
     values = np.load(io.BytesIO(raw["input.npy"]), allow_pickle=False)
-    require(type(values) is np.ndarray and values.dtype == np.dtype("<f4") and values.ndim == 2 and
+    require(type(values) is np.ndarray and values.dtype == np.dtype("<u4" if dtype == "uint32" else "<f4") and values.ndim == 2 and
             list(values.shape) == info.get("shape_yx") and 0 < values.size <= 16384 and values.flags.c_contiguous and
             list(values.shape) == [rect[3] - rect[1], rect[2] - rect[0]] and
             type(info.get("source_shape_yx")) is list and len(info["source_shape_yx"]) == 2 and
@@ -125,13 +133,21 @@ def run(workspace_arg, capture_arg, output_relative):
             np.isfinite(values).all(), "Bounded finite raw NPY shape/bytes/pixel hash mismatch")
     parameters = {"schema_version": 1, "operation": "raw mean", "execution": "explicit external NumPy example",
                   "capture_id": info["capture_id"], "capture_files_sha256": {name: sha(data) for name, data in raw.items()},
-                  "dtype": "float32", "accumulator_dtype": "float64", "shape_yx": info["shape_yx"],
+                  "dtype": dtype, "accumulator_dtype": "uint64" if dtype == "uint32" else "float64", "shape_yx": info["shape_yx"],
                   "source_image_id": info["source_image_id"], "source_rect_xyxy": info["source_rect_xyxy"],
                   "native_session": receipt["session"], "native_request_id": receipt["id"],
                   "native_receipt_sha256": info["native_receipt_sha256"], "intensity_calibration_applied": False,
                   "source_calibration_dm": info["source_calibration_dm"], "working_calibration_xy": info["working_calibration_xy"],
                   "python_version": sys.version, "numpy_version": np.__version__, "platform": platform.platform(),
                   "dm_called": False, "result_returned_to_dm": False}
+    if dtype == "uint32":
+        # The READ sample bound makes the worst-case sum exact in both uint64
+        # and binary64. No float32 conversion occurs at any stage.
+        integer_bound = int(values.size) * ((1 << 32) - 1)
+        require(integer_bound <= (1 << 53) - 1, "uint32 reduction exceeds exact binary64 integer bound")
+        parameters.update(mean_dtype="float64", integer_sum_bound=integer_bound,
+                          max_exact_float64_integer=(1 << 53) - 1,
+                          integer_reduction="exact Python integer sum checked against NumPy uint64; raw float64 mean = exact sum / count")
     script = Path(__file__).read_bytes(); parameters["script_sha256"] = sha(script)
     output.mkdir()  # Exclusive, after validation; never overwrite an existing directory.
     run_file = output / "run.json"
@@ -145,16 +161,26 @@ def run(workspace_arg, capture_arg, output_relative):
             save_status()
             write_new(output / "native_handoff_mean.py", script)
             write_new(output / "parameters.json", canonical(parameters) + b"\n")
-            mean = float(np.mean(values, dtype=np.float64))
+            if dtype == "uint32":
+                exact_sum = sum(int(value) for value in values.flat)
+                require(exact_sum == int(np.sum(values, dtype=np.uint64)) and 0 <= exact_sum <= integer_bound,
+                        "External uint32 exact sum check failed")
+                mean = float(exact_sum) / int(values.size)
+            else:
+                mean = float(np.mean(values, dtype=np.float64))
             require(math.isfinite(mean), "External raw mean is nonfinite")
             require(all(sha(read_file(capture / name)) == parameters["capture_files_sha256"][name] for name in raw),
                     "Source capture changed during external processing")
             results = {"schema_version": 1, "state": "complete", "scope": "explicit external NumPy raw mean only",
                        "capture_id": info["capture_id"], "mean": mean, "sample_count": int(values.size),
-                       "accumulator_dtype": "float64", "intensity_calibration_applied": False,
+                       "accumulator_dtype": parameters["accumulator_dtype"], "intensity_calibration_applied": False,
                        "intensity_unit": None, "intensity_calibration_status": "NOT_READ", "dm_called": False,
                        "result_returned_to_dm": False, "parameters_sha256": sha(canonical(parameters)),
                        "script_sha256": parameters["script_sha256"], "input_sha256": info["input_sha256"]}
+            if dtype == "uint32":
+                results.update(dtype=dtype, sum=exact_sum, sum_exact=True, mean_dtype="float64",
+                               integer_sum_bound=integer_bound, max_exact_float64_integer=(1 << 53) - 1,
+                               integer_reduction=parameters["integer_reduction"])
             write_new(output / "results.json", canonical(results) + b"\n")
             status.update(state="complete", results_sha256=sha(read_file(output / "results.json")))
             save_status()

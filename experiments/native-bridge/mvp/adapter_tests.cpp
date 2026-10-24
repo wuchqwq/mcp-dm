@@ -13,6 +13,7 @@ struct FakeImage {
     float origin[2] = {5, 5}, scale[2] = {-0.25f, 0.5f};
     std::wstring unit[2] = {L"nm", L"nm"};
     std::vector<float> pixels;
+    std::vector<std::uint32_t> uint32_pixels; // Synthetic-only exact integer oracle storage.
     bool generated = false;
 } fake;
 std::map<std::uint32_t, FakeImage*> registry;

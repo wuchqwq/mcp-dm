@@ -28,6 +28,142 @@ function summaryFixture(imageId = 77) {
     source_write_requested: false, snapshot_atomic: false};
 }
 
+function unsignedResult(operation, args) {
+  const image = imageMetadata(args[0], {unsigned: true, shape: [2, 3]});
+  if (operation === "READ") return readFixture(args, {source: imageMetadata(args[0], {unsigned: true})});
+  if (operation === "PREVIEW") return {...previewFixture(args), source: image, width: 3, height: 2, sample_count: 6,
+    gray8_hex: "00010180ffff", sampled_minimum: 0, sampled_maximum: 4294967295};
+  if (operation === "CROP") {
+    const source = imageMetadata(args[0], {unsigned: true}), output = imageMetadata(99, {unsigned: true, shape: [args[4] - args[2], args[3] - args[1]]});
+    return {backend: "digitalmicrograph-native", source_image_id: args[0], image_id: 99, source, image: output,
+      requested_rect: args.slice(1), effective_rect: args.slice(1), output_bytes: output.pixels * 4,
+      operator: "GMS::Image::GetSubSliceAsImage", computation: "DM native independent pixel copy",
+      visible_dm_document: false, source_write_requested: false, snapshot_atomic: false};
+  }
+  const result = {...summaryFixture(args[0]), image, minimum: 0, maximum: 4294967295, sum: 6476005376, mean: 6476005376 / 6};
+  if (operation === "MEAN") { delete result.operators; result.operator = "GMSImageProcessing::GetMean"; }
+  return result;
+}
+
+test("uint32 raw tools preserve high-bit types and exact READ bytes through same-ID QUERY", async () => {
+  const cases = [["MEAN", [77]], ["SUMMARY", [77]], ["CROP", [77, 1, 1, 4, 3]], ["PREVIEW", [77, 128, 128]], ["READ", [77, 1, 1, 4, 3]]];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const [operation, args] = cases[Number(request.id.split("-").at(-1))];
+    socket.end(JSON.stringify(reply("completed", unsignedResult(operation, args), identity(operation, args))) + "\n");
+  });
+  try {
+    for (let index = 0; index < cases.length; ++index) {
+      const [operation, args] = cases[index], id = "uint32-" + index;
+      const submitted = await host.bridge.execute(operation, args, {requestId: id});
+      assert.deepEqual((await host.bridge.query(id)).result, submitted.result);
+      if (operation === "READ") {
+        const bytes = Buffer.from(submitted.result.values_base64, "base64");
+        assert.deepEqual(Array.from({length: 6}, (_, i) => bytes.readUInt32LE(i * 4)), [0, 16777215, 16777217, 2147483648, 4294967295, 1]);
+      }
+    }
+  } finally {await host.close();}
+});
+
+test("uint32 metadata, reduction bounds and raw representations reject precise contradictions", async () => {
+  const cases = [
+    ["READ", [77, 1, 1, 4, 3], r => {r.source.data_type_code = 2;}, /image metadata/],
+    ["READ", [77, 1, 1, 4, 3], r => {r.source.is_integer = false;}, /image metadata/],
+    ["READ", [77, 1, 1, 4, 3], r => {delete r.source.is_unsigned;}, /image metadata/],
+    ["READ", [77, 1, 1, 4, 3], r => {r.source.is_unsigned = "true";}, /image metadata/],
+    ["READ", [77, 1, 1, 4, 3], r => {r.source.packing_style = 0;}, /image metadata/],
+    ["READ", [77, 1, 1, 4, 3], r => {r.dtype = "float32";}, /source packing\/bounds/],
+    ["READ", [77, 1, 1, 4, 3], r => {r.byte_order = "big";}, /raw snapshot/],
+    ["READ", [77, 1, 1, 4, 3], r => {r.raw_bytes -= 4;}, /raw snapshot/],
+    ["SUMMARY", [77], r => {r.sum = 6.5;}, /exact integer\/range/],
+    ["SUMMARY", [77], r => {r.minimum = 100; r.sum = 1;}, /exact integer\/range/],
+    ["SUMMARY", [77], r => {r.maximum = 1; r.sum = 7; r.mean = 1;}, /exact integer\/range/],
+    ["SUMMARY", [77], r => {r.maximum = 4294967296;}, /exact integer\/range/],
+    ["SUMMARY", [77], r => {r.image = imageMetadata(77, {unsigned: true, shape: [1, 2097153]});}, /image metadata/],
+    ["MEAN", [77], r => {r.mean = -1;}, /raw semantics\/uint32 range/],
+    ["MEAN", [77], r => {r.image = imageMetadata(77, {unsigned: true, shape: [1, 2097153]});}, /eligible bounded/],
+    ["PREVIEW", [77, 128, 128], r => {r.sampled_maximum = 1.25;}, /exact unsigned integers/],
+    ["CROP", [77, 1, 1, 4, 3], r => {r.image.dtype = "float32"; r.image.data_type_code = 2;}, /uint32 dtype\/shape/],
+    ["CROP", [77, 1, 1, 4, 3], r => {r.image.is_unsigned = false;}, /image metadata/],
+  ];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const [operation, args, mutate] = cases[Number(request.id.split("-").at(-1))], result = unsignedResult(operation, args); mutate(result);
+    socket.end(JSON.stringify(reply("completed", result, identity(operation, args))) + "\n");
+  });
+  try {
+    for (let index = 0; index < cases.length; ++index) {
+      const [operation, args, , target] = cases[index], id = "bad-u32-" + index;
+      for (const attempt of [() => host.bridge.execute(operation, args, {requestId: id}), () => host.bridge.query(id)])
+        await assert.rejects(attempt(), error => error.details.code === "NATIVE_PROTOCOL" && target.test(error.message), "specific target " + index);
+    }
+  } finally {await host.close();}
+});
+
+test("uint32 exact-sum limit is inclusive, while READ/preview and native mean remain independent of optional summary", async () => {
+  const full = unsignedResult("SUMMARY", [77]); full.image = imageMetadata(77, {unsigned: true, shape: [1024, 2048]});
+  full.minimum = full.maximum = full.mean = 4294967295; full.sum = 2097152 * 4294967295;
+  assert.ok(Number.isSafeInteger(full.sum) && full.sum < 2 ** 53);
+  const mean = unsignedResult("MEAN", [77]); mean.image.native_summary_supported = false;
+  const read = unsignedResult("READ", [77, 1, 1, 4, 3]);
+  read.source.native_mean_supported = read.source.native_summary_supported = false;
+  const preview = unsignedResult("PREVIEW", [77, 128, 128]);
+  preview.source.native_mean_supported = preview.source.native_summary_supported = false;
+  const floatMean = {...summaryFixture(), operator: "GMSImageProcessing::GetMean"};
+  floatMean.image.native_summary_supported = false;
+  const data = [["SUMMARY", [77], full], ["MEAN", [77], mean], ["READ", [77, 1, 1, 4, 3], read], ["PREVIEW", [77, 128, 128], preview], ["MEAN", [77], floatMean]];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const [op, args, result] = data[Number(request.id.at(-1))];
+    socket.end(JSON.stringify(reply("completed", result, identity(op, args))) + "\n");
+  });
+  try {
+    for (let i = 0; i < data.length; ++i) assert.deepEqual((await host.bridge.execute(data[i][0], data[i][1], {requestId: "limit-" + i})).result, data[i][2]);
+  } finally {await host.close();}
+});
+
+test("uint32 raw mean and READ preserve unknown-unit limitations while crop still rejects that calibration", async () => {
+  const source = imageMetadata(77, {unsigned: true});
+  source.calibration[0].unit = null; source.calibration[0].usable = false; source.calibration[0].issue = "unknown_units";
+  source.calibration_complete = false;
+  const mean = {...unsignedResult("MEAN", [77]), image: source}; mean.image.native_summary_supported = false;
+  const read = readFixture([77, 1, 1, 4, 3], {source});
+  const crop = unsignedResult("CROP", [77, 1, 1, 4, 3]); crop.source = source;
+  const data = [["MEAN", [77], mean], ["READ", [77, 1, 1, 4, 3], read], ["CROP", [77, 1, 1, 4, 3], crop]];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const [op, args, result] = data[Number(request.id.at(-1))]; socket.end(JSON.stringify(reply("completed", result, identity(op, args))) + "\n");
+  });
+  try {
+    for (let i = 0; i < 2; ++i) {
+      const actual = await host.bridge.execute(data[i][0], data[i][1], {requestId: "unknown-u32-" + i});
+      assert.equal((actual.result.source || actual.result.image).calibration_complete, false);
+      if (i === 1) {assert.equal(actual.result.roi_calibration[0].unit, null); assert.equal(actual.result.roi_calibration[0].issue, "unknown_units");}
+    }
+    await assert.rejects(host.bridge.execute("CROP", data[2][1], {requestId: "unknown-u32-2"}), /uint32 dtype\/shape\/calibration/);
+  } finally {await host.close();}
+});
+
+test("uint32 support does not widen arithmetic, Fourier or filter metadata contracts", async () => {
+  const cases = [["UNARY", [77, 1]], ["BINARY", [77, 78, 1]], ["FFT", [77]], ["FILTER", [77, 1]]];
+  const host = await fakeHost(({socket, request, reply}) => {
+    const [operation, args] = cases[Number(request.id.at(-1))];
+    let result;
+    if (operation === "FFT") { result = fourierFixture("FFT"); result.source = imageMetadata(77, {unsigned: true}); }
+    else if (operation === "FILTER") { result = derivedFixture(operation, args); result.source = imageMetadata(77, {unsigned: true, shape: [5, 7]}); }
+    else {
+      const opcode = args.at(-1), ids = args.slice(0, -1);
+      result = {backend: "digitalmicrograph-native", image_id: 99, image: imageMetadata(99),
+        operation: operation === "UNARY" ? "negate" : "add", opcode, source_image_ids: ids,
+        sources: ids.map(id => imageMetadata(id, {unsigned: true})),
+        operator: operation === "UNARY" ? "GMSImageProcessing::Negate" : "GMSImageProcessing::operator+",
+        computation: "DM native", ownership: "synthetic no image", intensity_calibration_applied: false,
+        intensity_semantics: "raw pixel intensity", source_write_requested: false, snapshot_atomic: false};
+    }
+    socket.end(JSON.stringify(reply("completed", result, {...identity(operation, args), result_version: operation === "FFT" ? 2 : 1})) + "\n");
+  });
+  try {
+    for (let i = 0; i < cases.length; ++i) await assert.rejects(host.bridge.execute(cases[i][0], cases[i][1], {requestId: "closed-type-" + i}),
+      error => error.details.code === "NATIVE_PROTOCOL" && /image metadata/.test(error.message));
+  } finally {await host.close();}
+});
+
 async function fakeHost(handler, timeoutMs = 1000) {
   const session = sessionId(), bridge = new NativeBridge({session, timeoutMs, pollMs: 5});
   const sockets = new Set(), requests = [], records = new Map();

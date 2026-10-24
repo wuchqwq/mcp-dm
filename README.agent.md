@@ -28,12 +28,26 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 
 In this `feature/native-bridge-mvp` checkout, the native catalog has fourteen
 tools, including qualified limited arithmetic, Fourier/components, filters,
-sampled PNG preview and bounded float32 READ. The exact Windows x64 3.53 profile
+sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect
 `native_capabilities` and its reason fields, not the tool count alone. See the
 [workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md) for the complete
 native crop/processing → numeric READ → explicit NPY handoff → external example.
 This feature was not merged into main or released.
+
+The uint32 extension is limited to ordinary-packed 2D metadata, raw mean/SUMMARY,
+same-dtype crop, preview and READ. Mean/SUMMARY stop at 2,097,152 pixels; uint32
+crop sources stop at 4,194,304 pixels and outputs at 4 MiB (1,048,576 pixels),
+with complete spatial calibration. Preview permits at most 4,194,304 source
+pixels and 128x128 display samples. READ permits that source bound and at most
+16,384 ROI samples, preserving exact little-endian uint32 bytes as `<u4` NPY
+through the explicit encoder. The optional external example records an exact
+integer sum and a binary64 fractional mean, without float32 conversion.
+The prepared trial and its STOP/normal-exit/removal evidence are separate from
+the final production qualification; use [the uint32 acceptance status](experiments/native-bridge/mvp/UINT32_ACCEPTANCE.md).
+Do not use square, other native arithmetic, FFT, filters or SHOW on uint32 by
+inheritance. Other integer types, native 4D, experimental-data and model-client
+acceptance remain outside this extension; native SaveAs is still unavailable.
 
 Native main targets Windows x64 GMS 3.53.4137.0 with exact binary gates. Do not relax a fingerprint check or reuse an unqualified ABI for another build. A missing optional feature is not an instruction to enable arbitrary scripts.
 
@@ -111,7 +125,9 @@ retained hidden image. In this feature, explicitly use qualified show, preview
 or READ as appropriate: show hands the exact result to a document, preview
 returns display pixels, and READ returns numerical bytes with calibration.
 Scientific persistence uses the explicit saved-response NPY encoder; it is not
-DM SaveAs. Setup and rollback remain in [the native guide](experiments/native-bridge/mvp/README.md)
+DM SaveAs. For uint32, use crop → raw statistics or READ as appropriate; the
+float32 crop → square example does not grant uint32 arithmetic support.
+Setup and rollback remain in [the native guide](experiments/native-bridge/mvp/README.md)
 and [INSTALL.md](experiments/native-bridge/mvp/INSTALL.md).
 
 Do not equate a document visible in DM with an MCP image received by the model, or either with a permanent scientific file.

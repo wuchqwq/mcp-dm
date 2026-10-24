@@ -128,21 +128,22 @@ export function validateSavedSnapshot(raw) {
   return {result, receipt, values, receiptHash: sha(canonical(receipt)), snapshotHash: sha(raw), pixelHash: sha(values)};
 }
 
-export function encodeNpy(shape, values) {
+export function encodeNpy(shape, values, dtype = 'float32') {
+  const descriptor = dtype === 'float32' ? '<f4' : dtype === 'uint32' ? '<u4' : null;
   requireThat(Array.isArray(shape) && shape.length === 2 && shape.every(n => Number.isSafeInteger(n) && n > 0) &&
-    shape[0] * shape[1] <= 16384 && values.length === shape[0] * shape[1] * 4, 'Bounded float32 shape/bytes required');
-  const dict = `{'descr': '<f4', 'fortran_order': False, 'shape': (${shape[0]}, ${shape[1]}), }`;
+    descriptor && shape[0] * shape[1] <= 16384 && values.length === shape[0] * shape[1] * 4, 'Bounded float32/uint32 shape/bytes required');
+  const dict = `{'descr': '${descriptor}', 'fortran_order': False, 'shape': (${shape[0]}, ${shape[1]}), }`;
   const padding = (64 - ((10 + Buffer.byteLength(dict) + 1) % 64)) % 64;
   const header = Buffer.from(dict + ' '.repeat(padding) + '\n', 'ascii');
   const prefix = Buffer.from([0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 1, 0, 0, 0]); prefix.writeUInt16LE(header.length, 8);
-  return Buffer.concat([prefix, header, values]); // Copy exact bytes, including -0.
+  return Buffer.concat([prefix, header, values]); // Copy exact bytes, including float -0 and all uint32 high bits.
 }
 
 function packageInfo(snapshot, captureId, npy) {
   const {result, receipt, pixelHash, snapshotHash, receiptHash} = snapshot;
   const sourceCal = result.source.calibration.map((axis, index) => ({...axis, axis: index === 0 ? 'x' : 'y'}));
   const workCal = result.roi_calibration.map((axis, index) => ({...axis, axis: index === 0 ? 'x' : 'y'}));
-  return {schema_version: 1, capture_id: captureId, shape_yx: result.shape, dtype: 'float32', byte_order: 'little', array_order: 'C',
+  return {schema_version: 1, capture_id: captureId, shape_yx: result.shape, dtype: result.dtype, byte_order: 'little', array_order: 'C',
     axes: ['y', 'x'], axis_roles: [{numpy_axis: 0, dm_dimension: 1, role: 'y'}, {numpy_axis: 1, dm_dimension: 0, role: 'x'}],
     source_image_id: result.source_image_id, source_shape_yx: result.source.shape, source_rect_xyxy: result.effective_rect,
     source_rect_convention: 'zero-based half-open [x0,y0,x1,y1]', source_calibration_dm: sourceCal, working_calibration_xy: workCal,
@@ -176,7 +177,7 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
   const workspace = fs.realpathSync(workspaceArg); requireThat(fs.statSync(workspace).isDirectory(), 'Workspace must already exist');
   const {target, relative} = newTarget(workspace, output);
   const snapshotPath = fs.realpathSync(snapshotFile), snapshot = validateSavedSnapshot(bytesAt(snapshotPath));
-  const npy = encodeNpy(snapshot.result.shape, snapshot.values);
+  const npy = encodeNpy(snapshot.result.shape, snapshot.values, snapshot.result.dtype);
   const parameters = {workspace, output: relative, output_requested: output, snapshot_path: snapshotPath,
     snapshot_requested: path.resolve(snapshotFile), saved_snapshot_sha256: snapshot.snapshotHash,
     native_receipt_sha256: snapshot.receiptHash, native_values_sha256: snapshot.pixelHash,
@@ -212,7 +213,7 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
     manifest = {schema_version: 1, capture_id: captureId, state: 'capturing', operation: 'bounded 2D capture',
       capture_backend: 'saved digitalmicrograph-native READ numeric snapshot', external_saved_response_encoding: true,
       source_image_id: info.source_image_id, source_shape_yx: info.source_shape_yx, source_rect_xyxy: info.source_rect_xyxy,
-      source_rect_convention: info.source_rect_convention, source_dtype: 'float32', source_data_type_code: 2,
+      source_rect_convention: info.source_rect_convention, source_dtype: info.dtype, source_data_type_code: snapshot.result.source.data_type_code,
       calibration_before: info.source_calibration_dm, memory_estimate_bytes: npy.length + snapshot.values.length,
       memory_budget_bytes: 256 * 1024, pixel_capture_atomic: false,
       capture_consistency: 'independent saved response bytes; live source was not reobserved by this encoder; native READ is not atomic',
@@ -229,7 +230,7 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
       descriptor_unchanged: true, descriptor_evidence: 'native READ metadata-before/after contract; no atomic pixel claim', completed_utc: utc()};
     writeFd(manifestFd, manifest);
     const files = Object.fromEntries(['input.npy', 'input.json', 'capture.json'].map(name => [name, sha(bytesAt(path.join(target, name)))]));
-    journal.capture_receipt = {state: 'captured', capture_id: captureId, capture_dir: target, shape_yx: info.shape_yx, dtype: 'float32',
+    journal.capture_receipt = {state: 'captured', capture_id: captureId, capture_dir: target, shape_yx: info.shape_yx, dtype: info.dtype,
       source_rect_xyxy: info.source_rect_xyxy, input_sha256: info.input_sha256, request_id: requestId,
       native_session: snapshot.receipt.session, native_request_id: snapshot.receipt.id, files_sha256: files,
       pixel_capture_atomic: false, dm_file_save: false};

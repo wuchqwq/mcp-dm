@@ -61,6 +61,36 @@ print('independent NumPy bitwise/schema1 PASS; synthetic fixture only')`;
   assert.match(execFileSync('python', ['-c', script, output], {encoding: 'utf8'}), /bitwise\/schema1 PASS/);
 });
 
+test('uint32 NPY retains 2^24 neighbors and unsigned high bits with unchanged schema/journal/deduplication', t => {
+  const directory = temporary(t), value = payload({source: imageMetadata(77, {unsigned: true})}), saved = prepare(directory, value);
+  const first = invoke(directory, saved); assert.equal(first.dtype, 'uint32'); assert.deepEqual(invoke(directory, saved), first);
+  const script = String.raw`import hashlib,json,sys,numpy as np
+from pathlib import Path
+p=Path(sys.argv[1]);i=json.loads((p/'input.json').read_text());m=json.loads((p/'capture.json').read_text())
+a=np.load(p/'input.npy',allow_pickle=False);expected=np.array([[0,16777215,16777217],[2147483648,4294967295,1]],dtype='<u4')
+assert a.dtype==np.dtype('<u4') and a.shape==(2,3) and a.flags.c_contiguous
+assert a.tobytes()==expected.tobytes()
+assert i['dtype']==m['source_dtype']=='uint32' and m['source_data_type_code']==11
+assert i['source_metadata']['is_integer'] is True and i['source_metadata']['is_unsigned'] is True
+assert i['schema_version']==m['schema_version']==1
+assert hashlib.sha256(a.tobytes()).hexdigest()==i['pixel_sha256']==m['pixel_sha256']
+assert hashlib.sha256((p/'input.npy').read_bytes()).hexdigest()==i['input_sha256']==m['input_sha256']
+assert hashlib.sha256(json.dumps(i,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()==m['input_metadata_sha256']
+print('independent uint32 bytes/hash PASS')`;
+  assert.match(execFileSync('python', ['-c', script, path.join(directory, 'capture')], {encoding: 'utf8'}), /uint32 bytes\/hash PASS/);
+});
+
+test('uint32 saved snapshots reject dtype/code/unsigned contradictions before any journal or output creation', t => {
+  const mutations = [p => p.source.data_type_code = 2, p => p.dtype = 'float32', p => p.source.is_integer = false,
+    p => p.source.is_unsigned = false, p => delete p.source.is_unsigned, p => p.source.packing_style = 0,
+    p => p.byte_order = 'big', p => p.raw_bytes = 20];
+  for (const mutate of mutations) {
+    const directory = temporary(t), value = payload({source: imageMetadata(77, {unsigned: true})}); mutate(value);
+    assert.throws(() => invoke(directory, prepare(directory, value)));
+    assert.ok(!fs.existsSync(path.join(directory, 'capture'))); assert.ok(!fs.existsSync(path.join(directory, 'handoff-requests')));
+  }
+});
+
 test('same caller ID returns exactly original receipt without rewriting; changed path or snapshot conflicts', t => {
   const directory = temporary(t), saved = prepare(directory), first = invoke(directory, saved);
   const files = [saved, path.join(directory, 'handoff-requests', 'handoff-1.json'), ...['input.npy', 'input.json', 'capture.json'].map(name => path.join(directory, 'capture', name))];

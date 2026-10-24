@@ -8,7 +8,7 @@ import {randomUUID} from "node:crypto";
 import {fileURLToPath} from "node:url";
 import {inflateSync} from "node:zlib";
 import {NativeBridge} from "../lib/native_bridge.mjs";
-import {operationFixture, readFixture} from "./fixtures/native-operations.mjs";
+import {operationFixture, readFixture, imageMetadata} from "./fixtures/native-operations.mjs";
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -76,6 +76,40 @@ function toolOutput(message, expectedError = false) {
   assert.equal(message.result.content[0].type, "text");
   return JSON.parse(message.result.content[0].text);
 }
+
+test("existing native MCP tools carry uint32 statistics/crop/preview/READ without changing either catalog", async () => {
+  const source = imageMetadata(77, {unsigned: true}), rect = [1, 1, 4, 3];
+  const summary = {...summaryFixture(), image: source, minimum: 0, maximum: 4294967295, sum: 4294967295, mean: 4294967295 / source.pixels};
+  const mean = {...summary, operator: "GMSImageProcessing::GetMean"}; delete mean.operators;
+  const crop = {backend: "digitalmicrograph-native", source_image_id: 77, image_id: 99, source,
+    image: imageMetadata(99, {unsigned: true, shape: [2, 3]}), requested_rect: rect, effective_rect: rect,
+    output_bytes: 24, operator: "GMS::Image::GetSubSliceAsImage", computation: "DM native independent pixel copy",
+    visible_dm_document: false, source_write_requested: false, snapshot_atomic: false};
+  const preview = {...operationFixture("PREVIEW", [77, 2, 2]), source, sampled_minimum: 0, sampled_maximum: 4294967295};
+  const results = {MEAN: mean, SUMMARY: summary, CROP: crop, PREVIEW: preview, READ: readFixture([77, ...rect], {source})}, saved = new Map();
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation !== "QUERY") saved.set(request.id, results[request.operation]);
+    socket.end(JSON.stringify(reply("completed", saved.get(request.id))) + "\n");
+  });
+  const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
+  try {
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 14);
+    const calls = [["dm_native_mean", {}], ["dm_native_summary", {}], ["dm_crop", {rect}],
+      ["dm_native_preview", {max_width: 2, max_height: 2}], ["dm_native_read", {rect}]];
+    for (let index = 0; index < calls.length; ++index) {
+      const [name, args] = calls[index], request_id = "uint32-mcp-" + index;
+      const response = await client.tool(name, {image_id: 77, ...args, request_id}), output = toolOutput(response);
+      assert.equal(output.native_receipt.request_id, request_id);
+      assert.equal((output.source || output.image).dtype, "uint32");
+      const queried = await client.tool("dm_native_result", {request_id}); assert.deepEqual(queried.result.content, response.result.content);
+      assert.equal(response.result.content.length, name === "dm_native_preview" ? 2 : 1);
+      if (name === "dm_native_read") {
+        const bytes = Buffer.from(output.values_base64, "base64");
+        assert.deepEqual(Array.from({length: 6}, (_, i) => bytes.readUInt32LE(i * 4)), [0, 16777215, 16777217, 2147483648, 4294967295, 1]);
+      }
+    }
+  } finally {await client.close(); await host.close();}
+});
 
 async function nativeHost(handler) {
   const session = randomUUID().replaceAll("-", ""), bridge = new NativeBridge({session});

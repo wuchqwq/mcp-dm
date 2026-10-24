@@ -65,18 +65,32 @@ ABI, scientific, source-protection and lifecycle qualification before admission.
 |---|---|
 | `dm_status` | Host readiness, build gate, native capabilities and limitations |
 | `dm_datasets` | Bounded image enumeration with numeric ID, name, shape, known dtype and dimension calibration |
-| `dm_native_mean` | Raw pixel intensity mean for a bounded 2D float32 image selected by explicit ID |
-| `dm_native_summary` | DM's minimum, maximum, sum and mean for an explicit-ID 2D float32 image, at most 4,194,304 pixels; raw intensity, no stddev/variance |
+| `dm_native_mean` | Raw intensity mean for explicit-ID 2D float32 (at most 4,194,304 pixels) or ordinary-packed uint32 (at most 2,097,152); subject to dtype qualification below |
+| `dm_native_summary` | DM's minimum, maximum, sum and mean within the same dtype/pixel limits; raw intensity, no stddev/variance |
 | `dm_native_result` | Query the retained receipt using its original operation ID |
-| `dm_crop` | Explicit-ID half-open crop into a separate plugin-retained image; limited strict MCP and independent pixel/source acceptance passed |
-| `dm_native_show` | Exact qualified plugin-result delivery to a visible DM document; saved request ID required; document lifetime is separate from file persistence |
+| `dm_crop` | Explicit-ID half-open crop into a separate same-dtype plugin-retained image with full spatial calibration; uint32 source at most 4,194,304 pixels, output at most 4 MiB (1,048,576 pixels) |
+| `dm_native_show` | Exact qualified plugin-result delivery to a visible DM document; saved request ID required; uint32 delivery is not qualified; document lifetime is separate from file persistence |
 | `dm_native_unary` | Native negate, absolute value and square of float32 2D |
 | `dm_native_binary` | Native add, subtract and multiply; same shape and calibration, no broadcasting |
 | `dm_native_fft` | Small real forward FFT and paired inverse of the retained full-complex result; explicit Fourier v2 conventions |
 | `dm_native_complex` | Real, imaginary, phase in radians or power (squared magnitude) of qualified retained Fourier results |
 | `dm_native_filter` | Small float32 smooth, Sobel, Laplace and sharpen with documented vendor borders |
-| `dm_native_preview` | Bounded sampled display PNG and source-coordinate mapping; not numeric export |
-| `dm_native_read` | Explicit half-open float32 ROI, at most 16,384 samples/64 KiB, raw little-endian bytes and calibration; no file write |
+| `dm_native_preview` | Ordinary float32/uint32 source at most 4,194,304 pixels, at most 128x128 display samples; PNG and source-coordinate mapping, not numeric export |
+| `dm_native_read` | Ordinary float32/uint32 source at most 4,194,304 pixels, explicit half-open ROI at most 16,384 samples/64 KiB; raw little-endian bytes and calibration, no file write |
+
+The uint32 prepared trial and its original-STOP output release, normal host exit
+and manifest-owned removal have their own bounded evidence. Final production
+qualification is recorded separately in [uint32 acceptance](UINT32_ACCEPTANCE.md);
+earlier float32 production PASS does not qualify a changed uint32 build.
+The statistics bound keeps every possible uint32 sum below 2^53; a fractional
+mean is a binary64 result, not an exact rational. Missing spatial units may be
+reported for raw mean/SUMMARY and READ; crop still requires complete calibration.
+The explicit encoder writes exact `<u4` NPY bytes without float32 conversion.
+Its optional external example records an exact integer sum and float64 mean,
+script, parameters and input hashes; it is never a native fallback.
+UNARY/BINARY, FFT/components, filters and SHOW do not inherit uint32 support.
+Other integers, native 4D, real experimental data and model-client acceptance
+remain outside this extension. Native SaveAs/Open remains unavailable.
 
 Current P0 policy separates raw intensity from spatial calibration. A known
 missing unit, zero/nonfinite spatial scale or unusable spatial origin does not
