@@ -1,6 +1,22 @@
 // Include inside the fixed-profile implementation after ImageRef/metadata.
 // Fixed native getters only: no Python, evaluator, front image, window search,
 // display creation, ROI mutation or generic function-name interface.
+struct LineApi353 {
+    bool (*is_line)(void*) = nullptr;
+    nb::RoiLine353* (*line)(void*, nb::RoiLine353*) = nullptr;
+    void* (*extract)(void*,double,double,double,double,std::uint32_t) = nullptr;
+    void (*intensity_calibration)(void*,float*,float*,void*) = nullptr;
+    double (*real_value)(const void*,const nb::NativeDataIndex1D353*) = nullptr;
+    bool ready() const { return is_line && line && extract && intensity_calibration && real_value; }
+} line_api353;
+struct LineTarget353 {
+    std::uint32_t document_id, display_id, roi_id;
+    LineTarget353(std::uint32_t doc,std::uint32_t display,std::uint32_t roi) : document_id(doc),display_id(display),roi_id(roi) {}
+    bool found = false;
+    nb::RoiLine353 line{};
+    const char* issue = "native_profile_gui_line_missing";
+    std::string json;
+};
 struct RoiApi353 {
     std::size_t (*display_count)(const NativeRef*, const NativeRef*) = nullptr;
     void* (*display_at)(void*, std::uint32_t) = nullptr;
@@ -116,7 +132,7 @@ bool roi_direct_source353(void* display, void* image) {
 }
 
 std::string collect_rois353(const NativeRef& image, std::uint32_t image_id,
-                           std::uint32_t width, std::uint32_t height) {
+                           std::uint32_t width, std::uint32_t height, bool include_lines = false, LineTarget353* target = nullptr) {
     NativeRef document_filter{};
     const auto count = roi_api353.display_count(&image, &document_filter);
     if (count > nb::kRoiDisplayLimit353) throw std::runtime_error("native_roi_display_budget");
@@ -206,12 +222,46 @@ std::string collect_rois353(const NativeRef& image, std::uint32_t image_id,
             if (id < 0 || !ids.insert(id).second) throw std::runtime_error("native_roi_identity_changed");
             const bool selected = roi_api353.selected(display, &acquired);
             const bool rectangle = roi_api353.is_rectangle(roi.value);
+            const bool line = !rectangle && include_lines && line_api353.ready() && line_api353.is_line(roi.value);
             const double rotation = *reinterpret_cast<const double*>(static_cast<const unsigned char*>(roi.value) + nb::kRoiRotationOffset353);
             if (!std::isfinite(rotation)) throw std::runtime_error("native_roi_nonfinite_rotation");
             if (roi_index) out << ',';
             out << "{\"roi_id\":" << id << ",\"selected\":" << (selected ? "true" : "false") << ",\"rotation_degrees\":" << rotation;
-            if (!rectangle) {
-                out << ",\"type\":\"unsupported\",\"raw_rectangle\":null,\"coordinate_mapping\":null,\"rect\":null,\"analysis_eligible\":false,\"issue\":\"unsupported_roi_type\"}";
+            if (line) {
+                nb::RoiLine353 raw{};
+                if (line_api353.line(roi.value, &raw) != &raw) throw std::runtime_error("native_roi_line_return_mismatch");
+                const auto* issue = nb::roi_line_issue353(raw, width, height);
+                nb::RoiMapping353 mapping{};
+                if (roi_api353.mapping(display, &mapping, &acquired) != &mapping) throw std::runtime_error("native_roi_mapping_return_mismatch");
+                for (float value : {mapping.offset_x,mapping.offset_y,mapping.scale_x,mapping.scale_y})
+                    if (!std::isfinite(value)) throw std::runtime_error("native_roi_nonfinite_mapping");
+                if (!mapping.scale_x || !mapping.scale_y) throw std::runtime_error("native_roi_invalid_mapping");
+                const bool standard = mapping.offset_x == 0 && mapping.offset_y == 0 &&
+                    mapping.scale_x == 1.0f/static_cast<float>(width) && mapping.scale_y == 1.0f/static_cast<float>(height);
+                const bool aligned = direct_source && standard_slice && standard;
+                if (!standard) issue = "unsupported_coordinate_mapping";
+                if (!direct_source || !standard_slice) issue = "unsupported_image_source";
+                if (rotation != 0) issue = "rotated_line";
+                auto detail = json_stream();
+                detail << "\"raw_line\":{\"x0\":" << raw.x0 << ",\"y0\":" << raw.y0 << ",\"x1\":" << raw.x1 << ",\"y1\":" << raw.y1
+                    << "},\"coordinate_mapping\":{\"offset\":[" << mapping.offset_x << ',' << mapping.offset_y << "],\"scale\":[" << mapping.scale_x << ',' << mapping.scale_y
+                    << "],\"identity\":" << (mapping.offset_x == 0 && mapping.offset_y == 0 && mapping.scale_x == 1 && mapping.scale_y == 1 ? "true":"false")
+                    << ",\"space\":\"source_pixel_to_normalized_display\",\"source_pixel_aligned\":" << (aligned?"true":"false") << '}';
+                out << ",\"type\":\"line\",\"raw_rectangle\":null,\"rect\":null," << detail.str() << ",\"line\":";
+                if (issue) out << "null"; else out << '[' << raw.x0 << ',' << raw.y0 << ',' << raw.x1 << ',' << raw.y1 << ']';
+                out << ",\"analysis_eligible\":" << (issue?"false":"true") << ",\"issue\":" << (issue?nb::quote(issue):"null") << '}';
+                if (target && target->document_id == static_cast<std::uint32_t>(document_id) && target->display_id == static_cast<std::uint32_t>(display_id) && target->roi_id == static_cast<std::uint32_t>(id)) {
+                    if (target->found) throw std::runtime_error("native_profile_gui_line_ambiguous");
+                    target->found = true; target->line = raw; target->issue = issue;
+                    auto binding = json_stream();
+                    binding << "{\"document_id\":" << document_id << ",\"display_id\":" << display_id << ",\"roi_id\":" << id << ',' << detail.str()
+                        << ",\"effective_line\":[" << raw.x0 << ',' << raw.y0 << ',' << raw.x1 << ',' << raw.y1
+                        << "],\"rotation_degrees\":" << rotation << ",\"source_layout\":" << nb::quote(direct_source?"direct_image_canonical_xy":"unsupported") << ",\"slice_ids\":[";
+                    for (std::uint32_t i=0;i<slice_id.count;++i) { if(i)binding<<',';binding<<slice_id.components[i]; }
+                    binding << "]}"; target->json = binding.str();
+                }
+            } else if (!rectangle) {
+                out << ",\"type\":\"unsupported\",\"raw_line\":null,\"line\":null,\"raw_rectangle\":null,\"coordinate_mapping\":null,\"rect\":null,\"analysis_eligible\":false,\"issue\":\"unsupported_roi_type\"}";
             } else {
                 nb::RoiRectangle353 r{};
                 if (roi_api353.rectangle(roi.value, &r) != &r) throw std::runtime_error("native_roi_rectangle_return_mismatch");
@@ -234,7 +284,7 @@ std::string collect_rois353(const NativeRef& image, std::uint32_t image_id,
                 if (!standard_mapping) issue = "unsupported_coordinate_mapping";
                 if (!direct_source || !standard_slice) issue = "unsupported_image_source";
                 if (rotation != 0) issue = "rotated_rectangle";
-                out << ",\"type\":\"rectangle\",\"raw_rectangle\":{\"top\":" << r.top << ",\"left\":" << r.left
+                out << ",\"type\":\"rectangle\",\"raw_line\":null,\"line\":null,\"raw_rectangle\":{\"top\":" << r.top << ",\"left\":" << r.left
                     << ",\"bottom\":" << r.bottom << ",\"right\":" << r.right << "},\"coordinate_mapping\":{\"offset\":["
                     << mapping.offset_x << ',' << mapping.offset_y << "],\"scale\":[" << mapping.scale_x << ',' << mapping.scale_y
                     << "],\"identity\":" << (identity ? "true" : "false")
@@ -244,7 +294,8 @@ std::string collect_rois353(const NativeRef& image, std::uint32_t image_id,
                 else out << '[' << r.left << ',' << r.top << ',' << r.right << ',' << r.bottom << ']';
                 out << ",\"analysis_eligible\":" << (issue ? "false" : "true") << ",\"issue\":" << (issue ? nb::quote(issue) : "null") << '}';
             }
-            if (roi_api353.roi_id(roi.value) != id || roi_api353.is_rectangle(roi.value) != rectangle)
+            if (roi_api353.roi_id(roi.value) != id || roi_api353.is_rectangle(roi.value) != rectangle ||
+                (line && !line_api353.is_line(roi.value)))
                 throw std::runtime_error("native_roi_identity_changed");
         }
         if (roi_api353.roi_count(display) != roi_count ||
@@ -270,10 +321,11 @@ std::string execute_rois353(const NativeRequest& request) {
         static_cast<std::uint64_t>(descriptor.width) * descriptor.height > 4194304)
         throw std::runtime_error("native_roi_requires_bounded_ordinary_float32_or_uint32_2d");
     const auto info = metadata(image.value.image, false);
-    const auto snapshot = collect_rois353(image.value, descriptor.id, descriptor.width, descriptor.height);
+    const bool include_lines = qualified_capability353("native_line_profile") && line_api353.ready();
+    const auto snapshot = collect_rois353(image.value, descriptor.id, descriptor.width, descriptor.height, include_lines);
     // IDs, counts, selection and geometry are reread. This detects changes, but
     // does not claim a host lock, an atomic GUI snapshot or immunity to ABA edits.
-    if (collect_rois353(image.value, descriptor.id, descriptor.width, descriptor.height) != snapshot ||
+    if (collect_rois353(image.value, descriptor.id, descriptor.width, descriptor.height, include_lines) != snapshot ||
         metadata(image.value.image, false) != info || api.id(image.value.image) != descriptor.id)
         throw std::runtime_error("native_roi_snapshot_changed");
     return "{\"backend\":\"digitalmicrograph-native\",\"image_id\":" + std::to_string(descriptor.id) +

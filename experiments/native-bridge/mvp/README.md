@@ -48,7 +48,7 @@ catalog; it never starts or falls back to the resident Python bridge.
 Future processing extensions call DM's own operators; the bridge handles
 parameters, ownership and result delivery. It does not implement a parallel
 analysis engine. Arithmetic, [FFT and components](FFT_READINESS.md), filters,
-preview and bounded numeric READ are explicit tools in the sixteen-tool native
+preview and bounded numeric READ are explicit tools in the eighteen-entry native
 catalog. Each still requires the selected adapter's qualified capability.
 Follow [the researcher workflow](NATIVE_WORKFLOW.md) for scientific handoff;
 the saved-response encoder and external example never run as hidden fallbacks.
@@ -69,14 +69,32 @@ ABI, scientific, source-protection and lifecycle qualification before admission.
 | `dm_native_summary` | DM's minimum, maximum, sum and mean within the same dtype/pixel limits; raw intensity, no stddev/variance |
 | `dm_native_result` | Query the retained receipt using its original operation ID |
 | `dm_crop` | Explicit-ID half-open crop into a separate same-dtype plugin-retained image with full spatial calibration; uint32 source at most 4,194,304 pixels, output at most 4 MiB (1,048,576 pixels) |
-| `dm_native_show` | Exact qualified plugin-result delivery to a visible DM document; saved request ID required; uint32 delivery is not qualified; document lifetime is separate from file persistence |
-| `dm_native_unary` | Native negate, absolute value and square of float32 2D |
+| `dm_native_show` | Exact qualified 2D plugin-result delivery to a visible DM document; saved request ID required; uint32 admits qualified crop/filter results, not 1D profiles; document lifetime is separate from file persistence |
+| `dm_native_unary` | Native negate, absolute value and square of qualified float32/uint32 2D inputs; actual output dtype is explicit |
 | `dm_native_binary` | Native add, subtract and multiply; same shape and calibration, no broadcasting |
 | `dm_native_fft` | Small real forward FFT and paired inverse of the retained full-complex result; explicit Fourier v2 conventions |
 | `dm_native_complex` | Real, imaginary, phase in radians or power (squared magnitude) of qualified retained Fourier results |
-| `dm_native_filter` | Small float32 smooth, Sobel, Laplace and sharpen with documented vendor borders |
+| `dm_native_filter` | Small qualified float32/uint32 smooth, Sobel, Laplace and sharpen with explicit output dtype and vendor borders |
 | `dm_native_preview` | Ordinary float32/uint32 source at most 4,194,304 pixels, at most 128x128 display samples; PNG and source-coordinate mapping, not numeric export |
 | `dm_native_read` | Ordinary float32/uint32 source at most 4,194,304 pixels, explicit half-open ROI at most 16,384 samples/64 KiB; raw little-endian bytes and calibration, no file write |
+| `dm_native_result_info` | Fresh availability snapshot for exact output ID and creation retention token; old QUERY stays historical |
+| `dm_native_release` | Saved-request-ID release of only the exact plugin result reference; no document closure or mutation of old records |
+| `dm_native_rois` | Explicit image → document/display/ROI identity; new v2 replies preserve rectangle and line geometry with eligibility diagnostics |
+| `dm_native_profile` | Saved-ID native extraction from an explicitly identified width-one integer horizontal/vertical GUI line; true 1D float64 image and frozen numeric snapshot |
+
+The profile path has limited synthetic-host qualification, including separate
+fresh-host confirmation of the final qualified artifact and its exact loaded
+identity. Independent source/GUI, raw 1D values, NPY, original-ID recovery,
+RELEASE/STOP, idle-reference cleanup, normal exit/removal and post-exit files
+passed. These were API-created synthetic GUI lines, not model-client acceptance. It
+requires matching nonzero signed spatial scales/units, complete calibration and
+the qualified direct 2D source layout. Known Fourier lineage is refused. Native
+profile samples include both ordered endpoints, at most 4096 samples; raw
+intensity remains unapplied despite copied intensity calibration. The explicit
+saved-response encoder writes actual `[N]` `<f8` NPY/schema-1 files, not a row
+image or DM SaveAs. Existing 2D READ/SHOW still reject these 1D objects. See
+[profile acceptance and delivery](../../../docs/NATIVE_LINE_PROFILE.md) and
+[the current handoff](HANDOFF.md) for preserved failures and artifact status.
 
 The uint32 prepared trial and its original-STOP output release, normal host exit
 and manifest-owned removal have their own bounded evidence. Final production
@@ -112,7 +130,7 @@ have offline surrogate coverage only.
 This is not the complete `dm_stats` interface. Native SaveAs/Open, arbitrary
 script execution, spectrum/4D tools and hardware controls are not exposed in
 the native catalog. A cropped image is retained by bounded plugin-owned
-references until native STOP/cleanup. No visible document, displayed image or
+references until exact-token release or native STOP/cleanup. No visible document, displayed image or
 model visual acceptance is implied by the crop ID alone.
 
 `dm_native_show(image_id, request_id)` calls the native display path only for an existing
@@ -179,7 +197,11 @@ The closed internal operation set also includes `UNARY image_id opcode`,
 `BINARY lhs_id rhs_id opcode`, `FILTER image_id filter_kind`, `FFT image_id`,
 `IFFT image_id`, `REAL image_id`, `IMAG image_id`, `VENDOR_ARG image_id`,
 `VENDOR_NORM image_id`, `PREVIEW image_id max_width max_height` and
-`READ image_id x0 y0 x1 y1`. These fixed forms back the public tools above;
+`READ image_id x0 y0 x1 y1`, `RESULT_INFO image_id retention_token`,
+`RELEASE image_id retention_token`, `ROIS image_id` and
+`PROFILE image_id document_id display_id roi_id x0 y0 x1 y1 width`.
+PROFILE line endpoints are inclusive pixel centres, not half-open rectangle
+edges. These fixed forms back the public tools above;
 they are not an arbitrary script or symbol interface.
 
 Each response is one UTF-8 JSON value ending in LF, bounded to 128 KiB including
@@ -188,8 +210,9 @@ LF. It includes `protocol`, `session`, `id`, `state`, `host_pid`, `worker_tid`,
 fields `original_operation`, `normalized_args`, `result_type`, `result_version`.
 For an accepted record, every queued/running/completed/failed receipt and QUERY
 uses its original operation and normalized argument array, with result contract
-version 1, except Fourier v2 for new submissions (v1 only for historical
-recovery). QUERY does not replace that operation with `QUERY`. Unknown IDs and
+version 1, except Fourier v2 and new ROIS v2 submissions. Historical v1 QUERY
+records retain their original schema; they do not acquire line semantics.
+QUERY does not replace that operation with `QUERY`. Unknown IDs and
 unadmitted requests carry `null` in all four identity fields; an ID conflict
 reports the existing record's identity. Clients validate that identity before
 dispatching to an operation-specific result validator, without guessing from

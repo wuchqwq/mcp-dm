@@ -110,6 +110,7 @@ std::string execute_native(const NativeRequest& request) {
         request.op == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
         request.op == "READ" ? "native_read" :
         request.op == "ROIS" ? "native_gui_rois" :
+        request.op == "PROFILE" ? "native_line_profile" :
         request.op == "RELEASE" || request.op == "RESULT_INFO" ? "native_result_release" : nullptr;
     if (required && !selected_adapter.available(required))
         throw std::runtime_error(std::string("native_capability_unavailable:") + required);

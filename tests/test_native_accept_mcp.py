@@ -131,10 +131,18 @@ class NativeStrictClientTests(unittest.TestCase):
             with self.subTest(read_version=version), self.assertRaisesRegex(ValueError, "operation/result schema identity mismatch"):
                 accept.validate_operation_identity(dict(read, result_version=version))
         rois = receipt("ROIS", [77], "native_gui_rois", 1)
-        accept.validate_operation_identity(rois, "ROIS", [77])
         accept.validate_operation_identity(rois, "QUERY", [])
+        with self.assertRaisesRegex(ValueError, "historical version 1 is QUERY only"):
+            accept.validate_operation_identity(rois, "ROIS", [77])
+        accept.validate_operation_identity(dict(rois,result_version=2), "ROIS", [77])
+        profile = receipt("PROFILE", [77,31,9,4,2,1,5,1,1], "native_line_profile", 1)
+        accept.validate_operation_identity(profile, "PROFILE", [77,31,9,4,2,1,5,1,1])
+        accept.validate_operation_identity(profile, "QUERY", [])
+        for change in ({"normalized_args":[77]}, {"result_version":2}, {"normalized_args":[77,31,9,4,2,1,5,1,True]}):
+            with self.subTest(profile=change), self.assertRaises(ValueError):
+                accept.validate_operation_identity(dict(profile,**change))
         for change in ({"result_type": "datasets"}, {"normalized_args": []}, {"normalized_args": [True]},
-                       {"result_version": 2}, {"result_version": True}):
+                       {"result_version": 3}, {"result_version": True}):
             with self.subTest(rois=change), self.assertRaisesRegex(ValueError, "operation/result schema identity mismatch"):
                 accept.validate_operation_identity(dict(rois, **change))
         for operation in ("FFT", "IFFT", "REAL", "IMAG", "VENDOR_ARG", "VENDOR_NORM"):
@@ -151,6 +159,7 @@ class NativeStrictClientTests(unittest.TestCase):
     def test_new_tool_and_preview_rpc_receipts_bind_original_arguments(self):
         cases = [
             ("dm_native_rois", {"image_id": 77}, "ROIS", [77], "native_gui_rois"),
+            ("dm_native_profile", {"image_id":77,"document_id":31,"display_id":9,"roi_id":4,"expected_line":[2,1,5,1],"width":1,"request_id":"saved"}, "PROFILE", [77,31,9,4,2,1,5,1,1], "native_line_profile"),
             ("dm_native_read", {"image_id": 77, "rect": [1, 1, 4, 3]}, "READ", [77, 1, 1, 4, 3], "native_data_snapshot"),
             ("dm_native_fft", {"image_id": 77, "direction": "forward"}, "FFT", [77], "native_fourier_operation"),
             ("dm_native_complex", {"image_id": 77, "component": "power"}, "VENDOR_NORM", [77], "native_fourier_operation"),
@@ -166,7 +175,7 @@ class NativeStrictClientTests(unittest.TestCase):
                     actual_args[0] = 78
                 output = {"backend": "mock-native", "native_receipt": {
                     "protocol": "NB2", "original_operation": operation, "normalized_args": actual_args,
-                    "result_type": result_type, "result_version": 2 if result_type == "native_fourier_operation" else 1,
+                    "result_type": result_type, "result_version": 2 if result_type in ("native_fourier_operation", "native_gui_rois") else 1,
                     "state": "completed"}}
                 content = [{"type": "text", "text": json.dumps(output)}]
                 if operation == "PREVIEW":

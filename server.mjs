@@ -49,8 +49,8 @@ const INSTRUCTIONS = [
 ].join("\n");
 const NATIVE_INSTRUCTIONS = [
   "实验性 DigitalMicrograph C++ NB2 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
-  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_result_info、dm_native_release、dm_native_rois；rois 仅在对应能力已合格时只读枚举明确图像的显示对象和选区，不自动挑选或裁剪；GUI 选区是非原子执行时快照，旧 ID 的 QUERY 不会刷新当前选区，不把小数或越界选区舍入为分析区域；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
-  "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。crop、show、unary、binary、fft、complex、filter 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
+  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_result_info、dm_native_release、dm_native_rois、dm_native_profile；rois 仅在对应能力已合格时只读枚举明确图像的显示对象和选区，不自动挑选或裁剪；GUI 选区是非原子执行时快照，旧 ID 的 QUERY 不会刷新当前选区，不把小数或越界选区舍入为分析区域；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
+  "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。crop、show、unary、binary、fft、complex、filter、profile 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
 
@@ -468,12 +468,22 @@ const nativeTools = [
   tool('dm_native_release', '只释放本 session 插件自己持有的明确结果引用，要求 image_id、创建回执中的 retention.token 及预先保存的 request_id；不关闭文档、不销毁源图、不自动清理祖先，不篡改旧 completed 回执。超时只查询原请求 ID。', {
     image_id: {...NATIVE_IMAGE_ID, minimum: 1}, retention_token: {type: 'integer', minimum: 1, maximum: 4294967295}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ['image_id', 'retention_token', 'request_id']),
-  tool('dm_native_rois', '只读枚举明确 image_id 的原生显示对象与 GUI 选区；不选择前台/最新窗口，不切换工作区，不自动选中某个 ROI。只把 rotation_degrees 严格为零、source_layout 为 direct_image_canonical_xy、slice_ids 为 [0] 且 coordinate_mapping.source_pixel_aligned 为真的明确、有限、范围内整数矩形标为可用于半开像素分析；旋转、不支持的图像来源/映射、小数、越界、退化和非矩形保留诊断，不舍入、不裁夹、不当作全图。结果是执行时快照，新的查询 ID 才读取当前 GUI，旧 ID 的 QUERY 保持原快照。能力未合格或原生读取失败时明确拒绝，不回退 Python/GUI 点击。', {
+  tool('dm_native_rois', '只读枚举明确 image_id 的原生显示对象与 GUI 选区；不选择前台/最新窗口，不切换工作区，不自动选中某个 ROI。只把 rotation_degrees 严格为零、source_layout 为 direct_image_canonical_xy、slice_ids 为 [0] 且 coordinate_mapping.source_pixel_aligned 为真的明确、有限、范围内整数矩形标为可用于半开像素分析；原生线剖面能力另行合格时，也报告宽度1、非零轴对齐整数像素中心线端点及 line 资格；PROFILE 仍须显式提交完整 GUI 身份和 expected_line。旋转、不支持的图像来源/映射、小数、越界、退化和其它类型保留诊断，不舍入、不裁夹、不当作全图。结果是执行时快照，新的查询 ID 才读取当前 GUI，旧 ID 的 QUERY 保持原快照。能力未合格或原生读取失败时明确拒绝，不回退 Python/GUI 点击。', {
     image_id: NATIVE_IMAGE_ID, request_id: NATIVE_REQUEST_ID,
   }, ['image_id']),
+  tool('dm_native_profile', '按完整 GUI 线选区身份和预先保存的 expected_line 执行有限 DM 原生剖面；重新核对图像/文档/显示/ROI 和原始端点，变化即拒绝。不选择当前窗口。仅 width=1、非零轴对齐整数像素中心端点，最多4096点；源为普通二维 float32/uint32，两轴完整、同单位、相同非零 signed scale。结果是真一维 float64 原生图像及已冻结的 f64 数值快照，保留 native_profile_axis 的原始 signed 标定，不伪称任意整数无损或强度已校准。必须提前保存 request_id；取消/超时只查询同 ID，不重发或回退 Python。', {
+    image_id: NATIVE_IMAGE_ID,
+    document_id: {type: 'integer', minimum: 0, maximum: 2147483647},
+    display_id: {type: 'integer', minimum: 0, maximum: 2147483647},
+    roi_id: {type: 'integer', minimum: 0, maximum: 2147483647},
+    expected_line: {type: 'array', minItems: 4, maxItems: 4, items: {type: 'integer', minimum: 0, maximum: 4294967295},
+      description: '从明确 GUI line 快照保存的 [x0,y0,x1,y1] 像素中心，端点包含；不是半开矩形边缘'},
+    width: {type: 'integer', enum: [1]}, request_id: NATIVE_SAVED_REQUEST_ID,
+  }, ['image_id', 'document_id', 'display_id', 'roi_id', 'expected_line', 'width', 'request_id']),
 ];
 
 function nativeInvocation(name, args) {
+  if (name === 'dm_native_profile') return ['PROFILE', [args.image_id, args.document_id, args.display_id, args.roi_id, ...args.expected_line, args.width]];
   if (name === 'dm_native_rois') return ['ROIS', [args.image_id]];
   if (name === 'dm_native_release' || name === 'dm_native_result_info') return [name === 'dm_native_release' ? 'RELEASE' : 'RESULT_INFO', [args.image_id, args.retention_token]];
   if (name === "dm_native_unary") return ["UNARY", [args.image_id, NATIVE_UNARY[args.operation]]];
@@ -494,6 +504,11 @@ async function callNativeTool(name, args, signal) {
   validate(args, catalog.inputSchema);
   if (!NATIVE_OPTIONAL_REQUEST_ID_TOOLS.has(name) && !validRequestId(args.request_id)) throw new RpcError(-32602, "request_id 必须由客户端在提交前保存，并匹配 [A-Za-z0-9_-]{1,64}");
   if (args.request_id !== undefined && !validRequestId(args.request_id)) throw new RpcError(-32602, "request_id 必须匹配 [A-Za-z0-9_-]{1,64}");
+  if (name === 'dm_native_profile') {
+    const [x0, y0, x1, y1] = args.expected_line;
+    if ((x0 === x1 && y0 === y1) || (x0 !== x1 && y0 !== y1) || Math.max(Math.abs(x1-x0), Math.abs(y1-y0)) + 1 > 4096)
+      throw new RpcError(-32602, 'PROFILE 只接受非零轴对齐整数线，最多4096个端点包含的样本');
+  }
   if (["dm_crop", "dm_native_read"].includes(name) && (args.rect[2] <= args.rect[0] || args.rect[3] <= args.rect[1])) throw new RpcError(-32602, "rect 必须为正面积，右下边界不包含");
   if (name === "dm_native_read" && (args.rect[2] - args.rect[0]) * (args.rect[3] - args.rect[1]) > 16384) throw new RpcError(-32602, "READ ROI 超出 16384 样本预算");
   try {

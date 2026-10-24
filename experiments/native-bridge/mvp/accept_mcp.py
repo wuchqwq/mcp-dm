@@ -26,7 +26,7 @@ RESULT_CONTRACTS = {
     "MEAN": (1, "native_mean"), "SUMMARY": (1, "native_summary"), "CROP": (5, "image_crop"),
     "SHOW": (1, "image_delivery"), "STOP": (0, "ipc_stop"),
     "RELEASE": (2, "native_result_release"), "RESULT_INFO": (2, "native_result_availability"),
-    "ROIS": (1, "native_gui_rois"),
+    "ROIS": (1, "native_gui_rois"), "PROFILE": (9, "native_line_profile"),
     "UNARY": (2, "native_image_operation"), "BINARY": (3, "native_image_operation"),
     "FILTER": (2, "native_image_operation"), "FFT": (1, "native_fourier_operation"),
     "PREVIEW": (3, "native_preview"), "READ": (5, "native_data_snapshot"),
@@ -49,10 +49,12 @@ def validate_operation_identity(receipt, operation=None, arguments=None):
     args = receipt.get("normalized_args")
     require(isinstance(args, list) and len(args) == count and all(integer(value, 0, 0xffffffff) for value in args)
             and receipt.get("result_type") == result_type and type(receipt.get("result_version")) is int
-            and receipt["result_version"] in ((1, 2) if result_type == "native_fourier_operation" else (1,))
+            and receipt["result_version"] in ((1, 2) if result_type in ("native_fourier_operation", "native_gui_rois") else (1,))
             and receipt.get("state") != "unknown", "NB2 operation/result schema identity mismatch")
     if operation is not None and operation != "QUERY" and receipt.get("code") != "id_conflict":
         require(original == operation and args == arguments, "NB2 original operation/arguments differ from submitted request")
+        if operation == "ROIS":
+            require(receipt["result_version"] == 2, "New ROIS requires version 2; historical version 1 is QUERY only")
 
 
 def require(condition, message):
@@ -163,6 +165,7 @@ class StdioClient:
                         "dm_crop": ("CROP", [args.get("image_id")] + args.get("rect", [])),
                         "dm_native_show": ("SHOW", [args.get("image_id")]),
                         "dm_native_rois": ("ROIS", [args.get("image_id")]),
+                        "dm_native_profile": ("PROFILE", [args.get("image_id"),args.get("document_id"),args.get("display_id"),args.get("roi_id")] + args.get("expected_line", []) + [args.get("width")]),
                         "dm_native_release": ("RELEASE", [args.get("image_id"), args.get("retention_token")]),
                         "dm_native_result_info": ("RESULT_INFO", [args.get("image_id"), args.get("retention_token")]), "dm_native_result": ("QUERY", []),
                         "dm_native_read": ("READ", [args.get("image_id")] + args.get("rect", [])),
@@ -296,7 +299,7 @@ def run_acceptance(client, fixture, backend, build, expected_pid=None, repeats=1
     names = {tool["name"] for tool in catalog}
     require(len(catalog) == len(names) and core_names <= names <= core_names | {
         "dm_crop", "dm_native_show", "dm_native_summary", "dm_native_unary", "dm_native_binary",
-        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info", "dm_native_rois"}, "Unexpected native tool catalog")
+        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info", "dm_native_rois", "dm_native_profile"}, "Unexpected native tool catalog")
     if "dm_native_summary" in names:
         summary_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_summary")
         require(set(summary_schema.get("required", [])) == {"image_id"}

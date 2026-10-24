@@ -10,14 +10,15 @@ import {inflateSync} from "node:zlib";
 import {NativeBridge} from "../lib/native_bridge.mjs";
 import {operationFixture, readFixture, imageMetadata, uint32BinaryFixture, uint32OperationFixture} from "./fixtures/native-operations.mjs";
 import {guiRoisFixture} from './fixtures/native-rois.mjs';
+import {profileFixture,profileArgs} from './fixtures/native-profile.mjs';
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const resultTypes = {STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop", RELEASE: "native_result_release", RESULT_INFO: "native_result_availability", ROIS: "native_gui_rois"};
+const resultTypes = {STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop", RELEASE: "native_result_release", RESULT_INFO: "native_result_availability", ROIS: "native_gui_rois", PROFILE:"native_line_profile"};
 Object.assign(resultTypes, {UNARY: "native_image_operation", BINARY: "native_image_operation", FILTER: "native_image_operation", PREVIEW: "native_preview", READ: "native_data_snapshot",
   FFT: "native_fourier_operation", IFFT: "native_fourier_operation", REAL: "native_fourier_operation", IMAG: "native_fourier_operation", VENDOR_ARG: "native_fourier_operation", VENDOR_NORM: "native_fourier_operation"});
 const nativeCatalog = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
-  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois"];
+  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile"];
 
 // Contract emulation only: no DM process/vendor computation is used here.
 function summaryFixture(imageId = 77) {
@@ -94,7 +95,7 @@ test("existing native MCP tools carry uint32 statistics/crop/preview/READ withou
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 17);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 18);
     const calls = [["dm_native_mean", {}], ["dm_native_summary", {}], ["dm_crop", {rect}],
       ["dm_native_preview", {max_width: 2, max_height: 2}], ["dm_native_read", {rect}]];
     for (let index = 0; index < calls.length; ++index) {
@@ -125,7 +126,7 @@ test("typed uint32 binary and described SHOW preserve actual output metadata thr
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 17);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 18);
     const result = toolOutput(await client.tool("dm_native_binary", {left_image_id: 77, right_image_id: 78, operation: "add", request_id: "candidate-binary"}));
     assert.equal(result.image.dtype, "float32"); assert.deepEqual(result.sources.map(source => source.dtype), ["uint32", "uint32"]);
     assert.match(result.dtype_semantics.precision, /not lossless/);
@@ -148,7 +149,7 @@ test("MCP maps uint32 unary/filter/forward FFT enums to their actual native resu
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 17);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 18);
     const calls = [["dm_native_unary", {operation: "negate"}, "float32"], ["dm_native_unary", {operation: "abs"}, "float32"],
       ["dm_native_unary", {operation: "square"}, "float32"], ["dm_native_filter", {operation: "smooth"}, "uint32"],
       ["dm_native_filter", {operation: "sobel"}, "float32"], ["dm_native_filter", {operation: "laplace"}, "float32"],
@@ -201,7 +202,7 @@ async function nativeHost(handler) {
         exec_tid: state === "completed" || state === "running" ? 303 : 0, timings_us: {queue: 4, execute: 5},
         ...(state === "unknown" ? {original_operation: null, normalized_args: null, result_type: null, result_version: null} :
           {original_operation: original.operation, normalized_args: original.args.map(Number), result_type: resultTypes[original.operation],
-            result_version: resultTypes[original.operation] === "native_fourier_operation" ? 2 : 1}),
+            result_version: ["native_fourier_operation","native_gui_rois"].includes(resultTypes[original.operation]) ? 2 : 1}),
         ...(state === "completed" ? {result} : {}), ...extra});
       handler({socket, request, requests, reply}); input = "";
     });
@@ -209,6 +210,103 @@ async function nativeHost(handler) {
   await new Promise((resolve, reject) => {server.once("error", reject); server.listen(bridge.pipePath, resolve);});
   return {session, requests, async close() {for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve));}};
 }
+
+const profileToolArgs = (request_id = 'saved-profile') => ({image_id:77,document_id:31,display_id:9,roi_id:4,
+  expected_line:[2,1,5,1],width:1,request_id});
+
+test('PROFILE validates saved ID, full explicit GUI identity and finite bounded line before dispatch',async()=>{
+  const host=await nativeHost(()=>assert.fail('invalid parameters reached host'));
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session});
+  try {
+    await client.init();const catalog=(await client.rpc('tools/list')).result.tools,tool=catalog.find(t=>t.name==='dm_native_profile');
+    assert.deepEqual(tool.inputSchema.required,['image_id','document_id','display_id','roi_id','expected_line','width','request_id']);
+    const missing=profileToolArgs();delete missing.request_id;
+    for(const args of [missing,{...profileToolArgs(),request_id:''},{...profileToolArgs(),document_id:0x80000000},
+      {...profileToolArgs(),expected_line:[2,1,5,2]},{...profileToolArgs(),expected_line:[2,1,2,1]},
+      {...profileToolArgs(),expected_line:[0,0,4096,0]},{...profileToolArgs(),width:2},{...profileToolArgs(),expected_line:[2.5,1,5,1]},
+      {...profileToolArgs(),line:[2,1,5,1]}]) assert.equal((await client.tool('dm_native_profile',args)).error.code,-32602);
+    assert.equal(host.requests.length,0);
+  } finally {await client.close();await host.close();}
+});
+
+test('accepted PROFILE cancellation recovers same f64 image/snapshot in fresh MCP client and conflicting args never replay it',async()=>{
+  const savedId='saved-before-profile-cancel',result=profileFixture(profileArgs,savedId);
+  let accepted,completed=false,creations=0;const observed=new Promise(resolve=>accepted=resolve);
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.operation==='PROFILE') {
+      if(JSON.stringify(request.args.map(Number))!==JSON.stringify(profileArgs)) {
+        socket.end(JSON.stringify(reply('failed',undefined,{code:'id_conflict',error:'saved ID has different original parameters'}))+'\n');return;
+      }
+      assert.equal(creations,0);socket.end(JSON.stringify(reply('queued'))+'\n');accepted();
+    } else socket.end(JSON.stringify(completed?reply('completed',result):reply('running'))+'\n');
+  });
+  const env={DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_MCP_TIMEOUT_MS:'1000',DM_ANALYSIS_PYTHON:'must-not-start.exe'};
+  const first=mcpClient(env);let recovered;
+  try {
+    await first.init();first.send({id:900,method:'tools/call',params:{name:'dm_native_profile',arguments:profileToolArgs(savedId)}});
+    await observed;first.send({method:'notifications/cancelled',params:{requestId:900}});await first.rpc('ping');
+    assert.equal(first.messages.some(message=>message.id===900),false);await first.close();
+    completed=true;creations++;
+    recovered=mcpClient(env);await recovered.init();
+    const a=toolOutput(await recovered.tool('dm_native_result',{request_id:savedId}));
+    assert.equal(a.image_id,99);assert.equal(a.dtype,'float64');assert.deepEqual(a.shape,[4]);
+    const conflict=toolOutput(await recovered.tool('dm_native_profile',{...profileToolArgs(savedId),expected_line:[2,1,6,1]}),true);
+    assert.equal(conflict.native_receipt.code,'id_conflict');
+    assert.deepEqual(toolOutput(await recovered.tool('dm_native_result',{request_id:savedId})),a);
+    assert.equal(creations,1);assert.equal(host.requests.filter(r=>r.operation==='PROFILE'&&JSON.stringify(r.args.map(Number))===JSON.stringify(profileArgs)).length,1);
+  } finally {await first.close();if(recovered)await recovered.close();await host.close();}
+});
+
+test('PROFILE fresh and recovered malformed data, native geometry conflict and unqualified capability never claim success',async()=>{
+  const records=new Map();
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.id==='geometry-changed'||request.id==='not-qualified') {
+      socket.end(JSON.stringify(reply('failed',undefined,{code:'native_error',error:request.id==='geometry-changed'?'native_profile_gui_line_conflict':'native_line_profile_not_qualified'}))+'\n');return;
+    }
+    if(!records.has(request.id)) {
+      const result=profileFixture(profileArgs,request.id);
+      if(request.id==='rank') result.image.ndim=2;
+      if(request.id==='dtype') result.dtype='float32';
+      if(request.id==='identity') result.source_gui_line.roi_id++;
+      if(request.id==='zero-image') result.image_id=result.image.id=0;
+      if(request.id==='cal') result.image.calibration[0].scale*=-1;
+      if(request.id==='bytes') result.values_base64='AAAA';
+      if(request.id==='candidate') result.candidate_probe=true;
+      records.set(request.id,result);
+    }
+    socket.end(JSON.stringify(reply('completed',records.get(request.id)))+'\n');
+  });
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_ANALYSIS_PYTHON:'must-not-start.exe'});
+  try {
+    await client.init();
+    for(const request_id of ['rank','dtype','identity','zero-image','cal','bytes','candidate']) {
+      assert.equal(toolOutput(await client.tool('dm_native_profile',profileToolArgs(request_id)),true).code,'NATIVE_PROTOCOL');
+      assert.equal(toolOutput(await client.tool('dm_native_result',{request_id}),true).code,'NATIVE_PROTOCOL');
+    }
+    for(const request_id of ['geometry-changed','not-qualified']) {
+      const output=toolOutput(await client.tool('dm_native_profile',profileToolArgs(request_id)),true);
+      assert.equal(output.native_receipt.state,'failed');assert.equal(Object.hasOwn(output,'image'),false);
+    }
+    assert.equal(host.requests.filter(r=>r.operation==='PROFILE').length,9);
+  } finally {await client.close();await host.close();}
+});
+
+test('ROIS preserves exact historical v1 QUERY but fresh calls require v2 and never infer a selected line',async()=>{
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.id==='historical-rois') socket.end(JSON.stringify(reply('completed',guiRoisFixture(77,1),{
+      original_operation:'ROIS',normalized_args:[77],result_type:'native_gui_rois',result_version:1}))+'\n');
+    else socket.end(JSON.stringify(reply('completed',guiRoisFixture(77,1),{result_version:1}))+'\n');
+  });
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session});
+  try {
+    await client.init();
+    const old=toolOutput(await client.tool('dm_native_result',{request_id:'historical-rois'}));
+    assert.equal(old.native_receipt.result_version,1);assert.equal(Object.hasOwn(old.displays[0].rois[0],'line'),false);
+    assert.equal(toolOutput(await client.tool('dm_native_rois',{image_id:77,request_id:'new-v1-invalid'}),true).code,'NATIVE_PROTOCOL');
+    assert.equal(host.requests.filter(r=>r.operation==='ROIS').length,1);
+    assert.equal(host.requests.filter(r=>r.operation==='PROFILE').length,0);
+  } finally {await client.close();await host.close();}
+});
 
 test('readonly GUI ROI MCP requires explicit image and returns an immutable display/ROI snapshot', async () => {
   const records = new Map(); let current = guiRoisFixture();
@@ -239,7 +337,7 @@ test('readonly GUI ROI MCP requires explicit image and returns an immutable disp
     assert.deepEqual(initial.displays[0].rois[0].rect, [2, 1, 10, 6]);
     assert.equal(initial.native_receipt.original_operation, 'ROIS');
     assert.equal(initial.native_receipt.result_type, 'native_gui_rois');
-    assert.equal(initial.native_receipt.result_version, 1);
+    assert.equal(initial.native_receipt.result_version, 2);
     current.displays[0].roi_count = 0; current.displays[0].rois = [];
     assert.deepEqual(toolOutput(await client.tool('dm_native_result', {request_id: 'gui-snapshot'})), initial,
       'changing GUI state does not rewrite an accepted snapshot');
@@ -796,7 +894,7 @@ test("native SUMMARY exposes only four raw reductions with explicit image ID and
   try {
     const init = await client.init(); assert.match(init.instructions, /dm_native_summary/); assert.match(init.instructions, /四个原生摘要/);
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 17);
+    assert.equal(catalog.length, 18);
     const summary = catalog.find(tool => tool.name === "dm_native_summary");
     assert.deepEqual(summary.inputSchema.required, ["image_id"]);
     assert.equal(summary.inputSchema.properties.image_id.type, "integer");
@@ -913,7 +1011,7 @@ test("new native tools expose finite enums and require saved side-effect IDs bef
   try {
     await client.init();
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 17); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
+    assert.equal(catalog.length, 18); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
     for (const name of nativeCatalog.slice(7, 12)) assert.ok(catalog.find(tool => tool.name === name).inputSchema.required.includes("request_id"));
     const preview = catalog.find(tool => tool.name === "dm_native_preview");
     assert.deepEqual(preview.inputSchema.required, ["image_id"]);
@@ -951,7 +1049,7 @@ test("all new finite operation enums map to exact NB2 operations and recover onl
       const {native_receipt, ...result} = output;
       assert.deepEqual(result, operationFixture(operation, nativeArgs));
       assert.equal(native_receipt.original_operation, operation); assert.deepEqual(native_receipt.normalized_args, nativeArgs);
-      assert.equal(native_receipt.result_version, resultTypes[operation] === "native_fourier_operation" ? 2 : 1);
+      assert.equal(native_receipt.result_version, ["native_fourier_operation","native_gui_rois"].includes(resultTypes[operation]) ? 2 : 1);
       assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id})), output);
       assert.deepEqual(host.requests.filter(request => request.id === request_id).map(request => [request.operation, request.args]),
         [[operation, nativeArgs.map(String)], ["QUERY", []], ["QUERY", []]]);
@@ -1076,7 +1174,7 @@ test("native READ requires explicit bounded half-open ROI and rejects paths or i
   try {
     await client.init();
     const catalog = (await client.rpc("tools/list")).result.tools, read = catalog.find(tool => tool.name === "dm_native_read");
-    assert.equal(catalog.length, 17); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
+    assert.equal(catalog.length, 18); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
     assert.match(read.description, /16384/); assert.match(read.description, /不生成图片.*不保存文件/);
     for (const args of [{}, {image_id: 77}, {rect: [0, 0, 1, 1]}, {image_id: "front", rect: [0, 0, 1, 1]},
       {image_id: "77", rect: [0, 0, 1, 1]}, {image_id: -1, rect: [0, 0, 1, 1]}, {image_id: 77, rect: []},

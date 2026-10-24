@@ -8,7 +8,7 @@ void reject_released_inputs353(const NativeRequest& request) {
 }
 
 std::string attach_retention353(const NativeRequest& request, std::string result) {
-    if (request.op != "CROP" && request.op != "UNARY" && request.op != "BINARY" && request.op != "FILTER" && !nb::is_fft_operation353(request.op)) return result;
+    if (request.op != "CROP" && request.op != "UNARY" && request.op != "BINARY" && request.op != "FILTER" && request.op != "PROFILE" && !nb::is_fft_operation353(request.op)) return result;
     const auto found = retained_results.find(last_retained_result353);
     if (found == retained_results.end() || found->second.request_id != request.id || result.empty() || result.back() != '}')
         throw std::runtime_error("native_result_retention_identity_missing");

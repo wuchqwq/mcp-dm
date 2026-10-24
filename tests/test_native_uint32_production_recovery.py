@@ -47,6 +47,7 @@ class Uint32ProductionRecoveryTests(unittest.TestCase):
     def test_known_pre_rois_catalog_keeps_original_bytes_and_queries_only(self):
         # Synthetic historical-catalog simulation, never edits a real receipt.
         self.original["catalog"].remove("dm_native_rois")
+        self.original["catalog"].remove("dm_native_profile")
         self.assertEqual(len(self.original["catalog"]), 16)
         save(self.original_path, self.original)
         self.original_bytes = self.original_path.read_bytes()
@@ -97,10 +98,12 @@ class SavedCatalogTests(unittest.TestCase):
     def test_only_exact_known_historical_and_current_sets_can_resume(self):
         current = sorted(C["CATALOG"])
         legacy = sorted(C["LEGACY_PRE_ROIS_CATALOG"])
-        self.assertEqual(len(current), 17)
+        self.assertEqual(len(current), 18)
         self.assertEqual(len(legacy), 16)
         self.assertTrue(C["valid_saved_catalog"](current))
         self.assertTrue(C["valid_saved_catalog"](legacy))
+        self.assertEqual(len(C["LEGACY_ROIS_CATALOG"]), 17)
+        self.assertTrue(C["valid_saved_catalog"](sorted(C["LEGACY_ROIS_CATALOG"])))
         for value in [None, {}, current + [current[0]], current + ["dm_unknown"],
                       legacy[:-1], [*legacy[:-1], "dm_native_rois"], legacy + [True]]:
             with self.subTest(catalog=value):

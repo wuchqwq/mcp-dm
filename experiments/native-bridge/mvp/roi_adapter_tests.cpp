@@ -46,11 +46,11 @@ std::uint32_t roi_requested_displays353 = 1, roi_requested_count353 = 1;
 bool roi_unique_identities353 = false;
 void* roi_partial_output353 = nullptr;
 int roi_partial_destroy_calls353 = 0;
-NativeRef* roi_partial_throw_fake353(void*, NativeRef* out, std::uint32_t) {
+[[maybe_unused]] NativeRef* roi_partial_throw_fake353(void*, NativeRef* out, std::uint32_t) {
     out->image = roi_partial_output353;
     throw std::runtime_error("surrogate_partial_owned_output_then_throw");
 }
-void roi_partial_destroy_fake353(void*) { ++roi_partial_destroy_calls353; }
+[[maybe_unused]] void roi_partial_destroy_fake353(void*) { ++roi_partial_destroy_calls353; }
 std::size_t roi_count_displays_fake353(const NativeRef* source, const NativeRef* doc) {
     check(source->image == &fake && !doc->image);
     ++roi_display_count_calls353;
@@ -155,13 +155,14 @@ void setup_roi_fake353() {
         reinterpret_cast<void*>(roi_simple_id_fake353), reinterpret_cast<void*>(roi_simple_extents_fake353)};
 }
 std::string run_roi_fake353() { return execute_native({"roi-offline", "ROIS", {17}}); }
-void roi_expect_failure353(const std::string& expected) {
+[[maybe_unused]] void roi_expect_failure353(const std::string& expected) {
     try { run_roi_fake353(); check(false); }
     catch (const std::runtime_error& error) { check(std::string(error.what()) == expected); }
     check(roi_hold_created353 == roi_hold_freed353 && roi_fake353.references == 1 && fake.references == 1);
 }
 } // namespace
 
+#ifndef NB_ROI_TEST_NO_MAIN
 int main(int argc, char** argv) {
     try {
         setup_roi_fake353();
@@ -294,3 +295,4 @@ int main(int argc, char** argv) {
         return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
 }
+#endif

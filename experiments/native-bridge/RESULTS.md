@@ -1,6 +1,51 @@
 # Native bridge validation matrix
 
-## Current continuation: GUI ROI qualification and independent Fourier control
+## Current continuation: GUI line and true native 1D profile
+
+The native catalog has eighteen entries. `dm_native_profile` and ROIS v2 line
+geometry have their own limited synthetic-host qualification;
+`native_line_profile` profile admission is enabled. The final qualified
+artifact independently passed a fresh session with exact loaded module identity
+matched to its source build, separate from prepared-host results. See
+[profile contracts](../../docs/NATIVE_LINE_PROFILE.md).
+
+| Scope | Result |
+|---|---|
+| Post-idle integer-only fixture baseline before any MCP submission | PASS, independent actual PID/session, complete source arrays/names/calibration/GUI and document inventory |
+| Plane/nonlinear and high-unsigned synthetic sources, axis-aligned width-one profiles including reverse order and signed calibration | PASS, actual DM native extraction, true rank-one float64 and independent endpoint-inclusive raw values |
+| Actual Node MCP, original-ID QUERY, frozen f64 snapshots and independently reopened true 1D NPY/schema-1 packages | PASS within that synthetic scope |
+| Original-token RELEASE and separate idle-host output invalidity; original pre-saved STOP ID/PID/worker acknowledgement and remaining hidden-output invalidity | PASS, source/GUI/document state unchanged |
+| Owned fixture cleanup observed after host return/idle, normal exit and manifest-owned removal | PASS for prepared and final qualified sessions; no synchronous same-stack destruction promise |
+| Earlier fractional fixture before processing | **FAIL**, GUI coordinates already differed in the first ROIS snapshot, before PROFILE; exact update cause unqualified, failed inventory evidence retained |
+| Earlier after-STOP oracle execution-thread assumption | **FAIL**, preserved oracle defect; corrected worker/zero-exec/original-request rule passed a separate observation without repeating STOP |
+| Final qualified artifact in a fresh session, pre-MCP baseline and directional/boundary controls | PASS, independent exact loaded identity, true rank-one float64, original QUERY, source/GUI/document invariance and 1D files |
+| Wrong document, changed expected endpoints, anisotropic source and 1D SHOW/READ | Explicit refusals with no result-pool growth in the final session |
+| Final fresh availability after release, immutable creation QUERY, independent released/stopped output invalidity and post-exit NPY reopening | PASS, original saved requests and same-process/worker binding; all saved profiles reopened independently |
+| Chinese naming, diagonal/fractional/wide lines, anisotropic profiles, real experimental profile inputs and ordinary model clients | NOT_QUALIFIED / NOT_TESTED |
+
+Source ordinary 2D float32/uint32, direct-source mapping, integer horizontal or
+vertical endpoints, width one and complete matching signed spatial calibration
+are the admitted scope. Known Fourier/unresolved lineage is refused. Native
+intensity calibration is copied but not applied. PROFILE returns bounded frozen
+float64 bytes and uses existing retention/release; the existing 2D READ/SHOW
+interfaces still refuse rank-one data. No new scientific kernel, live listener,
+backend fallback, default change or ABI-gate relaxation was added.
+
+The final GUI lines were API-created synthetic fixture objects; the observations
+do not prove a model saw images or a new line was manually drawn.
+
+Executed regression for this continuation: Node 180 passed, zero skips; full
+Python 582 methods passed before the subsequent baseline/STOP oracle changes,
+then the targeted oracle suite passed 10 methods. The STOP negative matrix
+checks wrong worker, nonzero/invalid execution TID, PID, original ID/operation/
+arguments and missing/false acknowledgement. The final C++ qualified build's
+12 test executables all passed, including core 1460 checks, ROI 827, line/profile
+461 and adapter-profile 2549. Rejection tests made no vendor calls; candidate
+callbacks remain synthetic-only, without new runtime qualification. Review also
+closed a defensive zero-output-ID validation gap before the final Node run.
+The earlier 179-test Node run remains earlier evidence, not the final total.
+
+## Earlier continuation: GUI ROI qualification and independent Fourier control
 
 The feature checkout adds a seventeenth catalog entry, `dm_native_rois`. Its
 corrected direct-source-layout/mapping passed limited synthetic actual-host
@@ -31,7 +76,7 @@ arrays/calibration were unchanged, historical failures were retained and no
 scientific algorithm or gate was relaxed. See
 [error attribution and its limits](../../docs/NATIVE_FFT_PRECISION.md).
 
-Current executed engineering regression: Node 169/169 (zero skipped), all eleven
+That earlier continuation's executed engineering regression: Node 169/169 (zero skipped), all eleven
 C++ offline executables (ROI 827 including fixture output; qualified profile
 1827), default-backend selftest, full Python 572 tests before final targeted
 acceptance refinements, and all 13 final ROI oracle plus 6 precision tests. These counts describe

@@ -9,6 +9,7 @@
 #include "preview_contract.hpp"
 #include "read_contract.hpp"
 #include "roi_contract.hpp"
+#include "line_profile_contract.hpp"
 #include "adapters/gms_3_53_4137/profile.hpp"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -474,8 +475,10 @@ std::uint32_t packing_style(void* image) {
     require_ready();
     return packing.value;
 }
-std::string metadata(void* image, bool strict_calibration = true) {
+std::string metadata(void* image, bool strict_calibration = true, bool profile_1d = false) {
     auto ndim = api.ndim(image), code = api.dtype(image);
+    if (profile_1d && (ndim != 1 || code != nb::kProfileFloat64Code353 || packing_style(image) != 1))
+        throw std::runtime_error("native_profile_output_descriptor_mismatch");
     if (ndim < 1 || ndim > 4) throw std::runtime_error("unsupported_dimension_count");
     std::vector<std::uint32_t> sizes;
     std::uint64_t pixels = 1;
@@ -489,7 +492,7 @@ std::string metadata(void* image, bool strict_calibration = true) {
     auto s = json_stream();
     s << "{\"id\":" << api.id(image) << ",\"name\":" << nb::quote(name.utf8(1024))
       << ",\"ndim\":" << ndim << ",\"data_type_code\":" << code
-      << ",\"dtype\":" << (code == 2 ? "\"float32\"" : code == 3 ? "\"complex64\"" : code == nb::kUint32Code353 ? "\"uint32\"" : "null");
+      << ",\"dtype\":" << (profile_1d ? "\"float64\"" : code == 2 ? "\"float32\"" : code == 3 ? "\"complex64\"" : code == nb::kUint32Code353 ? "\"uint32\"" : "null");
     if (code == nb::kUint32Code353) s << ",\"is_integer\":true,\"is_unsigned\":true";
     const auto packing = api.packing ? packing_style(image) : UINT32_MAX;
     s << ",\"packing_style\":" << (api.packing ? std::to_string(packing) : "null")
@@ -497,7 +500,7 @@ std::string metadata(void* image, bool strict_calibration = true) {
     for (std::uint32_t i = 0; i < ndim; ++i) { if (i) s << ','; s << sizes[ndim - i - 1]; }
     s << "],\"dm_dimensions\":[";
     for (std::uint32_t i = 0; i < ndim; ++i) { if (i) s << ','; s << sizes[i]; }
-    s << "],\"shape_order\":\"numpy (last axis is X)\",\"pixels\":" << pixels
+    s << "],\"shape_order\":" << nb::quote(profile_1d ? "one-dimensional native profile samples" : "numpy (last axis is X)") << ",\"pixels\":" << pixels
       << ",\"calibration\":[";
     bool calibration_complete = true;
     for (std::uint32_t d = 0; d < ndim; ++d) {
@@ -591,6 +594,7 @@ std::string execute_show(const NativeRequest& request) {
         throw std::runtime_error("image_identity_mismatch");
     // Image IDs and pointers can survive user edits. Creation-time dtype must
     // not admit a different current dtype through another display policy.
+    if (api.ndim(image.value.image) != 2) throw std::runtime_error("native_show_requires_qualified_2d_result");
     if (api.dtype(image.value.image) != owned->second.data_type_code)
         throw std::runtime_error("native_show_result_descriptor_changed");
     if (uint32 && (api.dtype(image.value.image) != 11 || api.ndim(image.value.image) != 2 ||
@@ -843,6 +847,7 @@ std::string execute_arithmetic(const NativeRequest& request) {
 #include "preview_adapter.inc"
 #include "read_adapter.inc"
 #include "roi_adapter.inc"
+#include "line_profile_adapter.inc"
 #include "result_release.inc"
 } // namespace
 
@@ -923,6 +928,7 @@ void initialize_native() {
             api.destroy_document_holder = nullptr; api.destroy_window = nullptr;
         }
         initialize_roi353(gms);
+        initialize_line_profile353(gms, image);
         gate_error.clear();
     } catch (const std::exception& error) { gate_error = error.what(); }
 }
@@ -985,6 +991,7 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("filter_small_uint32_2d", available("native_uint32_filters", filters));
         capability("fourier_uint32_small_2d", available("native_uint32_fft", fourier));
         capability("release_plugin_result_reference", available("native_result_release", true));
+        capability("native_line_profile", available("native_line_profile", line_api353.ready() && roi_api353.ready()));
         capability("read_gui_rectangle_rois", available("native_gui_rois", roi_api353.ready() && api.packing));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
@@ -993,6 +1000,7 @@ static std::string execute_operation(const NativeRequest& request) {
     }
     require_ready();
     if (request.op == "ROIS") return execute_rois353(request);
+    if (request.op == "PROFILE") return execute_line_profile353(request);
     if (request.op == "UNARY" || request.op == "BINARY" || request.op == "FILTER" || request.op == "PREVIEW" || request.op == "READ" || nb::is_fft_operation353(request.op)) {
         const char* group = request.op == "UNARY" || request.op == "BINARY" ? "native_image_arithmetic" :
             request.op == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
@@ -1146,6 +1154,7 @@ void shutdown_native() {
     released_image_ids353.clear();
     api = Api{};
     roi_api353 = RoiApi353{};
+    line_api353 = LineApi353{};
     gate_error = "native_adapter_stopped";
 }
 bool nb353_ready() { return gate_error.empty() && !fatal_abi; }
@@ -1155,8 +1164,11 @@ std::string nb353_error() {
 void nb353_observe_entries(nb::HostObservation& host) {
     if (roi_api353.ready()) {
         for (const auto& entry : nb::gms353::profile().entries)
-            if (std::string(entry.key).find("roi_") == 0) host.valid_entry_contracts.insert(entry.key);
+            if (std::string(entry.key).find("roi_") == 0 && std::string(entry.key)!="roi_is_line" && std::string(entry.key)!="roi_line")
+                host.valid_entry_contracts.insert(entry.key);
     }
+    if (line_api353.ready()) for (const auto* entry : {"roi_is_line","roi_line","line_profile_extract"})
+        host.valid_entry_contracts.insert(entry);
     if (api.get_document) host.valid_entry_contracts.insert("image_get_or_create_document");
     if (api.show_document) host.valid_entry_contracts.insert("image_document_show");
     if (api.destroy_document_holder) host.valid_entry_contracts.insert("destroy_document_holder");

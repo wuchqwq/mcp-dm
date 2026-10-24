@@ -1,14 +1,16 @@
 # 下一阶段：按研究者的 DM 工作流补能力
 
-核对日期：2026-10-24。对照对象是本仓库原生后端，而不是默认 Python 后端。
+核对日期：2026-10-25。对照对象是本仓库原生后端，而不是默认 Python 后端。
 本表是官方功能线索与工程优先级，**不是新增能力或跨版本资格声明**。
+原规划中的分块交接、结果释放、明确 GUI 矩形和限定线剖面已接通；下文保留
+其设计要求。当前实机资格与剩余范围以文末进展及各功能契约为准。
 
 ## 官方功能与当前缺口
 
 | 优先级 | 研究者要做的事 | Gatan 官方依据 | 当前原生缺口与接入要求 |
 |---|---|---|---|
-| P0 | 用刚刚在 GUI 画好的选区继续分析 | [官方 ROI 示例](https://www.gatan.com/Software/Scripts/Python-Library/Live-FFT-color-map) 使用 ImageDisplay 的 CountROIs/GetROI、ROI ID 和 GetRectangle | 当前工具要求手填像素坐标；应绑定 image_id/display_id/roi_id，先只读矩形/线，复制一次坐标并返回。不得静默采用最新窗口或找不到 ROI 就改成全图；不恢复示例里的 Python listener。 |
-| P0 | 沿线/条带测强度、看分布 | [应用说明](https://www.gatan.com/Resources/Applications-Library/Application-Notes/Frame-Control-mode-for-optimized-imaging-and-diffraction-with-ClearView-camera) 描述内置 profile/histogram；[直方图官方脚本](https://www.gatan.com/Software/Scripts/DigitalMicrograph-Library/Interactive-histogram) 展示 ImageCalculateHistogram | 默认 Python 有 profile，但原生没有。先确定原生 ABI、采样/宽度/端点、距离标定、bin 边界、计数与非有限值政策；方差/标准差/中位数候选需各自验收，不手写替代核冒充 DM。 |
+| P0 | 用刚刚在 GUI 画好的选区继续分析 | [官方 ROI 示例](https://www.gatan.com/Software/Scripts/Python-Library/Live-FFT-color-map) 使用 ImageDisplay 的 CountROIs/GetROI、ROI ID 和 GetRectangle | 已接通明确 image/document/display/ROI 身份的矩形和线只读快照；保持直接图像来源和映射限制。不得静默采用最新窗口或找不到 ROI 就改成全图；不恢复示例里的 Python listener。 |
+| P0 | 沿线/条带测强度、看分布 | [应用说明](https://www.gatan.com/Resources/Applications-Library/Application-Notes/Frame-Control-mode-for-optimized-imaging-and-diffraction-with-ClearView-camera) 描述内置 profile/histogram；[直方图官方脚本](https://www.gatan.com/Software/Scripts/DigitalMicrograph-Library/Interactive-histogram) 展示 ImageCalculateHistogram | 限定原生水平/竖直整数端点、宽度 1 的剖面及真实一维交接已完成合成实机验收。斜线、宽条带及直方图仍未接通；bin 边界、计数与非有限值政策须另行验证。方差/标准差/中位数候选需各自验收，不手写替代核冒充 DM。 |
 | P1 | 标出本次测量区域和结果 | [ImageDisplay annotation 示例](https://www.gatan.com/Software/Scripts/Python-Library/Adding-annotations-to-an-image-display) 展示线、箭头、框、椭圆 | 有 PNG 和 Show 但没有明确的原生注释管理；对受控结果文档添加命名/标识注释，不烘焙到科学像素，不清除用户原有注释，重复请求不重复创建。 |
 | P1 | 比较 FFT/衍射斑点、晶格间距和角度 | [DIFPack 模块](https://www.gatan.com/Products/TEM-Software/Digital-Imaging-Modules/DIFPack-Module) 介绍峰定位、间距/夹角、中心与标定转移 | 本项目只有小尺寸 FFT/分量；没有掩膜→逆变换测量流程或峰测量。DIFPack 是单列模块：需要检查安装/许可/API，不能认作每个 DM 的基础功能，也不绕过许可。先做通用标定和明确点/线测量，不直接输出物相。 |
 | P2 | 做径向/角向分析 | [Rotational average 官方脚本](https://www.gatan.com/ja/Software/Scripts/DigitalMicrograph-Library/Rotational-average) 使用 warp、极坐标和投影 | 属于官方脚本组合示例，不证明存在同名稳定 C++ 算子。明确中心、采样、插值、环边界、单位后再研究已验证原生操作的组合；不从脚本名猜 ABI。 |
@@ -56,4 +58,4 @@
 
 ## 当前 feature 的收尾进展
 
-结果引用释放和确定性有界分块交接已实现，并有独立合成实机证据；原始 READ 及算子尺寸限制保持不变。GUI 选区/剖面/直方图仍缺少完整 ABI 与一维输出契约，原生工作区枚举/切换也未通过资格确认。手动切换工作区已用于验证显式 image_id 和 SHOW 的行为；SHOW 不保证激活结果所在标签页。参见[具体契约、阻塞与证据边界](NATIVE_LIFECYCLE_HANDOFF.md)。
+结果引用释放和确定性有界分块交接已实现，并有独立合成实机证据；原始 READ 及算子尺寸限制保持不变。明确 GUI 矩形及宽度 1 的水平/竖直原生剖面已完成限定合成实机验收，后者保留真实一维 float64 数值、原生轴标定和源采样轨迹，见[线剖面契约](NATIVE_LINE_PROFILE.md)。更一般的剖面、直方图和原生工作区枚举/切换尚未通过资格确认。手动切换工作区已用于验证显式 image_id 和 SHOW 的行为；SHOW 不保证激活结果所在标签页。参见[生命周期与分块交接](NATIVE_LIFECYCLE_HANDOFF.md)。

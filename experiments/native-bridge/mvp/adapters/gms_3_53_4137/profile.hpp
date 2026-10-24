@@ -51,6 +51,13 @@ inline const AdapterProfile& profile() {
             {"mfc140.dll", "#1487"},
         },
         {
+            {"native_line_profile", true, "limited synthetic real-host qualification; float32/uint32 ordinary 2D direct-source; width1 integer axis-aligned GUI line; equal signed spatial scales and units; true 1D float64 snapshot <=4096 samples", {
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
+                {"GMSImage.dll", "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"},
+                {"GMSImage.dll", "?GetIntensityCalibration@Image@GMS@@QEAAXAEAM0AEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z"}},
+                {"roi_is_line", "roi_line", "line_profile_extract", "roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_display_image",
+                 "roi_raster_count", "roi_raster_at", "roi_id", "roi_is_rectangle", "roi_rectangle", "roi_is_selected", "roi_raster_dimensions", "roi_raster_mapping", "roi_raster_slice_id",
+                 "roi_simple_source_count", "roi_simple_source_slice_id", "roi_simple_source_extents", "roi_destroy_display_holder", "roi_destroy_roi"}},
             {"native_datasets", true, "bounded native registry and metadata", {}, {}},
             {"native_result_release", true, "explicit own image ID plus bridge retention token; plugin reference only; no document closure", {}, {}},
             {"native_gui_rois", true, "readonly explicit ordinary 2D direct ImageSource_Simple raster; bounded rectangle snapshots; limited idle-host synthetic qualification",
@@ -141,6 +148,9 @@ inline const AdapterProfile& profile() {
             {"roi_raster_count", "GMS.dll", 0x1a13a0},
             {"roi_raster_at", "GMS.dll", 0x1a4470},
             {"roi_id", "GMS.dll", 0x1bf530},
+            {"roi_is_line", "GMS.dll", 0x1bfc00},
+            {"roi_line", "GMS.dll", 0x1bf540},
+            {"line_profile_extract", "GMS.dll", 0xa07730},
             {"roi_is_rectangle", "GMS.dll", 0x1bfc50},
             {"roi_rectangle", "GMS.dll", 0x1bf820},
             {"roi_is_selected", "GMS.dll", 0x2a9e60},

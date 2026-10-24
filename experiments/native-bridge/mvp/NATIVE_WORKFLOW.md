@@ -17,7 +17,7 @@ manifest 清理也已通过。当前五组 profile 资格不依赖 preparation �
 manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 并得到同一均值，
 原 capture 未变；这些是最终二进制自己的证据。
 
-## 十七个原生工具目录项
+## 十八个原生工具目录项
 
 使用显式 `DM_MCP_BACKEND=native` 和用户启动宿主时记录的 session。
 默认 v0.6 后端是另一条路径，不会作为原生失败的回退。
@@ -40,7 +40,8 @@ manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 
 | `dm_native_read` | 明确 ROI 的 float32 / uint32 原始数值与标定快照 |
 | `dm_native_result_info` | 明确 image_id + retention.token 的插件引用状态快照；刷新时用新 ID |
 | `dm_native_release` | 按同一身份只释放插件引用；预先保存 request_id，不关闭文档 |
-| `dm_native_rois` | 只读枚举明确图像的文档/显示对象/矩形 ROI；直接 Simple 二维源已有限合成实机验收，仍检查 `native_gui_rois` |
+| `dm_native_rois` | 只读枚举明确图像的文档/显示对象/选区；新 ROIS v2 保留矩形和线，检查实际资格和诊断 |
+| `dm_native_profile` | 按完整 GUI 线身份及预存端点/请求 ID 做有限原生剖面；真一维 float64 图像和冻结数值快照 |
 
 GUI 选区接续采用 `(image_id,document_id,display_id,roi_id)` 组合身份，不认领前台或
 最新窗口。`slice_ids` 是切片编号，不能当作轴编号。仅精确的直接 Simple 图像源
@@ -58,6 +59,36 @@ Sliced/Group/Summed 等源不合格，不调用轴 getter 猜轴序。无旋转�
 合成源像素、标定与旧 QUERY 不变。STOP 的原始请求已核对。关闭自有文档并释放
 fixture 引用后，同一调用栈立即销毁源图的断言 FAIL 保留；脚本返回宿主空闲后，
 独立观察确认源图失效且文档恢复。该生命周期证据不承诺同栈同步析构。
+
+### GUI 线选区接续原生剖面
+
+用 ROIS v2 确认明确图像及 `(document_id,display_id,roi_id)`，保存返回的有序
+`expected_line:[x0,y0,x1,y1]`、`width:1`、session 和新 request_id，再调用
+`dm_native_profile`。端点是原图像素中心，**首尾样本都包含**，反向线保持原顺序；
+不能沿用半开裁剪矩形的右下界规则。旧 ROIS v1 QUERY 不补造线信息。
+
+源只限普通 float32/uint32 二维图、最多 4,194,304 像素、合格直接源布局；空间
+标定必须完整，两轴单位相同且 signed scale 相同、非零。仅非零水平/垂直整数线，
+最多 4096 个样本；斜线、小数端点、宽线、各向异性和已知 Fourier 来源不获准。
+原生结果是 `[N]` float64，保留原生一维 signed 标定和独立源采样轨迹，非平凡
+强度标定只复制、不应用。不是自动实时更新的 GUI profile 或第二套算法。
+
+对保存的 PROFILE JSON 可显式运行既有 `tools/native_snapshot_handoff.mjs`，
+生成新的真一维 `<f8` NPY/schema-1 文件，保留原回执、线身份、标定及参数；
+这是数据交接，不是 DM SaveAs。原 PROFILE QUERY 返回冻结字节，即使插件引用
+已释放也不会重算或重读源图。释放仍用创建 ID/token；2D READ/SHOW 不接受一维图。
+
+该链路已通过有限合成 prepared 实机核对；最终合格产物也在独立新会话确认了
+加载身份、提交前 baseline、各方向/边界样本、全源/GUI/标定、原 QUERY、真一维
+NPY，以及原始 RELEASE/STOP 后独立 idle 失效、正常退出和 manifest 清理。
+退出后保存的 NPY 仍能独立重开。错误文档、变化的预存端点、各向异性和 1D
+SHOW/READ 均拒绝且不增加结果池。测试线由合成 fixture API 创建，不代表
+模型看见或手绘了新线。首试 GUI 小数线在首次
+原生读取前已被宿主取整，库存 oracle 的 FAIL 保留；新会话先严格核对整数 fixture
+baseline，再提交 MCP。STOP oracle 最初误把 `exec_tid:0` 当错，原 FAIL 保留，
+修正仅按既有 NB2 校验原 worker/PID/请求和 ipc_stopped，不放宽其它核对。
+真实实验数据、中文和模型客户端未由这次合成试验资格确认。见
+[完整线剖面契约](../../../docs/NATIVE_LINE_PROFILE.md)。
 
 宿主空闲且不编辑源图时串行调用。先保存 session、request_id 和原参数，再提交
 创建结果或显示文档的操作。超时、取消或断连后只用 `dm_native_result` 查询原 ID；
@@ -238,4 +269,4 @@ READ 单次预算不变。固定的 `tools/native_region_handoff.mjs` 可显式�
 
 完整命令、恢复/预算、独立核对和引用令牌示例见[生命周期与分块交接](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md)。历史创建 QUERY 不会因 RELEASE 被改写；新 RESULT_INFO 记录查询当时的可用性。
 
-原生图像 ID 跨工作区选择同一图像；DATASETS 不是当前标签页列表。SHOW 复用已有文档时可能仍留在另一个工作区，不保证当前页可见。GUI 矩形 ROI 仅具上文直接源的窄范围资格；线选区/原生 profile/histogram、工作区枚举/激活和原生注释仍未资格确认，不能靠 Python 或 GUI 点击冒充。
+原生图像 ID 跨工作区选择同一图像；DATASETS 不是当前标签页列表。SHOW 复用已有文档时可能仍留在另一个工作区，不保证当前页可见。GUI ROI 和原生剖面仅具上文直接源的窄范围资格；其它线/宽度/布局、histogram、工作区枚举/激活和原生注释仍未资格确认，不能靠 Python 或 GUI 点击冒充。

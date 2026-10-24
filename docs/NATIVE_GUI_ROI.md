@@ -120,11 +120,13 @@ original-STOP checks, final references after host idle, normal exit and
 manifest-owned removal.
 Ordinary model-client acceptance remains **NOT_TESTED**.
 
-Line selection and native LiveProfile bindings are separate ABI candidates.
-They are not exposed by this rectangle tool. Native profile/histogram delivery
-still needs its own typed call, ownership, axis/bin semantics, bounded 1D READ
-and scientific handoff qualification. No new profile, histogram or annotation
-tool is promised; unsupported ROI types remain explicit diagnostics.
+New ROIS version-2 replies also preserve raw line endpoints. The separately
+qualified [native line/profile contract](NATIVE_LINE_PROFILE.md) admits width-one
+integer horizontal/vertical lines to `dm_native_profile`, with true 1D float64
+numeric snapshots and explicit NPY handoff. Historical version-1 QUERY records
+remain unchanged. Fractional/diagonal/wide lines, histograms and annotations
+retain their separate unsupported status; rectangle coordinate rules above
+remain half-open and do not apply to endpoint-inclusive line samples.
 
 The already completed region-export isolation repair was checked on a real
 synthetic host using independent workspaces, reused user labels, changed

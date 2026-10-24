@@ -414,7 +414,62 @@ tool/ID/parameter ledger. See [SUMMARY acceptance](mvp/SUMMARY_ACCEPTANCE.md).
 
 ## Minimum runtime verification order
 
-### GUI rectangle continuation: typed read-only ownership, limited qualification
+### GUI line extraction and true one-dimensional handoff
+
+The exact-build `native_line_profile` group has limited synthetic actual-host
+qualification and profile admission is enabled. The final qualified artifact
+also passed independent fresh-host confirmation with loaded module identity
+matched to the source build and a strict pre-MCP baseline. All existing module
+fingerprint gates remain unchanged; the additional typed entrypoints and PODs
+live only in the version adapter's line/profile implementation and contract.
+No optional module, guessed address, generic memory search or Python fallback
+is used to expand another host version's admission.
+
+The source is an owned explicit GMS image reference. ROIS v2 binds the complete
+document/display/ROI identity and ordered raw line to the same qualified direct
+source/mapping as the rectangle path. A one-shot typed
+`LiveProfile_ExtractLineProfile` call receives that source and verified line
+parameters and returns a new owned image pointer, immediately guarded by the
+existing image-reference RAII. The name does not expose a live evaluator or a
+background listener. Identity and metadata checks occur around extraction;
+they are not an atomic pixel/GUI lock.
+
+The source must be ordinary 2D float32/uint32 within its existing source budget.
+Only width one, nonzero axis-aligned integer centres and complete equal signed
+spatial scales/units qualify, at most 4096 endpoint-inclusive samples. Known
+Fourier/unresolved retained scientific lineage is refused. Output must be native
+rank one, ordinary packing and float64 type code 12. A separately described
+rank-one native index reads double values without a float32 cast or fabricated
+second dimension. Output raw origin/physical zero remain zero, signed scale and
+unit are read back, and the typed intensity-calibration getter verifies the
+native copy while `intensity_calibration_applied:false` remains explicit.
+
+The immutable PROFILE receipt includes frozen little-endian float64 values and
+retention identity. The external saved-response encoder writes actual `[N]`
+NPY/schema-1 metadata with that original receipt, source GUI line, both
+calibrations and sample trajectory. It is data handoff, not DM SaveAs. RELEASE
+and STOP share the existing owned-reference path. Existing 2D READ/SHOW still
+reject rank-one images; no new general 1D scientific API is implied.
+
+Independent prepared-host checks matched nonlinear and high-unsigned controls,
+reverse order, signed calibration and complete unchanged sources/GUI/documents.
+Released and stopped hidden outputs were independently invalid after return to
+host idle, followed by normal exit and manifest cleanup. The final qualified
+artifact repeated direction and boundary controls, raw rank-one float64 values,
+full source/GUI/calibration invariance, original QUERY, fresh availability and
+release/STOP checks. Invalid GUI identity/expected endpoints, anisotropic input
+and old 2D SHOW/READ on 1D results were refused without result-pool growth. Saved
+NPY files reopened independently after host exit. The GUI lines were created
+by a synthetic fixture API; no model-viewing or real-experiment claim follows.
+A prior fixture's
+fractional GUI coordinates changed before native processing, correctly failing
+its inventory oracle. A separate STOP oracle initially assumed positive host
+execution TID; its preserved FAIL was corrected using the existing NB2 worker
+acknowledgement (`exec_tid:0`, original worker/request/PID and `ipc_stopped:true`),
+with independent negative cases. Neither correction relaxes numerical, source,
+geometry or file validation. See [profile scope](../../docs/NATIVE_LINE_PROFILE.md).
+
+### Earlier GUI rectangle continuation: typed read-only ownership, limited qualification
 
 The feature adapter now has an independently gated `native_gui_rois` group;
 the corrected direct-source-layout/mapping now has limited prepared synthetic
@@ -462,9 +517,10 @@ after fixture cleanup failed and is preserved; a separate later idle-host
 observation found fixtures invalid and documents restored without extra native
 calls. This proves the bounded after-return lifecycle, not synchronous
 destruction of Python/document-held references on the current stack.
-Native line getters and LiveProfile are
-separate candidates, still lacking their own complete qualification and bounded
-1D numerical/calibration/handoff path; no profile/histogram tool is added.
+At that earlier boundary, native line getters and LiveProfile were separate
+candidates without their own qualification or bounded 1D handoff. The later
+limited line/profile path is recorded above; histogram, wider/diagonal profiles
+and other source layouts remain unqualified.
 
 ### Earlier GUI and workspace boundary
 

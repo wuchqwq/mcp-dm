@@ -1,6 +1,69 @@
 # Native MVP continuation handoff
 
-## Current continuation: GUI rectangle identity and Fourier attribution
+## Current continuation: GUI line to native one-dimensional profile
+
+The native catalog now has eighteen entries, adding `dm_native_profile` and
+ROIS version 2 line geometry. `native_line_profile` has limited synthetic
+prepared-host qualification and profile admission is enabled. The final
+qualified artifact also passed its own fresh-host confirmation, with loaded
+module identity matched to this source build and a strict independent baseline
+before any MCP submission. This is separate evidence, not inherited from the
+prepared artifact. Existing rectangle qualification is separate.
+
+The narrow operation binds image/document/display/ROI plus the caller's saved
+ordered endpoints and width. It admits ordinary float32/uint32 2D sources up to
+4,194,304 pixels, width one, nonzero horizontal/vertical integer-centre lines,
+complete matching units and equal nonzero signed spatial scales. Both endpoints
+are included; reversed direction is preserved. Known retained Fourier/unresolved
+scientific lineage is refused. DM performs the extraction, yielding a true 1D
+float64 image and frozen float64 response bytes, at most 4096 samples. Native
+signed output calibration and nontrivial copied intensity calibration remain
+explicit; intensity calibration is not applied. See
+[line/profile contract and handoff](../../../docs/NATIVE_LINE_PROFILE.md).
+
+The successful prepared session independently passed raw values, strict Node
+MCP, original-ID QUERY, exact 1D NPY reopening and unchanged complete synthetic
+sources, names, calibrations, GUI objects and document inventory. Explicit
+RELEASE followed by a separate host-idle observation invalidated the released
+outputs; the pre-saved original STOP and its actual PID/worker identity were
+verified and remaining hidden outputs became invalid. Cleanup returned to idle
+before independently checking fixture destruction; normal exit and manifest
+removal completed. Existing 2D READ/SHOW and other 2D tools still refuse 1D
+outputs. Result tokens, original-ID recovery and frozen records remain shared.
+
+The final qualified session independently repeated horizontal, vertical,
+reversed and boundary cases across the fixed float32/nonlinear/high-uint32/
+negative-scale controls. Actual native rank-one float64 values, full source
+pixels/names/calibrations/GUI/document inventory, frozen QUERY and exact 1D NPY
+all matched. Wrong document, changed expected line, anisotropic input and 1D
+SHOW/READ were refused without growing the result pool. Explicit release changed
+fresh availability while leaving original QUERY unchanged; separate idle-host
+checks found released outputs invalid. The original STOP invalidated remaining
+hidden outputs and preserved sources. Fixture cleanup, independent idle checks,
+normal exit and manifest-owned removal passed. All saved profiles reopened
+independently after host exit. GUI test lines were API-created synthetic
+fixtures; this does not prove a model saw or manually selected them.
+
+Preserve both failed attempts: fractional fixture endpoints already differed
+in the first ROIS snapshot, before PROFILE; the exact host update cause remains
+unqualified, and the original inventory oracle correctly failed;
+a new integer-only fixture in a fresh session passed an independent post-idle
+baseline before any MCP submission. Later, the STOP oracle wrongly required
+positive host execution TID for worker-acknowledged STOP. Its FAIL remains;
+the corrected rule requires NB2 `exec_tid:0`, the original worker, original
+request/PID and `ipc_stopped:true`, with independent negative tests. No source,
+geometry, numerical tolerance or NPY check was relaxed. Chinese names, diagonal,
+fractional/wide lines, anisotropic profiles, real experimental inputs and model
+clients are not qualified by this synthetic trial.
+
+Executed engineering regression for this continuation: Node 180 passed with no
+skips; full Python 582 methods passed before the later baseline/STOP oracle
+refinements, whose targeted suite then passed 10 methods. All 12 final C++ test
+executables passed; these are this build's results. A defensive zero-output-ID
+validation gap found in review was closed before the final Node run. Default
+v0.6 and exact ABI gates are unchanged; no native runtime fallback was used.
+
+## Earlier continuation: GUI rectangle identity and Fourier attribution
 
 PR #6's region identity repair is already integrated on main. This continuation
 does not redevelop export isolation, result release or chunked handoff. Its

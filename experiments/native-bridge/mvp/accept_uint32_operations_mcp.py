@@ -28,15 +28,19 @@ LEDGER_NAME = "uint32-operations-requests.jsonl"
 RECOVERY_LEDGER_NAME = "uint32-operations-recovery-requests.jsonl"
 FOURIER = {"FFT", "IFFT", "REAL", "IMAG", "VENDOR_ARG", "VENDOR_NORM"}
 # A saved report describes its historical catalog, not the current Node child.
-# Only these two exact known sets are admitted; live connections below still
+# Only these exact known sets are admitted; live connections below still
 # require the current CATALOG. No receipt/argument/qualification is rewritten.
-LEGACY_PRE_ROIS_CATALOG = CATALOG - {"dm_native_rois"}
+LEGACY_PRE_ROIS_CATALOG = {"dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary",
+    "dm_native_result", "dm_crop", "dm_native_show", "dm_native_unary", "dm_native_binary",
+    "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read",
+    "dm_native_result_info", "dm_native_release"}
+LEGACY_ROIS_CATALOG = LEGACY_PRE_ROIS_CATALOG | {"dm_native_rois"}
 
 
 def valid_saved_catalog(value):
     return (type(value) is list and all(type(name) is str for name in value)
             and len(value) == len(set(value))
-            and set(value) in (LEGACY_PRE_ROIS_CATALOG, CATALOG))
+            and set(value) in (LEGACY_PRE_ROIS_CATALOG, LEGACY_ROIS_CATALOG, CATALOG))
 
 
 def new_json(filename, value):

@@ -29,6 +29,35 @@ manifest-owned removal and unchanged uint32/float32 NPY reopening afterwards.
 Its four additional operation groups do not admit another GMS build or expand
 the underlying five-module fingerprint gate.
 
+The line/profile continuation adds `native_line_profile` and ROIS version 2
+under this same exact adapter. The catalog now has eighteen entries. Limited
+prepared synthetic-host acceptance passed explicit GUI line identity, true 1D
+float64 extraction/NPY, unchanged source/GUI/documents, original-ID recovery,
+RELEASE/STOP after-idle invalidation and normal exit/removal. Profile admission
+is enabled for that narrow scope. The final qualified artifact independently
+passed a fresh session with loaded identity matched to the source build,
+post-idle baseline before MCP, directional/boundary controls, exact 1D values,
+NPY and source/GUI invariance. Original release/STOP, idle-reference invalidity,
+normal exit/removal and post-exit reopening passed. This is the artifact's own
+evidence; earlier rectangle or uint32 qualification does not substitute for it.
+These remain API-created synthetic GUI fixtures, not experimental data or
+ordinary model-client acceptance.
+
+Admission requires width one, nonzero integer horizontal/vertical pixel-centre
+endpoints, complete equal signed scales/units, ordinary float32/uint32 2D direct
+source and at most 4096 samples. Both ordered endpoints are included; output is
+native rank-one float64 with its actual signed axis and copied, unapplied
+intensity calibration. Known retained Fourier/unresolved lineage is refused.
+Frozen response bytes can be explicitly encoded to true 1D NPY; this does not
+extend 2D READ/SHOW or add a general spectrum/histogram pipeline. See
+[the full profile contract](../../../docs/NATIVE_LINE_PROFILE.md).
+
+Failed fractional-fixture geometry and STOP-oracle assumptions remain preserved.
+The successful session first passed an independent integer-fixture baseline
+after host idle. STOP is worker-acknowledged with `exec_tid:0`, not a scientific
+host callback; the original worker, request, PID and `ipc_stopped:true` remain
+mandatory. No fingerprint or numerical/source check was relaxed.
+
 This is a multi-version **selection architecture**, not a claim of multi-version
 GMS support. Synthetic version tests do not qualify another GMS build. The new
 selection integration itself must be distinguished from historical host passes.
@@ -77,7 +106,7 @@ export name nor a synthetic call marks a scientific operation qualified.
 
 Capability names include `native_statistics`, `native_crop`, `native_display`,
 `native_image_arithmetic`, `native_fft`, `native_filters`, `native_preview`,
-`native_read` and `native_save`. Each profile declares qualification, scope and
+`native_read`, `native_gui_rois`, `native_line_profile` and `native_save`. Each profile declares qualification, scope and
 required symbols or entry contracts. The five added groups are now qualified
 for the bounded scope below; status reports `LIMITED_REAL_HOST` only when their
 complete required bindings are available. This is a profile declaration backed

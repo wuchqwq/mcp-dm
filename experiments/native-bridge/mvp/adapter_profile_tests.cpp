@@ -61,7 +61,7 @@ int main() {
         check(selected.available("native_statistics") && selected.available("native_crop"));
         check(selected.available("native_display") && selected.available("native_datasets"));
         for (const auto* name : {"native_mean", "native_statistics", "native_crop", "native_display", "native_datasets",
-                                 "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read",
+                                 "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_line_profile",
                                  "native_uint32_mean", "native_uint32_statistics", "native_uint32_crop", "native_uint32_preview", "native_uint32_read",
                                  "native_uint32_display", "native_uint32_image_arithmetic", "native_uint32_filters", "native_uint32_fft"})
             check(selected.available(name));
@@ -69,7 +69,7 @@ int main() {
             check(!selected.available(name)); attempt(selected, name); check(vendor_calls == 0);
         }
         // Complete addresses cannot qualify a deliberately unqualified group.
-        for (const auto* name : {"native_gui_rois", "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read",
+        for (const auto* name : {"native_gui_rois", "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_line_profile",
                                  "native_uint32_mean", "native_uint32_statistics", "native_uint32_crop", "native_uint32_preview", "native_uint32_read",
                                  "native_uint32_display", "native_uint32_image_arithmetic", "native_uint32_filters", "native_uint32_fft"}) {
             auto unqualified = nb::gms353::profile();
@@ -108,6 +108,28 @@ int main() {
                 check(blocked.safe() && !blocked.available("native_gui_rois"));
                 check(blocked.available("native_datasets") && blocked.available("native_statistics") && blocked.available("native_crop"));
                 attempt(blocked, "native_gui_rois"); check(vendor_calls == 0);
+            }
+        }
+        auto synthetic_line = nb::gms353::profile();
+        for (auto& cap : synthetic_line.capabilities) if (std::string(cap.name)=="native_line_profile") cap.qualified=true;
+        check(nb::select_adapter(good,{&synthetic_line}).available("native_line_profile"));
+        for (const auto& cap : synthetic_line.capabilities) if (std::string(cap.name)=="native_line_profile") {
+            for (const auto* entry : cap.entry_contracts) {
+                auto missing=good;missing.valid_entry_contracts.erase(entry);
+                const auto blocked=nb::select_adapter(missing,{&synthetic_line});
+                check(blocked.safe() && !blocked.available("native_line_profile"));
+                check(blocked.available("native_datasets") && blocked.available("native_statistics"));
+                for (const auto& other : synthetic_line.capabilities) if(other.qualified) {
+                    bool depends=false;for(const auto* dependency:other.entry_contracts)if(std::string(dependency)==entry)depends=true;
+                    check(blocked.available(other.name)==!depends);
+                }
+                attempt(blocked,"native_line_profile");check(vendor_calls==0);
+            }
+            for(const auto& dependency:cap.symbols) {
+                auto missing=good;for(auto& module:missing.modules)if(module.name==dependency.module)module.symbols.erase(dependency.name);
+                const auto blocked=nb::select_adapter(missing,{&synthetic_line});
+                check(blocked.safe() && !blocked.available("native_line_profile"));
+                attempt(blocked,"native_line_profile");check(vendor_calls==0);
             }
         }
         for (std::size_t i = 0; i < good.modules.size(); ++i) {
