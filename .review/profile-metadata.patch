@@ -1,0 +1,78 @@
+diff --git a/docs/NATIVE_LINE_PROFILE.md b/docs/NATIVE_LINE_PROFILE.md
+index 8419671..fcb9827 100644
+--- a/docs/NATIVE_LINE_PROFILE.md
++++ b/docs/NATIVE_LINE_PROFILE.md
+@@ -89,6 +89,13 @@ retention token. Release drops only the plugin reference. The original PROFILE
+ receipt remains unchanged. Existing native READ/SHOW/MEAN/crop/FFT/filter tools
+ keep their own 2D admission; this task does not qualify them for 1D data.
+ 
++DATASETS preserves the qualified one-dimensional float64 descriptor while the
++exact PROFILE-created object is still held by this plugin. Enumeration does not
++read its sample values or enable any 2D operator. Arbitrary/untracked code-12
++images keep their previous unknown-type treatment; matching a numeric ID alone
++is not enough. This descriptor-only follow-up has offline regression coverage;
++it is not a new live-host qualification or 1D display capability.
++
+ ## Independent acceptance
+ 
+ Use a new empty idle test session and
+ diff --git a/experiments/native-bridge/mvp/adapters/gms_3_53_4137/implementation.inc b/experiments/native-bridge/mvp/adapters/gms_3_53_4137/implementation.inc
+index 0b8b792..7570167 100644
+--- a/experiments/native-bridge/mvp/adapters/gms_3_53_4137/implementation.inc
++++ b/experiments/native-bridge/mvp/adapters/gms_3_53_4137/implementation.inc
+@@ -1027,7 +1027,13 @@ static std::string execute_operation(const NativeRequest& request) {
+             auto id = api.id(image.value.image);
+             if (!ids.insert(id).second) throw std::runtime_error("dataset_enumeration_changed");
+             if (i) s << ',';
+-            s << metadata(image.value.image, false);
++            // PROFILE already qualified this exact owned object as rank-one
++            // float64. Preserve that descriptor when the Agent lists results;
++            // an arbitrary code-12 image or a reused ID is not that evidence.
++            const auto owned = retained_results.find(id);
++            const bool owned_profile = owned != retained_results.end() &&
++                owned->second.operation == "PROFILE" && owned->second.value.image == image.value.image;
++            s << metadata(image.value.image, false, owned_profile);
+             require_ready();
+         }
+         require_ready();
+diff --git a/experiments/native-bridge/mvp/line_profile_adapter_tests.cpp b/experiments/native-bridge/mvp/line_profile_adapter_tests.cpp
+index 57ac3b4..128a471 100644
+--- a/experiments/native-bridge/mvp/line_profile_adapter_tests.cpp
++++ b/experiments/native-bridge/mvp/line_profile_adapter_tests.cpp
+@@ -78,6 +78,36 @@ int main(int argc,char** argv) {
+             check(rois.good());
+         }
+         const auto id=retained_results.begin()->first,token=retained_results.begin()->second.retention_token;
++        // Re-enumerating an owned profile must not lose its already qualified
++        // rank/type while leaving every 2D processing gate closed.
++        auto* profile_image=registry.at(id);
++        const auto pixels_read_before_listing=profile_value_calls353;
++        const auto references_before_listing=profile_image->references;
++        const auto expected_profile_metadata=metadata(profile_image,false,true);
++        const auto listed=execute_native({"list-profile","DATASETS",{}});
++        const bool complete_profile_metadata=listed.find(expected_profile_metadata)!=std::string::npos;
++        if(!complete_profile_metadata)std::cerr<<"REGRESSION: DATASETS lost owned PROFILE float64 metadata\n";
++        check(complete_profile_metadata);
++        check(expected_profile_metadata.find("\"dtype\":\"float64\"")!=std::string::npos);
++        check(expected_profile_metadata.find("\"native_mean_supported\":false")!=std::string::npos);
++        check(expected_profile_metadata.find("\"native_summary_supported\":false")!=std::string::npos);
++        check(profile_value_calls353==pixels_read_before_listing && profile_image->references==references_before_listing);
++        // A foreign rank-one code-12 image has no qualified creator identity.
++        FakeImage foreign;foreign.id=900;foreign.dimensions=1;foreign.code=12;
++        registry.emplace(foreign.id,&foreign);
++        const auto foreign_metadata=metadata(&foreign,false);
++        check(foreign_metadata.find("\"dtype\":null")!=std::string::npos);
++        check(execute_native({"list-foreign-profile","DATASETS",{}}).find(foreign_metadata)!=std::string::npos);
++        check(foreign.references==1);registry.erase(foreign.id);
++        // A reused numeric ID alone must not borrow another object's metadata.
++        auto& retained=retained_results.at(id);
++        const auto original_pointer=retained.value.image;
++        retained.value.image=&foreign;
++        const auto unmatched_metadata=metadata(profile_image,false);
++        check(unmatched_metadata.find("\"dtype\":null")!=std::string::npos);
++        check(execute_native({"list-profile-pointer-mismatch","DATASETS",{}}).find(unmatched_metadata)!=std::string::npos);
++        retained.value.image=original_pointer;
++        check(profile_value_calls353==pixels_read_before_listing && profile_image->references==references_before_listing);
+         const auto before_docs=document_calls;
+         try{execute_native({"show-profile","SHOW",{id}});check(false);}catch(const std::runtime_error& e){check(std::string(e.what())=="native_show_requires_qualified_2d_result");}
+         check(document_calls==before_docs);
