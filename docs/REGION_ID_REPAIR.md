@@ -50,3 +50,17 @@ DM, load vendor DLLs or claim a new actual-GMS qualification. The previously
 reported ADF inverse-transform accuracy failure remains a failure; no numerical
 threshold was relaxed. GUI ROI, profile/histogram and workspace activation
 remain the next native-interface work, not features supplied by this fix.
+
+## Subsequent targeted actual-host check
+
+A later prepared synthetic GMS session exercised the merged repair through the
+real Node handoff runner and native pipe: float32 (including signed zero) and
+high-bit uint32 inputs, distinct workspaces with the same user label, then
+intentional edits to only those synthetic inputs between completed captures.
+The second captures had fresh capture/wire identities and the new exact bytes.
+Completed reuse in the original workspace returned its saved package with a
+transport guard that rejects any live call. Four outputs independently reopened
+with exact values, dtype, axes and signed calibration. Saved files remained
+usable after the original saved-ID STOP and normal host exit; manifest-owned
+cleanup completed. This is a targeted follow-up, not a rewrite of the original
+review's offline-only scope or a new GUI ROI qualification.

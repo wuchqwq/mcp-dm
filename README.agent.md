@@ -27,10 +27,10 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 | Backend | Scope in this checkout | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Sixteen tools, including qualified bounded native operations, preview, READ and visible-document delivery; see the native workflow | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
+| Opt-in native | Seventeen catalog entries in this feature checkout; `dm_native_rois` has limited synthetic-host qualification for direct-image rectangle identity. Existing bounded native operations, preview, READ and document delivery retain their own scope. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
-The integrated native catalog has sixteen
+This feature checkout's native catalog has seventeen
 tools, including qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect
@@ -39,6 +39,20 @@ is selected before ABI calls; other builds remain unsupported. Inspect
 native crop/processing → numeric READ → explicit NPY handoff → external example.
 The new [lifecycle/chunked handoff guide](docs/NATIVE_LIFECYCLE_HANDOFF.md) covers exact retention tokens, `dm_native_result_info`/`dm_native_release`, pre-saved IDs, a fixed complete-region export command, original source-creation parameters, and the independent file verifier. Its multi-READ mode is separate from the older optional single-READ mean example.
 The integration remains experimental and is not a stable native release.
+
+The new read-only `dm_native_rois` links an explicit image ID to document/display
+and rectangle ROI identities; inspect `native_gui_rois` before using it. Its
+corrected direct-image source-layout/mapping has limited synthetic real-host
+qualification, including a separate qualified-artifact session and final-reference
+confirmation.
+Never choose the latest window or round an ineligible
+rectangle. `slice_ids` identifies slices, not axes; only the verified direct
+canonical-XY image source and admitted normalized mapping qualify. See
+[GUI ROI identity and coordinates](docs/NATIVE_GUI_ROI.md).
+Reference release was verified after the one-shot returned to an idle host;
+the earlier immediate same-stack destruction assertion failed and is preserved.
+Do not turn a completed QUERY or a local wrapper release into a promise that
+all document-held or stack-held objects have already been destroyed.
 
 The initial uint32 subset covers ordinary-packed 2D metadata, raw mean/SUMMARY,
 same-dtype crop, preview and READ. Mean/SUMMARY stop at 2,097,152 pixels; uint32
@@ -60,7 +74,7 @@ Other integer types, native 4D and model-client acceptance remain outside this e
 
 New complete-region exports persist a per-capture request namespace before dispatch. Resume only the original journal in its original workspace; incomplete legacy unscoped journals are refused, never migrated or replayed. Completed old packages remain offline evidence, not newly verified source reads.
 
-Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. MCP SHOW/QUERY adds `display_context` with active-workspace visibility explicitly unknown; this does not probe or activate a workspace. GUI ROI, profile/histogram and native workspace enumeration/activation remain unqualified; see the lifecycle guide for the specific ABI gaps.
+Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. MCP SHOW/QUERY adds `display_context` with active-workspace visibility explicitly unknown; this does not probe or activate a workspace. GUI rectangle ROI is the separately gated work above; profile/histogram and native workspace enumeration/activation remain unqualified. [Fourier precision attribution](docs/NATIVE_FFT_PRECISION.md) distinguishes direct DM agreement from a retained numerical accuracy FAIL; it does not promise lossless integer round trips.
 
 Native main targets Windows x64 GMS 3.53.4137.0 with exact binary gates. Do not relax a fingerprint check or reuse an unqualified ABI for another build. A missing optional feature is not an instruction to enable arbitrary scripts.
 

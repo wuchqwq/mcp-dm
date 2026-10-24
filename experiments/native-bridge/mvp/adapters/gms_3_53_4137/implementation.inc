@@ -8,6 +8,7 @@
 #include "fft_contract.hpp"
 #include "preview_contract.hpp"
 #include "read_contract.hpp"
+#include "roi_contract.hpp"
 #include "adapters/gms_3_53_4137/profile.hpp"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -841,6 +842,7 @@ std::string execute_arithmetic(const NativeRequest& request) {
 #include "filter_adapter.inc"
 #include "preview_adapter.inc"
 #include "read_adapter.inc"
+#include "roi_adapter.inc"
 #include "result_release.inc"
 } // namespace
 
@@ -920,6 +922,7 @@ void initialize_native() {
             api.get_document = nullptr; api.show_document = nullptr;
             api.destroy_document_holder = nullptr; api.destroy_window = nullptr;
         }
+        initialize_roi353(gms);
         gate_error.clear();
     } catch (const std::exception& error) { gate_error = error.what(); }
 }
@@ -982,12 +985,14 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("filter_small_uint32_2d", available("native_uint32_filters", filters));
         capability("fourier_uint32_small_2d", available("native_uint32_fft", fourier));
         capability("release_plugin_result_reference", available("native_result_release", true));
+        capability("read_gui_rectangle_rois", available("native_gui_rois", roi_api353.ready() && api.packing));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
           << ",\"build_error\":" << (fatal_abi ? "\"native_abi_invalid_output_path_disabled\"" : gate_error.empty() ? "null" : nb::quote(gate_error)) << '}';
         return s.str();
     }
     require_ready();
+    if (request.op == "ROIS") return execute_rois353(request);
     if (request.op == "UNARY" || request.op == "BINARY" || request.op == "FILTER" || request.op == "PREVIEW" || request.op == "READ" || nb::is_fft_operation353(request.op)) {
         const char* group = request.op == "UNARY" || request.op == "BINARY" ? "native_image_arithmetic" :
             request.op == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
@@ -1140,6 +1145,7 @@ void shutdown_native() {
     released_results353.clear();
     released_image_ids353.clear();
     api = Api{};
+    roi_api353 = RoiApi353{};
     gate_error = "native_adapter_stopped";
 }
 bool nb353_ready() { return gate_error.empty() && !fatal_abi; }
@@ -1147,6 +1153,10 @@ std::string nb353_error() {
     return fatal_abi ? "native_abi_invalid_output_path_disabled" : gate_error;
 }
 void nb353_observe_entries(nb::HostObservation& host) {
+    if (roi_api353.ready()) {
+        for (const auto& entry : nb::gms353::profile().entries)
+            if (std::string(entry.key).find("roi_") == 0) host.valid_entry_contracts.insert(entry.key);
+    }
     if (api.get_document) host.valid_entry_contracts.insert("image_get_or_create_document");
     if (api.show_document) host.valid_entry_contracts.insert("image_document_show");
     if (api.destroy_document_holder) host.valid_entry_contracts.insert("destroy_document_holder");

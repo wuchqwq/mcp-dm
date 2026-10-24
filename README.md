@@ -103,3 +103,5 @@ Node 服务没有 npm 运行依赖。随后按 [MCP 配置示例](mcp.json.examp
 项目代码采用 [MIT License](LICENSE)。DigitalMicrograph/GMS、Gatan 运行时、厂商文档和实验数据不随仓库分发；本项目不是 Gatan 官方产品。
 
 当前分支新增[中间结果释放与完整区域数值交接](docs/NATIVE_LIFECYCLE_HANDOFF.md)，继续保留实验后端的类型、尺寸和版本限制。SHOW 回执不保证当前工作区可见；原生工作区切换尚未接通。
+
+实验原生后端支持[读取明确图像的 GUI 矩形选区并接续分析](docs/NATIVE_GUI_ROI.md)，已完成限定合成实机核对；线剖面与直方图尚未接通。

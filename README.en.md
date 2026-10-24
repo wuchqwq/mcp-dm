@@ -103,3 +103,5 @@ Project code is licensed under the [MIT License](LICENSE). DigitalMicrograph/GMS
 Native Fourier metadata: [scientific handoff and validation scope](docs/SCIENTIFIC_HANDOFF.md).
 
 This checkout adds [explicit result release and complete bounded numerical handoff](docs/NATIVE_LIFECYCLE_HANDOFF.md), retaining the experimental build/type/size limits. SHOW does not guarantee active-workspace visibility; native workspace activation is not implemented.
+
+The experimental native backend can [read an explicitly identified image’s GUI rectangle and continue processing](docs/NATIVE_GUI_ROI.md), with bounded synthetic real-host validation. Native line profiles and histograms remain unsupported.

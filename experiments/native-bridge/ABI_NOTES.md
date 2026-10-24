@@ -414,15 +414,68 @@ tool/ID/parameter ledger. See [SUMMARY acceptance](mvp/SUMMARY_ACCEPTANCE.md).
 
 ## Minimum runtime verification order
 
-### Current GUI and workspace boundary
+### GUI rectangle continuation: typed read-only ownership, limited qualification
+
+The feature adapter now has an independently gated `native_gui_rois` group;
+the corrected direct-source-layout/mapping now has limited prepared synthetic
+actual-host qualification and profile admission is enabled. Independent session
+confirmation for the newly built qualified artifact also passed in a separate
+session with exact loaded identity, independent source/ROI and final references. Its
+fixed-build layouts and entrypoints live only in
+`mvp/adapters/gms_3_53_4137/roi_contract.hpp`, `roi_adapter.inc` and the version
+profile, not in common transport or Node. Existing module fingerprints remain
+mandatory and unknown versions are refused before this optional vendor path.
+
+Display enumeration uses the explicit image reference. An owned display-holder
+keeps its document/component context alive while the resolved display pointer
+is borrowed. Reverse image lookup returns an independently guarded reference
+which must match both the original pointer and image ID. Each acquired ROI uses
+the traced owning getter/destructor contract. IDs are composed from image,
+document, display component and ROI; they are not global ROI names or addresses.
+No document, source pixels or selection is created or modified by ROIS.
+
+Raster type and relevant vtable entries are checked before their typed getters.
+Direct getters retain errors instead of inheriting SF wrappers' exception-to-zero
+behavior. The selected-ID getter returns slice IDs, not dimensions or an axis
+permutation. Static tracing closes the direct source contract through the exact
+ImageSource_Simple class, typed identity equal to the requested GMS image, and
+its native GetSize path's canonical XY order. That path does not reorder axes;
+an axis getter is not used. Only this direct source layout, slice_ids:[0] and
+exact binary32 reciprocal normalization establish source-pixel alignment, not
+a guessed identity mapping or GUI zoom. Sliced/Group/Summed and other sources
+are unsupported. Raster replies preserve slice_ids and source_layout; unsupported
+displays report null for both rather than inventing a direct layout.
+Raw top/left/bottom/right values and rotation are preserved; only integral,
+finite, nonempty, in-bounds unrotated rectangles become half-open analysis ROIs.
+Repeated reads detect changes but do not provide an atomic GUI/source lock.
+See [the complete contract and bounded evidence](../../docs/NATIVE_GUI_ROI.md).
+
+Initial actual-host discovery confirmed raw identity/geometry but failed
+analysis eligibility under the old mapping assumption. A later observation
+also retained eligibility FAIL when slice IDs were misinterpreted as axes. The
+source/size ABI gap is now statically closed. Neither failed observation
+qualified the corrected implementation; its later prepared actual-host test did
+so independently. Explicit native ROI/crop/READ and multiblock handoff matched
+independent same-PID source/selection/calibration observations. Static reference
+accounting is balanced. The immediate same-stack source-destruction assertion
+after fixture cleanup failed and is preserved; a separate later idle-host
+observation found fixtures invalid and documents restored without extra native
+calls. This proves the bounded after-return lifecycle, not synchronous
+destruction of Python/document-held references on the current stack.
+Native line getters and LiveProfile are
+separate candidates, still lacking their own complete qualification and bounded
+1D numerical/calibration/handoff path; no profile/histogram tool is added.
+
+### Earlier GUI and workspace boundary
 
 The new RELEASE path uses the already qualified image-reference release ABI;
 its bridge token identifies a retained result in this session, not a vendor
 pointer or reusable host image ID. No new vendor entrypoint or module pin was
 introduced. Historical creation replies remain immutable after release.
 
-GUI ROI, profile, histogram, workspace activation and annotations remain
-unqualified. Reviewed ImageUtilities candidates use `Gatan::DM::Image`, ROI,
+The earlier investigation left GUI ROI, profile, histogram, workspace activation
+and annotations unqualified; the gated rectangle continuation is described
+above. Reviewed ImageUtilities candidates use `Gatan::DM::Image`, ROI,
 ImageDisplay/ScriptObject or utility-object layouts, not the adapter's existing
 `GMS::Image` reference contract. The histogram candidate additionally needs a
 proven typed 1D destination constructor, calibration/bin semantics and lifetime.

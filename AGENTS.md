@@ -54,10 +54,32 @@ before per-operator ABI, scientific and ownership qualification.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has sixteen tools: dm_status,
+The separate experimental native catalog has seventeen entries: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
-dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info and dm_native_release.
+dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info, dm_native_release and dm_native_rois.
+The corrected ROIS direct-source-layout/mapping has limited synthetic real-host
+qualification and its profile admission is enabled. The final qualified artifact
+also passed its separate actual-host source/ROI and final-reference checks. A catalog entry is not capability
+admission. Preserve explicit image/document/display/ROI identity, raw rectangle
+edges and diagnostics. `slice_ids` is not an axis list. Only exact
+ImageSource_Simple class/typed image identity plus its direct canonical-XY size
+contract, slice_ids:[0] and exact native binary32 reciprocal mapping admit
+source-pixel-aligned integer rectangles. Do not infer axes from slice IDs or
+call an axis getter to justify this direct-image layout; Sliced/Group/Summed
+and other source classes remain ineligible.
+Never round, clip, infer the latest window, use a Python/GUI runtime fallback or
+turn getter failure into an empty selection. Same-ID QUERY is historical; a new
+ID refreshes the GUI snapshot. See docs/NATIVE_GUI_ROI.md. Line/profile/histogram
+and 1D scientific handoff remain separately unqualified.
+The prepared ROI host passed explicit-ID GUI rectangle to native crop/mean/READ
+and multiblock handoff with independent source/selection/calibration checks.
+Preserve earlier mapping and slice-ID eligibility FAILs. Immediate same-stack
+fixture destruction after document closure/reference removal also failed; a
+later independent idle-host observation passed without further native calls.
+Reference lifetime qualification is after host return/idle, not synchronous
+destruction inside the same Python stack. Keep that FAIL separate from the
+passing STOP/source-protection and later cleanup observations.
 SUMMARY calls DM's built-in GetMinimum/GetMaximum/GetSum/GetMean directly;
 it is not full dm_stats and does not perform preview or file saving. Its
 scope is float32 2D up to 4,194,304 pixels, or ordinary uint32 2D up to
@@ -290,7 +312,7 @@ Use an external development venv with `requirements-dev.txt` for tifffile and `r
 
 Optional worker contracts: profile sampled_coordinates are source coordinates; sampled_coordinates_local and its calibration are capture-relative. Report intensity is raw, not calibrated by a unit label alone. Verification failure/unresolved state must exit nonzero. Preview allocations must be bounded before source scans/display allocation; full-frame floating/RGB intermediates are prohibited. No automatic Skill installation or overwriting user settings.
 
-Manual synthetic workspace switching was separately observed: explicit native image IDs remain stable across tabs; DATASETS is registry-wide. SHOW can reuse a document in an inactive workspace without activating it. A SHOW receipt is not proof of active-tab visibility or model viewing. Native workspace enumeration/activation, GUI ROI, profile/histogram and annotations remain unqualified; do not expose candidates or use UI automation/Python as their runtime fallback. A read-only authorized ADF ROI trial preserved original memory/file data and exact exports, but its inverse round trip failed the predeclared accuracy tolerance. Preserve that FAIL separately from passing operations and cleanup; do not claim lossless integer Fourier round trips or general real-data qualification.
+Manual synthetic workspace switching was separately observed: explicit native image IDs remain stable across tabs; DATASETS is registry-wide. SHOW can reuse a document in an inactive workspace without activating it. A SHOW receipt is not proof of active-tab visibility or model viewing. Native workspace enumeration/activation, line/profile/histogram and annotations remain unqualified; the gated rectangle ROI continuation is described above. Do not expose remaining candidates or use UI automation/Python as their runtime fallback. A read-only authorized ADF ROI trial preserved original memory/file data and exact exports, but its inverse round trip failed the predeclared accuracy tolerance. A saved-input equivalent copy reproduced the historical transforms with bitwise direct-DM/MCP agreement; that is not a fresh original-file check. Preserve the numerical FAIL separately from conversion/path-equivalence and cleanup PASS; see docs/NATIVE_FFT_PRECISION.md. Do not claim lossless integer Fourier round trips or general real-data qualification.
 
 Complete-region export requests must be isolated by a random, durably recorded
 capture instance, not just the user-facing export name or mutable source ID.

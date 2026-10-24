@@ -9,14 +9,15 @@ import {fileURLToPath} from "node:url";
 import {inflateSync} from "node:zlib";
 import {NativeBridge} from "../lib/native_bridge.mjs";
 import {operationFixture, readFixture, imageMetadata, uint32BinaryFixture, uint32OperationFixture} from "./fixtures/native-operations.mjs";
+import {guiRoisFixture} from './fixtures/native-rois.mjs';
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const resultTypes = {STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop", RELEASE: "native_result_release", RESULT_INFO: "native_result_availability"};
+const resultTypes = {STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop", RELEASE: "native_result_release", RESULT_INFO: "native_result_availability", ROIS: "native_gui_rois"};
 Object.assign(resultTypes, {UNARY: "native_image_operation", BINARY: "native_image_operation", FILTER: "native_image_operation", PREVIEW: "native_preview", READ: "native_data_snapshot",
   FFT: "native_fourier_operation", IFFT: "native_fourier_operation", REAL: "native_fourier_operation", IMAG: "native_fourier_operation", VENDOR_ARG: "native_fourier_operation", VENDOR_NORM: "native_fourier_operation"});
 const nativeCatalog = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
-  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release"];
+  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois"];
 
 // Contract emulation only: no DM process/vendor computation is used here.
 function summaryFixture(imageId = 77) {
@@ -93,7 +94,7 @@ test("existing native MCP tools carry uint32 statistics/crop/preview/READ withou
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 16);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 17);
     const calls = [["dm_native_mean", {}], ["dm_native_summary", {}], ["dm_crop", {rect}],
       ["dm_native_preview", {max_width: 2, max_height: 2}], ["dm_native_read", {rect}]];
     for (let index = 0; index < calls.length; ++index) {
@@ -124,7 +125,7 @@ test("typed uint32 binary and described SHOW preserve actual output metadata thr
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 16);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 17);
     const result = toolOutput(await client.tool("dm_native_binary", {left_image_id: 77, right_image_id: 78, operation: "add", request_id: "candidate-binary"}));
     assert.equal(result.image.dtype, "float32"); assert.deepEqual(result.sources.map(source => source.dtype), ["uint32", "uint32"]);
     assert.match(result.dtype_semantics.precision, /not lossless/);
@@ -147,7 +148,7 @@ test("MCP maps uint32 unary/filter/forward FFT enums to their actual native resu
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 16);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 17);
     const calls = [["dm_native_unary", {operation: "negate"}, "float32"], ["dm_native_unary", {operation: "abs"}, "float32"],
       ["dm_native_unary", {operation: "square"}, "float32"], ["dm_native_filter", {operation: "smooth"}, "uint32"],
       ["dm_native_filter", {operation: "sobel"}, "float32"], ["dm_native_filter", {operation: "laplace"}, "float32"],
@@ -208,6 +209,78 @@ async function nativeHost(handler) {
   await new Promise((resolve, reject) => {server.once("error", reject); server.listen(bridge.pipePath, resolve);});
   return {session, requests, async close() {for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve));}};
 }
+
+test('readonly GUI ROI MCP requires explicit image and returns an immutable display/ROI snapshot', async () => {
+  const records = new Map(); let current = guiRoisFixture();
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.operation === 'ROIS') {
+      assert.deepEqual(request.args, ['77']);
+      if (!records.has(request.id)) records.set(request.id, structuredClone(current));
+    }
+    socket.end(JSON.stringify(reply('completed', records.get(request.id))) + '\n');
+  });
+  const client = mcpClient({DM_MCP_BACKEND: 'native', DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: 'must-never-start.exe'});
+  try {
+    const initialized = await client.init();
+    assert.match(initialized.instructions, /只读枚举明确图像/);
+    assert.match(initialized.instructions, /不自动挑选或裁剪/);
+    assert.match(initialized.instructions, /非原子执行时快照/);
+    assert.match(initialized.instructions, /旧 ID 的 QUERY 不会刷新当前选区/);
+    const catalog = (await client.rpc('tools/list')).result.tools;
+    const tool = catalog.find(entry => entry.name === 'dm_native_rois');
+    assert.deepEqual(tool.inputSchema.required, ['image_id']);
+    assert.match(tool.description, /不选择前台\/最新窗口/);
+    for (const args of [{}, {image_id: 'front'}, {image_id: '77'}, {image_id: true}, {image_id: -1},
+      {image_id: 1.5}, {image_id: 4294967296}, {image_id: 77, display_id: 9}, {image_id: 77, roi_id: 4},
+      {image_id: 77, request_id: 'bad id'}]) assert.equal((await client.tool('dm_native_rois', args)).error.code, -32602);
+    assert.equal(host.requests.length, 0, 'invalid GUI identity arguments never enter the plugin');
+    const initial = toolOutput(await client.tool('dm_native_rois', {image_id: 77, request_id: 'gui-snapshot'}));
+    assert.deepEqual(initial.displays[0].display_identity, {document_id: 31, display_id: 9});
+    assert.deepEqual(initial.displays[0].rois[0].rect, [2, 1, 10, 6]);
+    assert.equal(initial.native_receipt.original_operation, 'ROIS');
+    assert.equal(initial.native_receipt.result_type, 'native_gui_rois');
+    assert.equal(initial.native_receipt.result_version, 1);
+    current.displays[0].roi_count = 0; current.displays[0].rois = [];
+    assert.deepEqual(toolOutput(await client.tool('dm_native_result', {request_id: 'gui-snapshot'})), initial,
+      'changing GUI state does not rewrite an accepted snapshot');
+    const fresh = toolOutput(await client.tool('dm_native_rois', {image_id: 77}));
+    assert.match(fresh.native_receipt.request_id, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(fresh.displays[0].rois, []);
+    assert.equal(fresh.displays[0].roi_count, 0);
+    assert.deepEqual(host.requests.map(request => request.operation), ['ROIS', 'QUERY', 'ROIS']);
+  } finally {await client.close(); await host.close();}
+});
+
+test('GUI ROI unsupported/error and corrupt direct or recovered records never impersonate empty or whole-image success', async () => {
+  const host = await nativeHost(({socket, request, reply}) => {
+    if (request.id === 'not-qualified') return socket.end(JSON.stringify(reply('failed', undefined,
+      {code: 'native_error', error: 'native_capability_unavailable:native_gui_rois'})) + '\n');
+    if (request.id === 'getter-error') return socket.end(JSON.stringify(reply('failed', undefined,
+      {code: 'native_error', error: 'native_roi_getter_failed'})) + '\n');
+    const result = guiRoisFixture();
+    if (request.id === 'wrong-image') result.image_id = 78;
+    if (request.id === 'wrong-display') result.displays[0].display_identity.document_id = 99;
+    if (request.id === 'rounded') result.displays[0].rois[0].raw_rectangle.left = 2.5;
+    if (request.id === 'fake-empty') result.displays[0].issue = 'native_getter_failed';
+    if (request.id === 'candidate') result.qualification = 'NOT_QUALIFIED';
+    socket.end(JSON.stringify(reply('completed', result)) + '\n');
+  });
+  const client = mcpClient({DM_MCP_BACKEND: 'native', DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: 'must-never-start.exe'});
+  try {
+    await client.init();
+    for (const request_id of ['not-qualified', 'getter-error']) {
+      const output = toolOutput(await client.tool('dm_native_rois', {image_id: 77, request_id}), true);
+      assert.equal(output.native_receipt.state, 'failed');
+      assert.equal(Object.hasOwn(output, 'displays'), false);
+    }
+    for (const request_id of ['wrong-image', 'wrong-display', 'rounded', 'fake-empty', 'candidate']) {
+      const output = toolOutput(await client.tool('dm_native_rois', {image_id: 77, request_id}), true);
+      assert.equal(output.code, 'NATIVE_PROTOCOL'); assert.equal(Object.hasOwn(output, 'displays'), false);
+      assert.equal(toolOutput(await client.tool('dm_native_result', {request_id}), true).code, 'NATIVE_PROTOCOL');
+    }
+    assert.equal(host.requests.filter(request => request.operation === 'ROIS').length, 7, 'no fallback/replay follows failed native reads');
+  } finally {await client.close(); await host.close();}
+});
 
 test('release requires pre-saved ID and token before pipe dispatch; readonly availability preserves identity', async () => {
   const host = await nativeHost(({socket, request, reply}) => {
@@ -723,7 +796,7 @@ test("native SUMMARY exposes only four raw reductions with explicit image ID and
   try {
     const init = await client.init(); assert.match(init.instructions, /dm_native_summary/); assert.match(init.instructions, /四个原生摘要/);
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 16);
+    assert.equal(catalog.length, 17);
     const summary = catalog.find(tool => tool.name === "dm_native_summary");
     assert.deepEqual(summary.inputSchema.required, ["image_id"]);
     assert.equal(summary.inputSchema.properties.image_id.type, "integer");
@@ -840,7 +913,7 @@ test("new native tools expose finite enums and require saved side-effect IDs bef
   try {
     await client.init();
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 16); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
+    assert.equal(catalog.length, 17); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
     for (const name of nativeCatalog.slice(7, 12)) assert.ok(catalog.find(tool => tool.name === name).inputSchema.required.includes("request_id"));
     const preview = catalog.find(tool => tool.name === "dm_native_preview");
     assert.deepEqual(preview.inputSchema.required, ["image_id"]);
@@ -1003,7 +1076,7 @@ test("native READ requires explicit bounded half-open ROI and rejects paths or i
   try {
     await client.init();
     const catalog = (await client.rpc("tools/list")).result.tools, read = catalog.find(tool => tool.name === "dm_native_read");
-    assert.equal(catalog.length, 16); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
+    assert.equal(catalog.length, 17); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
     assert.match(read.description, /16384/); assert.match(read.description, /不生成图片.*不保存文件/);
     for (const args of [{}, {image_id: 77}, {rect: [0, 0, 1, 1]}, {image_id: "front", rect: [0, 0, 1, 1]},
       {image_id: "77", rect: [0, 0, 1, 1]}, {image_id: -1, rect: [0, 0, 1, 1]}, {image_id: 77, rect: []},

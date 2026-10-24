@@ -1,11 +1,48 @@
 # Native bridge validation matrix
 
-## Current work branch: lifecycle, numerical handoff and workspace checks
+## Current continuation: GUI ROI qualification and independent Fourier control
+
+The feature checkout adds a seventeenth catalog entry, `dm_native_rois`. Its
+corrected direct-source-layout/mapping passed limited synthetic actual-host
+qualification and the profile now admits that narrow scope. A separately built
+qualified artifact's independent session and final-reference checks also passed.
+See [the ROI contract](../../docs/NATIVE_GUI_ROI.md).
+
+| Scope | Result |
+|---|---|
+| Existing PR #6 region identity repair: fresh synthetic exports across workspaces/reused user labels after an intentional synthetic edit, exact NPY/calibration and completed reuse without new READ | PASS, targeted actual DM and Node MCP |
+| Fixed synthetic direct DM full-complex FFT/IFFT versus actual native MCP and scalar READ | PASS for bitwise path equivalence; numerical round-trip failures remain separate |
+| Previously saved authorized experimental ROI input, recreated as an equivalent work image: historical/direct-DM/MCP transform agreement and READ agreement | PASS bitwise for that reproduced input; not a fresh original-file trial |
+| The retained experimental round-trip numerical accuracy check | **FAIL**, original predeclared threshold unchanged; exact input conversion did not explain it |
+| Explicit source protection, original STOP, owned hidden-result release and normal host exit/cleanup for the targeted baseline checks | PASS within those scopes |
+| Initial GUI rectangle getter discovery | Raw identities/geometry observed correctly, but analysis eligibility **FAIL** under the earlier mapping assumption; preserved |
+| Subsequent selected GUI rectangle observation | Raw selection/geometry correct; eligibility **FAIL** retained after the selected-ID getter was identified as slice IDs rather than axes; older QUERY remained historical |
+| Corrected direct-image layout and normalized-mapping implementation | PASS, limited prepared synthetic actual host: float32/uint32, multiple documents, empty/hidden images and explicit ineligible fractional/rotated/line ROIs |
+| Manually drawn selected rectangle → native crop/mean/READ → multiblock NPY | PASS, same-PID independent source/selection/calibration/value checks, historical QUERY unchanged, repeated-query pool stability and original STOP/source protection |
+| Immediate same-stack fixture destruction after owned document closure/reference removal | **FAIL**, preserved; no synchronous destruction promise |
+| Subsequent independent host-idle source/reference observation | PASS, source objects invalid, documents restored and fixture holder absent without further native operations; bounded after-return lifetime evidence |
+| Newly built qualified artifact's independent session, exact loaded binary, source/ROI oracle, original STOP and final references | PASS, separate from prepared-host qualification |
+| Native line/profile/histogram, 1D scientific handoff, workspace activation and annotations | **NOT_QUALIFIED** |
+| Ordinary model-client acceptance | **NOT_TESTED** |
+
+The direct Fourier comparison does not add complex64 MCP READ/export; full
+complex observations were collected by an explicit one-shot host oracle. Source
+arrays/calibration were unchanged, historical failures were retained and no
+scientific algorithm or gate was relaxed. See
+[error attribution and its limits](../../docs/NATIVE_FFT_PRECISION.md).
+
+Current executed engineering regression: Node 169/169 (zero skipped), all eleven
+C++ offline executables (ROI 827 including fixture output; qualified profile
+1827), default-backend selftest, full Python 572 tests before final targeted
+acceptance refinements, and all 13 final ROI oracle plus 6 precision tests. These counts describe
+executed checks, not vendor compatibility or model-client qualification.
+
+## Earlier continuation: lifecycle, numerical handoff and workspace checks
 
 The opt-in work branch adds exact-token plugin-reference release and fresh
 availability queries, plus a bounded chunked READ-to-schema-1/NPY helper. It
 does not add a DM SaveAs interface or an analysis kernel. Current protocol
-catalog: 16 native tools; default v0.6 remains unchanged. See the
+catalog in that continuation: 16 native tools; default v0.6 remains unchanged. See the
 [contract and limits](../../docs/NATIVE_LIFECYCLE_HANDOFF.md).
 
 | Actual scope in this continuation | Result |

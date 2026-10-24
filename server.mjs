@@ -49,7 +49,7 @@ const INSTRUCTIONS = [
 ].join("\n");
 const NATIVE_INSTRUCTIONS = [
   "实验性 DigitalMicrograph C++ NB2 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
-  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_result_info、dm_native_release；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
+  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_result_info、dm_native_release、dm_native_rois；rois 仅在对应能力已合格时只读枚举明确图像的显示对象和选区，不自动挑选或裁剪；GUI 选区是非原子执行时快照，旧 ID 的 QUERY 不会刷新当前选区，不把小数或越界选区舍入为分析区域；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
   "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。crop、show、unary、binary、fft、complex、filter 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
@@ -410,7 +410,7 @@ const tools = [
 const NATIVE_REQUEST_ID = {type: "string", minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "可选客户端请求 ID；省略时生成 UUID。取消前预先保存此 ID，之后只用 dm_native_result 查询，不自动重发"};
 const NATIVE_IMAGE_ID = {type: "integer", minimum: 0, maximum: 4294967295, description: "dm_datasets 返回的显式 uint32 图像 ID；不接受 front 或数字字符串"};
 // Read-only tools may generate an ID; side-effect tools require a saved ID.
-const NATIVE_OPTIONAL_REQUEST_ID_TOOLS = new Set(["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_preview", "dm_native_read"]);
+const NATIVE_OPTIONAL_REQUEST_ID_TOOLS = new Set(["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_preview", "dm_native_read", "dm_native_rois"]);
 NATIVE_OPTIONAL_REQUEST_ID_TOOLS.add('dm_native_result_info');
 const NATIVE_SAVED_REQUEST_ID = {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 只查询此 ID，不自动重发"};
 const NATIVE_UNARY = {negate: 1, abs: 2, square: 3};
@@ -468,9 +468,13 @@ const nativeTools = [
   tool('dm_native_release', '只释放本 session 插件自己持有的明确结果引用，要求 image_id、创建回执中的 retention.token 及预先保存的 request_id；不关闭文档、不销毁源图、不自动清理祖先，不篡改旧 completed 回执。超时只查询原请求 ID。', {
     image_id: {...NATIVE_IMAGE_ID, minimum: 1}, retention_token: {type: 'integer', minimum: 1, maximum: 4294967295}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ['image_id', 'retention_token', 'request_id']),
+  tool('dm_native_rois', '只读枚举明确 image_id 的原生显示对象与 GUI 选区；不选择前台/最新窗口，不切换工作区，不自动选中某个 ROI。只把 rotation_degrees 严格为零、source_layout 为 direct_image_canonical_xy、slice_ids 为 [0] 且 coordinate_mapping.source_pixel_aligned 为真的明确、有限、范围内整数矩形标为可用于半开像素分析；旋转、不支持的图像来源/映射、小数、越界、退化和非矩形保留诊断，不舍入、不裁夹、不当作全图。结果是执行时快照，新的查询 ID 才读取当前 GUI，旧 ID 的 QUERY 保持原快照。能力未合格或原生读取失败时明确拒绝，不回退 Python/GUI 点击。', {
+    image_id: NATIVE_IMAGE_ID, request_id: NATIVE_REQUEST_ID,
+  }, ['image_id']),
 ];
 
 function nativeInvocation(name, args) {
+  if (name === 'dm_native_rois') return ['ROIS', [args.image_id]];
   if (name === 'dm_native_release' || name === 'dm_native_result_info') return [name === 'dm_native_release' ? 'RELEASE' : 'RESULT_INFO', [args.image_id, args.retention_token]];
   if (name === "dm_native_unary") return ["UNARY", [args.image_id, NATIVE_UNARY[args.operation]]];
   if (name === "dm_native_binary") return ["BINARY", [args.left_image_id, args.right_image_id, NATIVE_BINARY[args.operation]]];

@@ -20,6 +20,7 @@ constexpr OperationContract kContracts[] = {
     {"READ", 5, "native_data_snapshot"},
     {"RELEASE", 2, "native_result_release"},
     {"RESULT_INFO", 2, "native_result_availability"},
+    {"ROIS", 1, "native_gui_rois"},
     {"FFT", 1, "native_fourier_operation", 2}, {"IFFT", 1, "native_fourier_operation", 2},
     {"REAL", 1, "native_fourier_operation", 2}, {"IMAG", 1, "native_fourier_operation", 2},
     {"VENDOR_ARG", 1, "native_fourier_operation", 2}, {"VENDOR_NORM", 1, "native_fourier_operation", 2},

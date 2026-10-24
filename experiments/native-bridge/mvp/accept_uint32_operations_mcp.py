@@ -27,6 +27,16 @@ REPORT_NAME = "uint32-operations-mcp-report.json"
 LEDGER_NAME = "uint32-operations-requests.jsonl"
 RECOVERY_LEDGER_NAME = "uint32-operations-recovery-requests.jsonl"
 FOURIER = {"FFT", "IFFT", "REAL", "IMAG", "VENDOR_ARG", "VENDOR_NORM"}
+# A saved report describes its historical catalog, not the current Node child.
+# Only these two exact known sets are admitted; live connections below still
+# require the current CATALOG. No receipt/argument/qualification is rewritten.
+LEGACY_PRE_ROIS_CATALOG = CATALOG - {"dm_native_rois"}
+
+
+def valid_saved_catalog(value):
+    return (type(value) is list and all(type(name) is str for name in value)
+            and len(value) == len(set(value))
+            and set(value) in (LEGACY_PRE_ROIS_CATALOG, CATALOG))
 
 
 def new_json(filename, value):
@@ -140,8 +150,7 @@ def resume_source(evidence, filename, truth_path, truth, sources):
             and original.get("qualification_mode") == "production"
             and original.get("host_pid") == truth["host_pid"] and original.get("session") == truth["session"]
             and original.get("truth_sha256") == sha(evidence.raw(str(truth_path)))
-            and type(original.get("catalog")) is list and len(original["catalog"]) == len(CATALOG)
-            and set(original["catalog"]) == CATALOG, "Resume requires the original complete production post-native FileNotFound FAIL report")
+            and valid_saved_catalog(original.get("catalog")), "Resume requires the original complete production post-native FileNotFound FAIL report")
 
     def ledger(filename):
         values = {}

@@ -44,6 +44,19 @@ class Uint32ProductionRecoveryTests(unittest.TestCase):
         self.assertEqual(original_ledger.read_bytes(),self.f.ledger.read_bytes())
         self.assertEqual(self.f.run()["status"],"PASS_BOUNDED_UINT32_OPERATIONS")
 
+    def test_known_pre_rois_catalog_keeps_original_bytes_and_queries_only(self):
+        # Synthetic historical-catalog simulation, never edits a real receipt.
+        self.original["catalog"].remove("dm_native_rois")
+        self.assertEqual(len(self.original["catalog"]), 16)
+        save(self.original_path, self.original)
+        self.original_bytes = self.original_path.read_bytes()
+        self.resume()
+        self.assertEqual(self.original_path.read_bytes(), self.original_bytes)
+        self.assertEqual(self.f.created, 32)
+        self.assertEqual(len(self.f.producer_ops), 32)
+        self.assertEqual(len(self.f.report["resume"]["queries"]), 32)
+        self.assertEqual(self.f.run()["status"], "PASS_BOUNDED_UINT32_OPERATIONS")
+
     def test_plain_failed_report_stays_rejected(self):
         with self.assertRaisesRegex(RuntimeError,"report/hash/actual PID/session/mode"):
             O["load_context"](S["Evidence"](),str(self.f.truth_path),str(self.original_path),str(self.original_path.parent/C["LEDGER_NAME"]),str(self.original_path.parent/C["RECOVERY_LEDGER_NAME"]),os.getpid())
@@ -78,6 +91,20 @@ class Uint32ProductionRecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"Python executable"):
                 C["main"](["--directory",str(self.directory),"--output-directory",str(next_dir),"--qualification-mode","production","--analysis-python",str(self.directory/"no-python.exe")])
         self.assertFalse(next_dir.exists())
+
+
+class SavedCatalogTests(unittest.TestCase):
+    def test_only_exact_known_historical_and_current_sets_can_resume(self):
+        current = sorted(C["CATALOG"])
+        legacy = sorted(C["LEGACY_PRE_ROIS_CATALOG"])
+        self.assertEqual(len(current), 17)
+        self.assertEqual(len(legacy), 16)
+        self.assertTrue(C["valid_saved_catalog"](current))
+        self.assertTrue(C["valid_saved_catalog"](legacy))
+        for value in [None, {}, current + [current[0]], current + ["dm_unknown"],
+                      legacy[:-1], [*legacy[:-1], "dm_native_rois"], legacy + [True]]:
+            with self.subTest(catalog=value):
+                self.assertFalse(C["valid_saved_catalog"](value))
 
 
 if __name__=="__main__":unittest.main()

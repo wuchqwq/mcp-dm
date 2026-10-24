@@ -4,6 +4,10 @@
 // All fingerprints and qualification declarations belong to this adapter.
 // Adding another version never extends this allowlist by approximate matching.
 namespace nb::gms353 {
+// Primary RasterImageDisplay vtable, cross-checked against this binary's RTTI
+// and the exact native count/get implementations used by the SF wrappers.
+inline constexpr std::uint32_t kRasterRoiVtableRva353 = 0xbbd298;
+inline constexpr std::uint32_t kSimpleImageSourceVtableRva353 = 0xbfe468;
 // Optional groups list every native entry they depend on. Losing a group never
 // changes core ABI admission or turns a different group into a fallback.
 inline CapabilityProfile operation_capability(const char* name, bool qualified, const char* scope,
@@ -49,6 +53,13 @@ inline const AdapterProfile& profile() {
         {
             {"native_datasets", true, "bounded native registry and metadata", {}, {}},
             {"native_result_release", true, "explicit own image ID plus bridge retention token; plugin reference only; no document closure", {}, {}},
+            {"native_gui_rois", true, "readonly explicit ordinary 2D direct ImageSource_Simple raster; bounded rectangle snapshots; limited idle-host synthetic qualification",
+                {{"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}},
+                {"roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_display_image",
+                 "roi_raster_count", "roi_raster_at", "roi_id", "roi_is_rectangle", "roi_rectangle",
+                 "roi_is_selected", "roi_raster_dimensions", "roi_raster_mapping", "roi_raster_slice_id",
+                 "roi_simple_source_count", "roi_simple_source_slice_id", "roi_simple_source_extents",
+                 "roi_destroy_display_holder", "roi_destroy_roi"}},
             {"native_mean", true, "raw float32 2D mean, <=4194304 pixels", {
                 {"GMSImageProcessing.dll", "?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z"}}, {}},
             {"native_statistics", true, "raw float32 2D mean/minimum/maximum/sum, <=4194304 pixels", {
@@ -123,6 +134,24 @@ inline const AdapterProfile& profile() {
             {"image_document_show", "GMS.dll", 0x4b8a20},
             {"destroy_document_holder", "GMS.dll", 0x060e70},
             {"destroy_window", "GMS.dll", 0x57bab0},
+            {"roi_image_display_count", "GMS.dll", 0x2d8370},
+            {"roi_image_display_at", "GMS.dll", 0x4c2d10},
+            {"roi_resolve_display", "GMS.dll", 0x3cbbc0},
+            {"roi_display_image", "GMS.dll", 0x3d2d20},
+            {"roi_raster_count", "GMS.dll", 0x1a13a0},
+            {"roi_raster_at", "GMS.dll", 0x1a4470},
+            {"roi_id", "GMS.dll", 0x1bf530},
+            {"roi_is_rectangle", "GMS.dll", 0x1bfc50},
+            {"roi_rectangle", "GMS.dll", 0x1bf820},
+            {"roi_is_selected", "GMS.dll", 0x2a9e60},
+            {"roi_raster_dimensions", "GMS.dll", 0x1a3270},
+            {"roi_raster_mapping", "GMS.dll", 0x2a5960},
+            {"roi_raster_slice_id", "GMS.dll", 0x2a4300},
+            {"roi_simple_source_count", "GMS.dll", 0x347b60},
+            {"roi_simple_source_slice_id", "GMS.dll", 0x34cd90},
+            {"roi_simple_source_extents", "GMS.dll", 0x34d4d0},
+            {"roi_destroy_display_holder", "GMS.dll", 0x299800},
+            {"roi_destroy_roi", "GMS.dll", 0x04fdd0},
         }
     };
     return value;

@@ -1,8 +1,62 @@
 # Native MVP continuation handoff
 
-## Current continuation: release, complete handoff and workspace findings
+## Current continuation: GUI rectangle identity and Fourier attribution
 
-The current work is on a feature branch based on the reviewed main integration; it is not merged back to main. The native catalog has sixteen tools, including explicit reference release/current availability. The existing small READ remains unchanged; a thin Node runner now saves a complete bounded region with exact per-block receipts and the original immediate source-creation QUERY parameters. See [the current contract and qualification boundaries](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md).
+PR #6's region identity repair is already integrated on main. This continuation
+does not redevelop export isolation, result release or chunked handoff. Its
+catalog has seventeen entries, adding read-only `dm_native_rois`. The corrected
+direct-source-layout/mapping passed limited synthetic actual-host qualification
+and `native_gui_rois` profile admission is enabled. A separately built qualified
+artifact also passed its independent session, same-process oracle and final
+reference checks. Initial discovery confirmed raw identities and
+geometry but failed rectangle eligibility under the earlier identity-mapping
+assumption. A later selected-rectangle observation preserved another eligibility
+FAIL after identifying slice IDs misread as axes. Preserve both failures and
+the older immutable QUERY; synthetic tests are not vendor acceptance.
+
+The new path preserves explicit image/document/display/ROI identities, raw
+rectangle edges and diagnostics. Exact ImageSource_Simple class/typed image
+identity, its direct canonical XY size contract, slice_ids:[0] and exact native
+binary32 reciprocal mapping establish source-pixel alignment. Slice IDs are not
+axes; no axis-reorder getter is used. Other Sliced/Group/Summed source layouts
+remain unsupported. Fractional,
+rotated, unsupported or out-of-bounds selections never become clipped analysis
+rectangles. QUERY remains historical; refresh uses a new ID. See
+[GUI ROI contracts and remaining blockers](../../../docs/NATIVE_GUI_ROI.md).
+Line/LiveProfile candidates and profile/histogram 1D delivery remain unqualified.
+
+The prepared actual host passed native MCP enumeration for float32/uint32,
+multiple documents and empty/hidden images. Fractional, rotated and line ROIs
+remained ineligible. A manually drawn selected rectangle continued through
+native crop, mean, READ and multiblock NPY with independent same-PID complete
+source/selection/calibration/value checks; fresh reads did not grow the pool,
+and the old empty QUERY remained unchanged. Original STOP/source checks passed.
+The immediate same-stack source-invalidity assertion after closing owned docs
+and removing fixture references failed and remains preserved. A subsequent
+independent observation after return to host idle found sources invalid,
+documents restored and the fixture holder absent without extra native calls.
+Lifetime qualification is after host return/idle, not synchronous same-stack
+destruction. The qualified artifact independently repeated source/ROI and
+original-STOP checks; all fixture sources became invalid after return to host
+idle, and test hosts exited normally before manifest-owned DLL removal.
+
+Targeted actual synthetic-host checks passed the existing region repair across
+workspaces and repeated user labels with changed synthetic values; completed
+reuse performed no new READ. Exact files/calibration, source invariance,
+original STOP and normal exit/cleanup passed within that scope.
+
+Separate fixed synthetic direct-DM/MCP Fourier controls agreed bitwise. An
+authorized equivalent work copy of the previously saved experimental ROI input
+also reproduced its historical FFT and inverse bitwise, without reopening the
+original scientific file. Direct DM and MCP/READ agreed; exact input conversion
+did not explain its retained round-trip accuracy FAIL. See
+[precision attribution](../../../docs/NATIVE_FFT_PRECISION.md). No tolerance,
+native algorithm, default backend or ABI fingerprint gate changed. Ordinary
+model-client acceptance remains NOT_TESTED; no merge into main is implied.
+
+## Earlier continuation: release, complete handoff and workspace findings
+
+That earlier continuation's native catalog had sixteen tools, including explicit reference release/current availability. The existing small READ remained unchanged; a thin Node runner saved a complete bounded region with exact per-block receipts and the original immediate source-creation QUERY parameters. Those reviewed features are now integrated on main. See [the contract and qualification boundaries](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md).
 
 Targeted actual synthetic DM checks qualified the P0 Fourier metadata path, reference release/reuse, document-held lifetime and chunked files. A separate authorized read-only ADF ROI trial preserved original data/files and exported values; its inverse round trip did not meet its predeclared accuracy threshold, and remains FAIL. Manual synthetic workspace switching preserved explicit image IDs and source documents; repeated SHOW did not activate an inactive result workspace. Native workspace switching and GUI ROI/profile/histogram/annotations remain NOT_QUALIFIED with concrete missing contracts in that guide.
 

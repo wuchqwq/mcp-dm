@@ -17,7 +17,7 @@ manifest 清理也已通过。当前五组 profile 资格不依赖 preparation �
 manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 并得到同一均值，
 原 capture 未变；这些是最终二进制自己的证据。
 
-## 十六个原生工具
+## 十七个原生工具目录项
 
 使用显式 `DM_MCP_BACKEND=native` 和用户启动宿主时记录的 session。
 默认 v0.6 后端是另一条路径，不会作为原生失败的回退。
@@ -40,6 +40,24 @@ manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 
 | `dm_native_read` | 明确 ROI 的 float32 / uint32 原始数值与标定快照 |
 | `dm_native_result_info` | 明确 image_id + retention.token 的插件引用状态快照；刷新时用新 ID |
 | `dm_native_release` | 按同一身份只释放插件引用；预先保存 request_id，不关闭文档 |
+| `dm_native_rois` | 只读枚举明确图像的文档/显示对象/矩形 ROI；直接 Simple 二维源已有限合成实机验收，仍检查 `native_gui_rois` |
+
+GUI 选区接续采用 `(image_id,document_id,display_id,roi_id)` 组合身份，不认领前台或
+最新窗口。`slice_ids` 是切片编号，不能当作轴编号。仅精确的直接 Simple 图像源
+类型、返回同一图像对象的 typed identity 及其 canonical XY size 契约，配合
+`slice_ids:[0]`、零偏移及原生 binary32 宽高倒数映射，才确认
+`source_layout:"direct_image_canonical_xy"` 和 `source_pixel_aligned`；其它
+Sliced/Group/Summed 等源不合格，不调用轴 getter 猜轴序。无旋转且有限、整数、范围内的矩形才返回可用于
+分析的半开 `[left,top,right,bottom]`。小数、旋转、越界和不支持类型保留诊断，
+不舍入或裁夹。旧 ID 的 QUERY 返回历史快照；刷新用新 ID，仍无并发编辑保护。
+修正后的契约已通过有限合成实机验收，profile 已启用窄范围资格；新构建合格产物
+的独立会话确认另行记录，不可仅凭目录中存在工具开始原生调用。
+见[GUI ROI 完整窄契约与实机边界](../../../docs/NATIVE_GUI_ROI.md)。
+
+已实测手工框选 → 明确选区身份 → 原生裁剪/均值/READ → 分块 NPY，并核对完整
+合成源像素、标定与旧 QUERY 不变。STOP 的原始请求已核对。关闭自有文档并释放
+fixture 引用后，同一调用栈立即销毁源图的断言 FAIL 保留；脚本返回宿主空闲后，
+独立观察确认源图失效且文档恢复。该生命周期证据不承诺同栈同步析构。
 
 宿主空闲且不编辑源图时串行调用。先保存 session、request_id 和原参数，再提交
 创建结果或显示文档的操作。超时、取消或断连后只用 `dm_native_result` 查询原 ID；
@@ -56,6 +74,8 @@ uint32 的工作流是：明确源 ID → preview 核对 → crop → 原生 mea
 → READ → 无损 NPY 交接。统计最多 2,097,152 像素；crop 源最多 4,194,304 像素、
 输出最多 4 MiB。2048×2048 整图超过统计预算，需先明确选取较小区域。
 uint32 的算术、滤波、FFT 与指定工作结果显示见[独立操作资格](UINT32_OPERATIONS_ACCEPTANCE.md)。
+另见[直接 DM/MCP 精度归因](../../../docs/NATIVE_FFT_PRECISION.md)：调用路径逐 bit
+一致不等于数值无损，原预设门限和反变换 FAIL 均保留。
 算术输出 float32，Smooth/Sharpen 输出饱和、截断的 uint32，Sobel/Laplace 输出
 float32；FFT 由 DM 先舍入为 binary32，再生成 complex64。这些是原生处理的实际
 类型规则，不能声称任意整数无损。滤波/FFT 每轴最多 256；其它尺寸和来源限制
@@ -218,4 +238,4 @@ READ 单次预算不变。固定的 `tools/native_region_handoff.mjs` 可显式�
 
 完整命令、恢复/预算、独立核对和引用令牌示例见[生命周期与分块交接](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md)。历史创建 QUERY 不会因 RELEASE 被改写；新 RESULT_INFO 记录查询当时的可用性。
 
-原生图像 ID 跨工作区选择同一图像；DATASETS 不是当前标签页列表。SHOW 复用已有文档时可能仍留在另一个工作区，不保证当前页可见。GUI ROI、原生 profile/histogram、工作区枚举/激活和原生注释没有通过 ABI 资格确认，不能靠 Python 或 GUI 点击冒充。
+原生图像 ID 跨工作区选择同一图像；DATASETS 不是当前标签页列表。SHOW 复用已有文档时可能仍留在另一个工作区，不保证当前页可见。GUI 矩形 ROI 仅具上文直接源的窄范围资格；线选区/原生 profile/histogram、工作区枚举/激活和原生注释仍未资格确认，不能靠 Python 或 GUI 点击冒充。
