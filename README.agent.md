@@ -24,19 +24,20 @@ Reports and replay are optional. A profile request needs a correct profile, not 
 
 Inspect the actual checkout, branch and configuration. Do not reset or overwrite a user's checkout to match this document. The live tool catalog and status describe the connected implementation, not capabilities mentioned in a different branch's README.
 
-| Backend | Current mainline scope | Required handling |
+| Backend | Scope in this checkout | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Fourteen tools, including qualified bounded native operations, preview, READ and visible-document delivery; see the native workflow | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
+| Opt-in native | Sixteen tools, including qualified bounded native operations, preview, READ and visible-document delivery; see the native workflow | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
-The integrated native catalog has fourteen
+The integrated native catalog has sixteen
 tools, including qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect
 `native_capabilities` and its reason fields, not the tool count alone. See the
 [workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md) for the complete
 native crop/processing → numeric READ → explicit NPY handoff → external example.
+The new [lifecycle/chunked handoff guide](docs/NATIVE_LIFECYCLE_HANDOFF.md) covers exact retention tokens, `dm_native_result_info`/`dm_native_release`, pre-saved IDs, a fixed complete-region export command, original source-creation parameters, and the independent file verifier. Its multi-READ mode is separate from the older optional single-READ mean example.
 The integration remains experimental and is not a stable native release.
 
 The initial uint32 subset covers ordinary-packed 2D metadata, raw mean/SUMMARY,
@@ -55,8 +56,11 @@ Arithmetic produces float32; Smooth/Sharpen produce saturating/truncated uint32;
 Sobel/Laplace produce float32; FFT first rounds to binary32 and produces complex64.
 Inspect the actual capability and `dtype_semantics`; these operations are not
 lossless integer processing. Export the actual result dtype, never its ancestor's.
-Other integer types, native 4D, experimental-data and model-client
-acceptance remain outside this extension; native SaveAs is still unavailable.
+Other integer types, native 4D and model-client acceptance remain outside this extension; native SaveAs is still unavailable. A bounded authorized real-input trial does not qualify arbitrary experimental datasets; its inverse round trip failed the predeclared tolerance, so do not claim lossless uint32 Fourier round trips.
+
+New complete-region exports persist a per-capture request namespace before dispatch. Resume only the original journal in its original workspace; incomplete legacy unscoped journals are refused, never migrated or replayed. Completed old packages remain offline evidence, not newly verified source reads.
+
+Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. MCP SHOW/QUERY adds `display_context` with active-workspace visibility explicitly unknown; this does not probe or activate a workspace. GUI ROI, profile/histogram and native workspace enumeration/activation remain unqualified; see the lifecycle guide for the specific ABI gaps.
 
 Native main targets Windows x64 GMS 3.53.4137.0 with exact binary gates. Do not relax a fingerprint check or reuse an unqualified ABI for another build. A missing optional feature is not an instruction to enable arbitrary scripts.
 

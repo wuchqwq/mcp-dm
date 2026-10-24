@@ -54,10 +54,10 @@ before per-operator ABI, scientific and ownership qualification.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has fourteen tools: dm_status,
+The separate experimental native catalog has sixteen tools: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
-dm_native_complex, dm_native_filter, dm_native_preview and dm_native_read.
+dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info and dm_native_release.
 SUMMARY calls DM's built-in GetMinimum/GetMaximum/GetSum/GetMean directly;
 it is not full dm_stats and does not perform preview or file saving. Its
 scope is float32 2D up to 4,194,304 pixels, or ordinary uint32 2D up to
@@ -68,6 +68,8 @@ before image calls; only SUPPORTED admits the selected profile. Unknown builds
 are inspected using Windows metadata, without probing a vendor ABI. Preserve
 all five exact module fingerprint gates. native_statistics denotes the entire
 four-reduction SUMMARY group; native_mean remains a separate capability.
+Result-reference release requires an exact image ID plus the creation retention token and a pre-saved caller request ID; only plugin ownership is dropped. Old creation QUERY stays immutable. A new RESULT_INFO ID records fresh availability; an old INFO QUERY remains historical.
+
 New operation admission requires its qualified, available profile group before
 entering the version implementation: native_image_arithmetic, native_fft,
 native_filters, native_preview or native_read. There is no qualification
@@ -209,10 +211,14 @@ through retained results, READ and the saved-response encoder. Preserve native
 calibration and mathematical `scientific_semantics.coordinate_axes` separately;
 never derive FFT bins only from the native half-bin origin. Crop offsets compose;
 postprocessed phase/power is not an unchanged component. Legacy/mixed lineage
-stays explicit unknown. The new metadata path has offline/synthetic tests, not
-new actual-DM acceptance. See docs/SCIENTIFIC_HANDOFF.md.
+stays explicit unknown. The metadata path has targeted synthetic real-DM
+acceptance for offset crop/READ/NPY, processed phase, source protection and
+normal cleanup; it does not qualify experimental data or GUI measurements.
+See docs/SCIENTIFIC_HANDOFF.md.
 
-Only explicit saved READ data may feed the external handoff CLI. Persist the
+The single-response encoder accepts only an explicit saved READ. The separate tools/native_region_handoff.mjs runner plans bounded live READs, saves original IDs before dispatch, assembles exact NPY/schema-1 bytes, and uses only QUERY to recover SENT IDs. It is explicit data handoff, not a scientific operator or DM SaveAs. See docs/NATIVE_LIFECYCLE_HANDOFF.md. Preserve original source-creation QUERY arguments when available; do not invent a whole-ROI receipt or recursively claim a complete history.
+
+Only explicit saved READ data may feed the single-response handoff CLI. Persist the
 caller handoff ID/parameters and fsync the complete journal before creating a
 new output directory. Same ID/parameters returns the existing verified receipt;
 conflicts, incomplete journals or changed files never trigger automatic retry
@@ -283,3 +289,15 @@ Use an external development venv with `requirements-dev.txt` for tifffile and `r
 6. Do not publish, push, send messages or change external services unless the user has authorized that action. When preparing a release, make a reviewable artifact first and report the exact tests actually run.
 
 Optional worker contracts: profile sampled_coordinates are source coordinates; sampled_coordinates_local and its calibration are capture-relative. Report intensity is raw, not calibrated by a unit label alone. Verification failure/unresolved state must exit nonzero. Preview allocations must be bounded before source scans/display allocation; full-frame floating/RGB intermediates are prohibited. No automatic Skill installation or overwriting user settings.
+
+Manual synthetic workspace switching was separately observed: explicit native image IDs remain stable across tabs; DATASETS is registry-wide. SHOW can reuse a document in an inactive workspace without activating it. A SHOW receipt is not proof of active-tab visibility or model viewing. Native workspace enumeration/activation, GUI ROI, profile/histogram and annotations remain unqualified; do not expose candidates or use UI automation/Python as their runtime fallback. A read-only authorized ADF ROI trial preserved original memory/file data and exact exports, but its inverse round trip failed the predeclared accuracy tolerance. Preserve that FAIL separately from passing operations and cleanup; do not claim lossless integer Fourier round trips or general real-data qualification.
+
+Complete-region export requests must be isolated by a random, durably recorded
+capture instance, not just the user-facing export name or mutable source ID.
+New journals bind their canonical workspace and namespace version; recovery
+reuses the exact saved wire IDs. Incomplete legacy unscoped journals must not
+be silently migrated or replayed. Completed legacy packages are saved evidence
+only and cannot be retroactively qualified as fresh reads by a hash check.
+MCP SHOW/QUERY `display_context` describes document-delivery policy, not a fresh
+GUI observation; preserve historical native receipts and report unknown active
+workspace visibility rather than claiming a tab was activated.

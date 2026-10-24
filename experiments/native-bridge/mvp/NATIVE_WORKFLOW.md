@@ -17,7 +17,7 @@ manifest 清理也已通过。当前五组 profile 资格不依赖 preparation �
 manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 并得到同一均值，
 原 capture 未变；这些是最终二进制自己的证据。
 
-## 十四个原生工具
+## 十六个原生工具
 
 使用显式 `DM_MCP_BACKEND=native` 和用户启动宿主时记录的 session。
 默认 v0.6 后端是另一条路径，不会作为原生失败的回退。
@@ -38,6 +38,8 @@ manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 
 | `dm_native_filter` | `smooth`、`sobel`、`laplace`、`sharpen` |
 | `dm_native_preview` | 最大 128×128 的显示用灰度 PNG |
 | `dm_native_read` | 明确 ROI 的 float32 / uint32 原始数值与标定快照 |
+| `dm_native_result_info` | 明确 image_id + retention.token 的插件引用状态快照；刷新时用新 ID |
+| `dm_native_release` | 按同一身份只释放插件引用；预先保存 request_id，不关闭文档 |
 
 宿主空闲且不编辑源图时串行调用。先保存 session、request_id 和原参数，再提交
 创建结果或显示文档的操作。超时、取消或断连后只用 `dm_native_result` 查询原 ID；
@@ -159,7 +161,7 @@ python experiments/native-bridge/mvp/accept_handoff_mcp.py `
   --qualification-mode production
 ```
 
-该程序保存原请求 ledger 后才提交，核对十四工具目录，执行预览、crop/square、
+该程序保存原请求 ledger 后才提交，核对当前十六工具目录，执行预览、crop/square、
 源与结果 READ、同 ID QUERY、Fourier v2 FFT/IFFT/REAL、四种 filter、NPY 和外部
 示例。`RECORDED` 不是源保护、数学或释放的独立 PASS。`qualify_operations.mjs`
 及第一宿主的 prepared v1 记录属于历史验收路径，不是当前 v2 的复现命令。
@@ -209,3 +211,11 @@ runpy.run_path(os.path.join(mvp_dir, "verify_handoff_stopped.py"), run_name="__m
 `DM_NATIVE_HANDOFF_PRIOR_REPORTS` 绝对路径 JSON 列表核对所有归属，不能把失败前缀
 改写成数学 PASS。完成后由用户正常退出 DM，另记录退出码和 manifest 清理。
 STOP 本身不关闭 DM，未退出前不得移除加载中的插件。
+
+## 完整区域交接、显式释放与工作区限制
+
+READ 单次预算不变。固定的 `tools/native_region_handoff.mjs` 可显式分块导出完整有界 ROI；不用 Agent 编写拼接算法。原始块回执、直接创建操作的原始 QUERY 参数、精确 NPY 和 schema-1 标定一并保存。超时只查原 ID，缺块保持 partial，绝不覆盖已有输出。
+
+完整命令、恢复/预算、独立核对和引用令牌示例见[生命周期与分块交接](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md)。历史创建 QUERY 不会因 RELEASE 被改写；新 RESULT_INFO 记录查询当时的可用性。
+
+原生图像 ID 跨工作区选择同一图像；DATASETS 不是当前标签页列表。SHOW 复用已有文档时可能仍留在另一个工作区，不保证当前页可见。GUI ROI、原生 profile/histogram、工作区枚举/激活和原生注释没有通过 ABI 资格确认，不能靠 Python 或 GUI 点击冒充。

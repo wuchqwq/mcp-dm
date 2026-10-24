@@ -414,6 +414,32 @@ tool/ID/parameter ledger. See [SUMMARY acceptance](mvp/SUMMARY_ACCEPTANCE.md).
 
 ## Minimum runtime verification order
 
+### Current GUI and workspace boundary
+
+The new RELEASE path uses the already qualified image-reference release ABI;
+its bridge token identifies a retained result in this session, not a vendor
+pointer or reusable host image ID. No new vendor entrypoint or module pin was
+introduced. Historical creation replies remain immutable after release.
+
+GUI ROI, profile, histogram, workspace activation and annotations remain
+unqualified. Reviewed ImageUtilities candidates use `Gatan::DM::Image`, ROI,
+ImageDisplay/ScriptObject or utility-object layouts, not the adapter's existing
+`GMS::Image` reference contract. The histogram candidate additionally needs a
+proven typed 1D destination constructor, calibration/bin semantics and lifetime.
+Workspace event registration and utility sentries do not establish a typed
+enumeration/activation API. The matching ownership definitions and complete
+typed call contracts were unavailable; no guessed casts, calls or fallback
+listener were attempted. Optional new modules would require their own identity
+pins and capability qualification before use.
+
+Manual synthetic workspace tests prove explicit image IDs stay stable across
+tabs in this build. They do not qualify a native workspace switch API. Existing
+SHOW can reuse a document in another workspace without activating that tab;
+its document-visible field is not an active-tab/focus assertion. See the
+[detailed scope](../../docs/NATIVE_LIFECYCLE_HANDOFF.md).
+
+### Required sequence
+
 After offline protocol/lifecycle tests pass, use a prepared idle test session:
 host/module identity and symbols; host callback readiness; numeric lookup and
 matching ID; dimensions and type; calibration and string ownership;

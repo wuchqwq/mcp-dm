@@ -1,14 +1,50 @@
 # Native bridge validation matrix
 
-## Integration follow-up: scientific metadata handoff
+## Current work branch: lifecycle, numerical handoff and workspace checks
+
+The opt-in work branch adds exact-token plugin-reference release and fresh
+availability queries, plus a bounded chunked READ-to-schema-1/NPY helper. It
+does not add a DM SaveAs interface or an analysis kernel. Current protocol
+catalog: 16 native tools; default v0.6 remains unchanged. See the
+[contract and limits](../../docs/NATIVE_LIFECYCLE_HANDOFF.md).
+
+| Actual scope in this continuation | Result |
+|---|---|
+| Synthetic real DM Fourier/component/nonzero crop/READ metadata, independent DFT, phase radians, signed calibration, DC inside/outside the region and reopened files | PASS, bounded synthetic scope |
+| Synthetic real DM float32/uint32 chunked exports, exact reopened values/negative zero/high bits; immediate processing parameters from the original creation QUERY | PASS, bounded synthetic scope |
+| Exact token/ID release, result-pool reuse beyond capacity, surviving child after parent release, immutable historical QUERY | PASS, offline and targeted synthetic real DM |
+| Shown document retains the same image through plugin release and original STOP; last document close releases its remaining reference | PASS, separate synthetic and authorized ADF checks |
+| Manual synthetic workspace switch with native explicit-ID enumeration/mean/crop/SHOW | PASS, manual switch only; repeated SHOW does not activate another workspace |
+| Authorized read-only experimental ADF region: crop/reductions/arithmetic, small-filter check, forward Fourier/components, exact export/source protection | PASS only for the independently checked bounded cases |
+| The same experimental ADF inverse Fourier round trip | **FAIL** the predeclared accuracy threshold; retained independently of export/cleanup PASS |
+| Native workspace switching, GUI ROI, profile, histogram, annotations | **NOT_QUALIFIED**; typed ABI/ownership gaps remain |
+| Ordinary model-client acceptance | **NOT_TESTED** |
+
+The unchanged exact-build gate was checked before real host work. Original STOP
+requests were saved before submission and bound to the observing process PID.
+Sources and the authorized source file were independently unchanged. Test hosts
+exited normally, owned unloaded DLLs were removed using their manifests, and
+exported files reopened after exit. Initial failed setup/catalog/fixture tests
+and the numerical FAIL remain in the private evidence; no old receipt was
+rewritten. Offline callbacks and pipe peers are not real-DM qualification.
+
+The final offline continuation ran all 10 C++ suites, 149 Node tests with no
+skips, 554 Python unittest methods, and all 21 default-backend selftest checks.
+All passed. The Node run includes the actual C++ synthetic-host/Windows-pipe/MCP
+chain; it is still an offline host substitute. Failure-injection checks remain
+negative controls, not vendor-call acceptance. Earlier failed fixture setup and
+the acceptance fake's stale tool catalog were corrected and rerun; the original
+failed logs remain available privately.
+
+## Integrated baseline follow-up: scientific metadata handoff
 
 The reviewed native feature is integrated as an opt-in experiment; default
 v0.6 remains unchanged. The new metadata-only follow-up preserves Fourier
 producer context through retained results, crop/READ and NPY packaging. It does
 not change vendor entrypoints, pixels, size/type limits or the build gate.
-The new path has offline/synthetic validation only; the d59c0ce real-host
-records below do not qualify the changed wire/metadata path. A focused actual-DM
-continuation remains NOT_TESTED. See [handoff contract](../../docs/SCIENTIFIC_HANDOFF.md) and the
+At integration this path had offline/synthetic validation only; the d59c0ce
+records below do not qualify changed wire/metadata. The separate actual-DM
+continuation above now covers its stated targeted scope. See [handoff contract](../../docs/SCIENTIFIC_HANDOFF.md) and the
 [next-stage official comparison](../../docs/NATIVE_NEXT_STAGE.md).
 
 

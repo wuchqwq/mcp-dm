@@ -2,7 +2,7 @@
 
 原生 Fourier 已接入指定构建适配器，科学计算由 DM 的 Real_FFT、IFFT、Real、
 Imag、Arg 和 Norm 完成。MCP/C++ 不另写 FFT、幅值、功率或滤波算法，也不回退
-到旧 Python FFT。当前十四工具目录和显式使用方法见
+到旧 Python FFT。当前十六工具目录和显式使用方法见
 [原生工作流](NATIVE_WORKFLOW.md)，逐项证据见 [操作验收](OPERATIONS_ACCEPTANCE.md)。
 
 第一新合成宿主的 prepared 调用、独立数学、源保护、输出独立性、预览及

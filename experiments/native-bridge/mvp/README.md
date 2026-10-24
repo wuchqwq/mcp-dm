@@ -48,7 +48,7 @@ catalog; it never starts or falls back to the resident Python bridge.
 Future processing extensions call DM's own operators; the bridge handles
 parameters, ownership and result delivery. It does not implement a parallel
 analysis engine. Arithmetic, [FFT and components](FFT_READINESS.md), filters,
-preview and bounded numeric READ are explicit tools in the fourteen-tool native
+preview and bounded numeric READ are explicit tools in the sixteen-tool native
 catalog. Each still requires the selected adapter's qualified capability.
 Follow [the researcher workflow](NATIVE_WORKFLOW.md) for scientific handoff;
 the saved-response encoder and external example never run as hidden fallbacks.
@@ -332,3 +332,5 @@ See [the validation matrix](../RESULTS.md), [ABI contracts](../ABI_NOTES.md),
 [continuation handoff](HANDOFF.md). The root-level
 [native MCP configuration example](../../../mcp.native.json.example) is opt-in;
 it does not change client configuration automatically.
+
+See [result lifetime and complete bounded handoff](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md) for the additive release/availability tools, original-ID recovery and the explicit chunked NPY helper. Existing backend selection and installation boundaries are unchanged.

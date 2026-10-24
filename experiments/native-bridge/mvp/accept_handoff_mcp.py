@@ -65,7 +65,7 @@ def main(argv=None):
             require("error" not in initialized, "MCP initialize failed")
             client.notify("notifications/initialized")
             catalog = client.rpc("tools/list", {}).get("result", {}).get("tools", [])
-            require(len(catalog) == 14 and any(t.get("name") == "dm_native_read" for t in catalog), "Wrong native catalog")
+            require(len(catalog) == 16 and any(t.get("name") == "dm_native_read" for t in catalog), "Wrong native catalog")
             report["catalog"] = [tool["name"] for tool in catalog]
             host_thread = worker_tid = None
 

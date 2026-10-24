@@ -96,9 +96,15 @@ struct RetainedResult {
     std::array<std::uint32_t, 2> scientific_offset{{0, 0}};
     std::vector<std::string> scientific_processing{};
     bool scientific_unresolved = false;
+    std::uint32_t retention_token = 0;
 };
 std::map<std::uint32_t, RetainedResult> retained_results;
 std::uint64_t retained_result_bytes = 0;
+struct ReleasedResult353 { std::uint32_t image_id; std::string creation_request_id; std::uint64_t bytes; };
+std::map<std::uint32_t, ReleasedResult353> released_results353;
+std::set<std::uint32_t> released_image_ids353;
+std::uint32_t next_retention_token353 = 0;
+std::uint32_t last_retained_result353 = 0;
 // Internal legacy names alias the same pool; crop, arithmetic and FFT share
 // one total retention limit, never independent budgets.
 auto& retained_crops = retained_results;
@@ -400,9 +406,12 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
             }
         }
     }
+    if (next_retention_token353 == UINT32_MAX) throw std::runtime_error("native_retention_token_exhausted");
+    retained.retention_token = ++next_retention_token353;
     if (!retained_results.emplace(output_id, std::move(retained)).second)
         throw std::runtime_error("native_result_output_identity_invalid");
     retained_result_bytes += bytes;
+    last_retained_result353 = output_id;
     output.relinquish();
 }
 class VendorString {
@@ -832,6 +841,7 @@ std::string execute_arithmetic(const NativeRequest& request) {
 #include "filter_adapter.inc"
 #include "preview_adapter.inc"
 #include "read_adapter.inc"
+#include "result_release.inc"
 } // namespace
 
 void initialize_native() {
@@ -971,6 +981,7 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("binary_uint32_to_float32_2d", available("native_uint32_image_arithmetic", arithmetic));
         capability("filter_small_uint32_2d", available("native_uint32_filters", filters));
         capability("fourier_uint32_small_2d", available("native_uint32_fft", fourier));
+        capability("release_plugin_result_reference", available("native_result_release", true));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
           << ",\"build_error\":" << (fatal_abi ? "\"native_abi_invalid_output_path_disabled\"" : gate_error.empty() ? "null" : nb::quote(gate_error)) << '}';
@@ -1113,16 +1124,21 @@ static std::string execute_operation(const NativeRequest& request) {
     throw std::runtime_error("unsupported_native_operation");
 }
 std::string execute_native(const NativeRequest& request) {
+    reject_released_inputs353(request);
+    if (request.op == "RELEASE" || request.op == "RESULT_INFO") return result_lifecycle353(request);
+    last_retained_result353 = 0;
     auto result = execute_operation(request);
     // Guards have now released all temporary vendor objects. A malformed
     // destructor output must turn this operation into a failure too.
     if (request.op != "STATUS") require_ready();
-    return result;
+    return attach_retention353(request, std::move(result));
 }
 void shutdown_native() {
     for (auto& crop : retained_crops) release_image(crop.second.value);
     retained_crops.clear();
     retained_crop_bytes = 0;
+    released_results353.clear();
+    released_image_ids353.clear();
     api = Api{};
     gate_error = "native_adapter_stopped";
 }

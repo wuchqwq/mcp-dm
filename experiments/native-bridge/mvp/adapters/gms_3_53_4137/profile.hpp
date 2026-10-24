@@ -48,6 +48,7 @@ inline const AdapterProfile& profile() {
         },
         {
             {"native_datasets", true, "bounded native registry and metadata", {}, {}},
+            {"native_result_release", true, "explicit own image ID plus bridge retention token; plugin reference only; no document closure", {}, {}},
             {"native_mean", true, "raw float32 2D mean, <=4194304 pixels", {
                 {"GMSImageProcessing.dll", "?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z"}}, {}},
             {"native_statistics", true, "raw float32 2D mean/minimum/maximum/sum, <=4194304 pixels", {
