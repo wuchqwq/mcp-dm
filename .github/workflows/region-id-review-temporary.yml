@@ -1,0 +1,137 @@
+name: Isolated Windows region identity review
+on:
+  push:
+    branches: [validation/region-id-fix-20261025]
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+          persist-credentials: false
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: 19b3b23c9f9e980c46002670358f7a858d4cdab9
+          path: product
+          fetch-depth: 100
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reproduce stale reads on unmodified baseline
+        working-directory: product
+        shell: python
+        run: |
+          import pathlib,runpy,subprocess
+          runpy.run_path(str(pathlib.Path('../payload/.review/01-regression.py').resolve()))
+          r=subprocess.run(['node','--test','--test-name-pattern=independent directories','tests/native-region-handoff.test.mjs'],capture_output=True,text=True)
+          print(r.stdout);print(r.stderr)
+          assert r.returncode!=0 and '# fail 2' in r.stdout and '5 !== 10' in r.stdout, 'Expected independent-export regression was not reproduced'
+      - name: Apply repair and verify exact locally reviewed file identities
+        working-directory: product
+        shell: python
+        run: |
+          import pathlib,runpy,hashlib,subprocess
+          for name in ('02-repair.py','03-contract-tests.py','04-docs.py'):
+              runpy.run_path(str(pathlib.Path('../payload/.review',name).resolve()))
+          expected={
+            'AGENTS.md':'510d7735a816782254e5027f4c66895ed2abb63e3d793869a243cfdbf143f7ef',
+            'README.agent.md':'94a2261c314083a7ea255c89d346441a3e76389569738a51c7a54e0ace78bf6a',
+            'docs/NATIVE_LIFECYCLE_HANDOFF.md':'ca6025883bac08d5c0ce4712a8ff84067fb6927431cfe7b5d89e8c3d34981b33',
+            'docs/REGION_ID_REPAIR.md':'9035ad10887d04606bee1a060219c36487fd30246f3f870f3cd75efd4e6054c8',
+            'server.mjs':'8299bffaa3e1805a6100ea72ebab88e6d988ba1bd0d1fbdf04a0590fcdb4dfc3',
+            'tests/native-mcp.test.mjs':'8313626320c531c70580d4e00b5d6abf23ad838187607988b63f954aabdc8b74',
+            'tests/native-region-handoff.test.mjs':'d87a70068846e64cd799bcc408674ad405248118ab1c4422c125f59e56425be2',
+            'tools/native_region_handoff.mjs':'0b5346379f05d866018230824b6a265c4735daa7fe23e6c5af26a5eff3f0ec39'}
+          for name,wanted in expected.items():
+              p=pathlib.Path(name);p.write_bytes(p.read_text(encoding='utf-8').encode('utf-8'))
+              actual=hashlib.sha256(p.read_bytes()).hexdigest()
+              assert actual==wanted,(name,actual,wanted)
+          subprocess.run(['git','add','--',*expected],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert subprocess.check_output(['git','write-tree'],text=True).strip()=='8d315684bbfd738c66a5ad2abb08a09f990d6a41'
+          print('Exact locally reviewed product tree verified; temporary scripts are not part of product')
+      - name: Install external test dependencies only
+        working-directory: product
+        run: |
+          python -m pip install -r requirements-dev.txt -r requirements-analysis.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Test dependency installation failed' }
+      - name: Prepare pinned LLVM-MinGW
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'llvm-mingw.zip'
+          Invoke-WebRequest -Uri 'https://github.com/mstorsjo/llvm-mingw/releases/download/20250528/llvm-mingw-20250528-ucrt-x86_64.zip' -OutFile $zip
+          $directory = Join-Path $env:RUNNER_TEMP 'llvm'
+          Expand-Archive -LiteralPath $zip -DestinationPath $directory
+          $compiler = Join-Path $directory 'llvm-mingw-20250528-ucrt-x86_64\bin\clang++.exe'
+          & $compiler --version
+          if ($LASTEXITCODE -ne 0) { throw 'Compiler unavailable' }
+          "DM_REVIEW_CXX=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build actual plugin and ten C++ offline suites, no DM loaded
+        working-directory: product
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP 'native-build'
+          & .\experiments\native-bridge\mvp\build.ps1 -Cxx $env:DM_REVIEW_CXX -OutputDirectory $build
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          "DM_NATIVE_FAKE_HOST_EXE=$build\fake_host.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DM_NATIVE_SCIENTIFIC_FIXTURE=$build\scientific-surrogate-read.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DM_REVIEW_BUILD=$build" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Ten C++ contract and adapter surrogate suites
+        working-directory: product
+        run: |
+          foreach ($name in @('core_tests','adapter_tests','read_adapter_tests','result_release_tests','uint32_adapter_tests','uint32_operations_tests','adapter_profile_tests','adapter_rejection_tests','candidate_calls_tests')) {
+            & (Join-Path $env:DM_REVIEW_BUILD "$name.exe")
+            if ($LASTEXITCODE -ne 0) { throw "$name failed" }
+          }
+          & (Join-Path $env:DM_REVIEW_BUILD 'scientific_handoff_tests.exe') $env:DM_NATIVE_SCIENTIFIC_FIXTURE
+          if ($LASTEXITCODE -ne 0) { throw 'Scientific handoff surrogate failed' }
+      - name: Windows synthetic named-pipe transport
+        working-directory: product
+        run: |
+          python -B experiments/native-bridge/mvp/test_transport.py --exe $env:DM_NATIVE_FAKE_HOST_EXE
+          if ($LASTEXITCODE -ne 0) { throw 'Transport regression failed' }
+      - name: Complete Node regression including C++ and cross-language cases
+        working-directory: product
+        run: |
+          node --test
+          if ($LASTEXITCODE -ne 0) { throw 'Node regression failed' }
+      - name: Complete Python synthetic regression
+        working-directory: product
+        run: |
+          python -B -m unittest discover -s tests -p 'test_*.py' -q
+          if ($LASTEXITCODE -ne 0) { throw 'Python regression failed' }
+      - name: Default backend mock and Python 3.7 syntax compatibility
+        working-directory: product
+        run: |
+          $env:DM_TEST_PYTHON = (Get-Command python).Source
+          node selftest.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Default mock failed' }
+          python -c "import ast,pathlib; [ast.parse(p.read_text(encoding='utf-8-sig'),feature_version=(3,7)) for p in pathlib.Path('bridge').glob('*.py')]; print('Python 3.7 syntax PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'Python compatibility failed' }
+          git diff --cached --check
+          if ($LASTEXITCODE -ne 0) { throw 'Whitespace failed' }
+      - name: Publish verified clean candidate branch only, never main
+        working-directory: product
+        run: |
+          $branch = 'repair/region-export-identity-20261025'
+          $existing = git ls-remote --heads origin "refs/heads/$branch"
+          if ($LASTEXITCODE -ne 0 -or $existing) { throw 'Will not overwrite an existing branch' }
+          $tree = git write-tree
+          if ($LASTEXITCODE -ne 0 -or $tree -ne '8d315684bbfd738c66a5ad2abb08a09f990d6a41') { throw 'Product tree changed after validation' }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(native): isolate region export requests and clarify SHOW delivery scope'
+          if ($LASTEXITCODE -ne 0) { throw 'Commit failed' }
+          git push origin "HEAD:refs/heads/$branch"
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate push failed' }
+          $sha = git rev-parse HEAD
+          "Tested candidate: $sha" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "No real DM, vendor DLL loading, experimental data or user workstation access. Temporary validation files are not in the product tree." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
