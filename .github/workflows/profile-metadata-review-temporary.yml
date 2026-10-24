@@ -1,0 +1,118 @@
+name: Isolated Windows profile metadata review
+on:
+  push:
+    branches: [validation/profile-metadata-review-20261025]
+    paths: [.github/workflows/profile-metadata-review-temporary.yml]
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+          persist-credentials: false
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: 82564a78a031c7db43895fc406bd62fa2a154606
+          path: product
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact patch and add regression only
+        shell: python
+        run: |
+          import pathlib,hashlib,subprocess
+          root=pathlib.Path.cwd()
+          patch=(root/'payload/.review/profile-metadata.patch').read_text(encoding='utf-8').replace('\n diff --git ', '\ndiff --git ').encode('utf-8')
+          assert hashlib.sha256(patch).hexdigest()=='bc5e197a149f4680f6af4d8af3bd58115516a8663300b37f64c9f05a1a486089'
+          path=root/'checked.patch';path.write_bytes(patch)
+          subprocess.run(['git','apply','--check',str(path)],cwd=root/'product',check=True)
+          subprocess.run(['git','apply','--include=experiments/native-bridge/mvp/line_profile_adapter_tests.cpp',str(path)],cwd=root/'product',check=True)
+      - name: Prepare pinned LLVM-MinGW
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'llvm.zip'
+          Invoke-WebRequest -Uri 'https://github.com/mstorsjo/llvm-mingw/releases/download/20250528/llvm-mingw-20250528-ucrt-x86_64.zip' -OutFile $zip
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'llvm')
+          $cxx = Join-Path $env:RUNNER_TEMP 'llvm/llvm-mingw-20250528-ucrt-x86_64/bin/clang++.exe'
+          & $cxx --version
+          if ($LASTEXITCODE -ne 0) { throw 'Compiler unavailable' }
+          "REVIEW_CXX=$cxx" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Reproduce metadata mismatch before repair
+        working-directory: product
+        shell: python
+        run: |
+          import os,pathlib,subprocess
+          source=pathlib.Path('experiments/native-bridge/mvp')
+          exe=pathlib.Path(os.environ['RUNNER_TEMP'])/'baseline-profile.exe'
+          subprocess.run([os.environ['REVIEW_CXX'],'-std=c++17','-O2','-Wall','-Wextra','-Werror','-static','-D_WIN32_WINNT=0x0602','-I',str(source),str(source/'core.cpp'),str(source/'line_profile_adapter_tests.cpp'),'-lversion','-lbcrypt','-o',str(exe)],check=True)
+          r=subprocess.run([str(exe)],capture_output=True,text=True)
+          print(r.stdout);print(r.stderr)
+          assert r.returncode!=0 and 'REGRESSION: DATASETS lost owned PROFILE float64 metadata' in r.stderr, 'Expected baseline defect not reproduced'
+      - name: Apply minimal repair and verify exact product tree
+        working-directory: product
+        shell: python
+        run: |
+          import pathlib,hashlib,subprocess
+          patch=pathlib.Path('../checked.patch').resolve()
+          subprocess.run(['git','apply','--exclude=experiments/native-bridge/mvp/line_profile_adapter_tests.cpp',str(patch)],check=True)
+          expected={'docs/NATIVE_LINE_PROFILE.md':'1430f779896ee4fd7f7bbd064b4ee397420181341d4807e5207dbc73f3232acc','experiments/native-bridge/mvp/adapters/gms_3_53_4137/implementation.inc':'f21c2c9f593be9f9adcc4a9560616dd8c77ff1df032214e640cc58b74f6d518b','experiments/native-bridge/mvp/line_profile_adapter_tests.cpp':'fdf488b89b962d40229f7a48808d4d46653d84c6a3c750fbe658263173f111e7'}
+          for name,digest in expected.items(): assert hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()==digest,name
+          subprocess.run(['git','add','--',*expected],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert subprocess.check_output(['git','write-tree'],text=True).strip()=='74f15db0f50ab1d9a436b2469a6cc43a1b211bcf'
+      - name: Build plugin and all twelve offline suites
+        working-directory: product
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP 'build'
+          & ./experiments/native-bridge/mvp/build.ps1 -Cxx $env:REVIEW_CXX -OutputDirectory $build
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          "REVIEW_BUILD=$build" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DM_NATIVE_FAKE_HOST_EXE=$build/fake_host.exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DM_NATIVE_SCIENTIFIC_FIXTURE=$build/scientific-read.json" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Twelve C++ suites and Windows transport
+        working-directory: product
+        run: |
+          foreach ($name in @('core_tests','adapter_tests','read_adapter_tests','result_release_tests','roi_adapter_tests','line_profile_adapter_tests','uint32_adapter_tests','uint32_operations_tests','adapter_profile_tests','adapter_rejection_tests','candidate_calls_tests')) {
+            & (Join-Path $env:REVIEW_BUILD "$name.exe")
+            if ($LASTEXITCODE -ne 0) { throw "$name failed" }
+          }
+          & (Join-Path $env:REVIEW_BUILD 'scientific_handoff_tests.exe') $env:DM_NATIVE_SCIENTIFIC_FIXTURE
+          if ($LASTEXITCODE -ne 0) { throw 'Scientific handoff failed' }
+          python -B experiments/native-bridge/mvp/test_transport.py --exe $env:DM_NATIVE_FAKE_HOST_EXE
+          if ($LASTEXITCODE -ne 0) { throw 'Transport failed' }
+      - name: Node regression and independent profile oracle
+        working-directory: product
+        run: |
+          python -m pip install numpy
+          if ($LASTEXITCODE -ne 0) { throw 'External test dependency failed' }
+          node --test
+          if ($LASTEXITCODE -ne 0) { throw 'Node regression failed' }
+          python -B -m unittest discover -s tests -p test_native_line_profile_oracle.py -q
+          if ($LASTEXITCODE -ne 0) { throw 'Profile oracle regression failed' }
+          $env:DM_TEST_PYTHON = (Get-Command python).Source
+          node selftest.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Default mock failed' }
+      - name: Publish clean tested repair branch, never main or user feature
+        working-directory: product
+        run: |
+          $branch = 'repair/profile-enumeration-20261025'
+          $old = git ls-remote --heads origin "refs/heads/$branch"
+          if ($LASTEXITCODE -ne 0 -or $old) { throw 'Will not overwrite existing branch' }
+          $tree = git write-tree
+          if ($tree -ne '74f15db0f50ab1d9a436b2469a6cc43a1b211bcf') { throw 'Product changed after tests' }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(native): preserve owned profile descriptors in dataset enumeration'
+          if ($LASTEXITCODE -ne 0) { throw 'Commit failed' }
+          git push origin "HEAD:refs/heads/$branch"
+          if ($LASTEXITCODE -ne 0) { throw 'Push failed' }
+          git rev-parse HEAD
