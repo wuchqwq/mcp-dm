@@ -78,6 +78,36 @@ int main(int argc,char** argv) {
             check(rois.good());
         }
         const auto id=retained_results.begin()->first,token=retained_results.begin()->second.retention_token;
+        // Re-enumerating an owned profile must not lose its already qualified
+        // rank/type while leaving every 2D processing gate closed.
+        auto* profile_image=registry.at(id);
+        const auto pixels_read_before_listing=profile_value_calls353;
+        const auto references_before_listing=profile_image->references;
+        const auto expected_profile_metadata=metadata(profile_image,false,true);
+        const auto listed=execute_native({"list-profile","DATASETS",{}});
+        const bool complete_profile_metadata=listed.find(expected_profile_metadata)!=std::string::npos;
+        if(!complete_profile_metadata)std::cerr<<"REGRESSION: DATASETS lost owned PROFILE float64 metadata\n";
+        check(complete_profile_metadata);
+        check(expected_profile_metadata.find("\"dtype\":\"float64\"")!=std::string::npos);
+        check(expected_profile_metadata.find("\"native_mean_supported\":false")!=std::string::npos);
+        check(expected_profile_metadata.find("\"native_summary_supported\":false")!=std::string::npos);
+        check(profile_value_calls353==pixels_read_before_listing && profile_image->references==references_before_listing);
+        // A foreign rank-one code-12 image has no qualified creator identity.
+        FakeImage foreign;foreign.id=900;foreign.dimensions=1;foreign.code=12;
+        registry.emplace(foreign.id,&foreign);
+        const auto foreign_metadata=metadata(&foreign,false);
+        check(foreign_metadata.find("\"dtype\":null")!=std::string::npos);
+        check(execute_native({"list-foreign-profile","DATASETS",{}}).find(foreign_metadata)!=std::string::npos);
+        check(foreign.references==1);registry.erase(foreign.id);
+        // A reused numeric ID alone must not borrow another object's metadata.
+        auto& retained=retained_results.at(id);
+        const auto original_pointer=retained.value.image;
+        retained.value.image=&foreign;
+        const auto unmatched_metadata=metadata(profile_image,false);
+        check(unmatched_metadata.find("\"dtype\":null")!=std::string::npos);
+        check(execute_native({"list-profile-pointer-mismatch","DATASETS",{}}).find(unmatched_metadata)!=std::string::npos);
+        retained.value.image=original_pointer;
+        check(profile_value_calls353==pixels_read_before_listing && profile_image->references==references_before_listing);
         const auto before_docs=document_calls;
         try{execute_native({"show-profile","SHOW",{id}});check(false);}catch(const std::runtime_error& e){check(std::string(e.what())=="native_show_requires_qualified_2d_result");}
         check(document_calls==before_docs);

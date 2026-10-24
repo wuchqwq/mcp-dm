@@ -1027,7 +1027,13 @@ static std::string execute_operation(const NativeRequest& request) {
             auto id = api.id(image.value.image);
             if (!ids.insert(id).second) throw std::runtime_error("dataset_enumeration_changed");
             if (i) s << ',';
-            s << metadata(image.value.image, false);
+            // PROFILE already qualified this exact owned object as rank-one
+            // float64. Preserve that descriptor when the Agent lists results;
+            // an arbitrary code-12 image or a reused ID is not that evidence.
+            const auto owned = retained_results.find(id);
+            const bool owned_profile = owned != retained_results.end() &&
+                owned->second.operation == "PROFILE" && owned->second.value.image == image.value.image;
+            s << metadata(image.value.image, false, owned_profile);
             require_ready();
         }
         require_ready();
