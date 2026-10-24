@@ -47,8 +47,8 @@ The priorities are straightforward: use the intended image, do not silently chan
 | Path | Current scope | What to know |
 |---|---|---|
 | **Default on main: v0.6 Python backend** | Images and metadata, 2D statistics, profiles, FFT summaries, cropping, scientific exports, and optional capture/preview | Connects through DM's embedded Python. Some numerical operations use NumPy. Previews require a separate environment. |
-| **Optional on main: experimental native C++ backend** | Status, image enumeration, native mean, operation-result queries and separate crop images | Pinned to the qualified Windows x64 GMS **3.53.4137.0** build and exact module fingerprints. This mainline snapshot does not offer native preview, file saving or visible-document delivery. |
-| **Development branch** | Further native work, including summary statistics and visible-document delivery | Not merged into main by this documentation update. See the [branch handoff](https://github.com/wuchqwq/mcp-dm/blob/feature/native-bridge-mvp/experiments/native-bridge/mvp/HANDOFF.md) for scope and evidence; it is not a default-install promise. |
+| **Optional on main: experimental native C++ backend** | Fourteen tools: native summaries, crop, bounded arithmetic/FFT/filters, PNG preview, visible documents and numerical handoff | Exact Windows x64 GMS **3.53.4137.0** fingerprints and per-operation dtype/size limits. NPY handoff is not native DM file saving; see the [native workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md). |
+| **Next stage** | GUI selections, native profiles/histograms, chunked handoff and result release | See the [official-feature comparison and priorities](docs/NATIVE_NEXT_STAGE.md). Planned items are not current capabilities. |
 
 **For a first trial, use the default backend on main.** Read the [native guide and build restrictions](experiments/native-bridge/mvp/README.md) before trying the C++ experiment. Do not use it on an unrecognized GMS build.
 
@@ -99,3 +99,5 @@ The [agent guide](README.agent.md) covers setup, data targeting, errors and hand
 The agent-assisted multi-version compatibility generator is an [independent proposal](https://github.com/wuchqwq/mcp-dm/pull/3), not a working automatic adapter.
 
 Project code is licensed under the [MIT License](LICENSE). DigitalMicrograph/GMS, Gatan runtimes, vendor documentation and experimental datasets are not distributed here. This is not an official Gatan product.
+
+Native Fourier metadata: [scientific handoff and validation scope](docs/SCIENTIFIC_HANDOFF.md).

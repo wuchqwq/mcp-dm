@@ -1,5 +1,9 @@
 # mcp-dm scope and roadmap
 
+最新集成后的优先级见 [Gatan 官方功能对照与下一阶段](docs/NATIVE_NEXT_STAGE.md)。
+科学语义交接修复的范围与待补实机验证见 [handoff contract](docs/SCIENTIFIC_HANDOFF.md)。
+
+
 ## Goal
 
 Let a general-purpose agent inspect DM data, view selected images, invoke common post-acquisition operations correctly and retrieve calibrated results for further work. This repository is a tool interface, not a scientific decision-maker or a new agent application.

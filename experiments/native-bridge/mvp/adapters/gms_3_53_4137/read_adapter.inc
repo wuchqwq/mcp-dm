@@ -64,12 +64,35 @@ std::string execute_read(const NativeRequest& request) {
     const auto source_info = metadata(source.value.image, false);
     bool calibration_complete = false;
     const auto calibration = read_roi_calibration353(source.value.image, plan, calibration_complete);
-    std::string provenance = "null";
+    std::string provenance = "null", scientific_context = "null";
     const auto retained = retained_results.find(before.id);
     if (retained != retained_results.end()) {
         if (retained->second.value.image != source.value.image)
             throw std::runtime_error("native_read_source_provenance_identity_mismatch");
         const auto& original = retained->second;
+        if (original.scientific_unresolved) {
+            scientific_context = "{\"schema_version\":1,\"status\":\"unresolved_lineage\"}";
+        } else if (original.scientific_result != "null") {
+            if (source_info != original.metadata)
+                throw std::runtime_error("native_read_scientific_metadata_changed");
+            auto context = json_stream();
+            context << "{\"schema_version\":1,\"status\":\"tracked_fourier\",\"original_operation\":"
+                << nb::quote(original.scientific_operation) << ",\"request_id\":"
+                << nb::quote(original.scientific_request_id) << ",\"normalized_args\":[";
+            for (std::size_t i = 0; i < original.scientific_args.size(); ++i) {
+                if (i) context << ',';
+                context << original.scientific_args[i];
+            }
+            context << "],\"result_version\":2,\"result\":" << original.scientific_result
+                << ",\"source_offset_xy\":[" << original.scientific_offset[0] << ','
+                << original.scientific_offset[1] << "],\"postprocessing\":[";
+            for (std::size_t i = 0; i < original.scientific_processing.size(); ++i) {
+                if (i) context << ',';
+                context << nb::quote(original.scientific_processing[i]);
+            }
+            context << "]}";
+            scientific_context = context.str();
+        }
         auto provenance_stream = json_stream();
         provenance_stream << "{\"operation\":" << nb::quote(original.operation)
           << ",\"request_id\":" << nb::quote(original.request_id) << ",\"source_image_ids\":[";
@@ -112,6 +135,7 @@ std::string execute_read(const NativeRequest& request) {
       << ",\"sample_count\":" << plan.samples << ",\"raw_bytes\":" << plan.bytes
       << ",\"roi_calibration\":" << calibration << ",\"calibration_complete\":" << (calibration_complete ? "true" : "false")
       << ",\"coordinate_mapping_policy\":\"logical ROI only; source_x=x0+roi_x; source_y=y0+roi_y; source unchanged\""
+      << ",\"scientific_context\":" << scientific_context
       << ",\"source_provenance\":" << provenance
       << ",\"source_provenance_scope\":\"immutable creation record only; source image remains mutable\""
       << ",\"operator\":\"GMS::Image::GetRealValue\",\"computation\":\"DM native point reads; data handoff only\""

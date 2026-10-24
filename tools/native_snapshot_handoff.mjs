@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {validateNativeDataSnapshot, validRequestId} from '../lib/native_bridge.mjs';
+import {validateNativeDataSnapshot, nativeScientificSemantics, validRequestId} from '../lib/native_bridge.mjs';
 
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -123,6 +123,7 @@ export function validateSavedSnapshot(raw) {
     receipt.exec_tid !== receipt.worker_tid && !['result', 'error', 'code'].some(key => Object.hasOwn(receipt, key)), 'Original completed NB2 READ receipt required');
   const {native_receipt: ignored, ...result} = payload; void ignored;
   validateNativeDataSnapshot(result, receipt.normalized_args);
+  nativeScientificSemantics(result, {requireFourierContext: true});
   const values = Buffer.from(result.values_base64, 'base64');
   requireThat(values.length <= 65536, 'Native snapshot byte budget exceeded');
   return {result, receipt, values, receiptHash: sha(canonical(receipt)), snapshotHash: sha(raw), pixelHash: sha(values)};
@@ -141,13 +142,18 @@ export function encodeNpy(shape, values, dtype = 'float32') {
 
 function packageInfo(snapshot, captureId, npy) {
   const {result, receipt, pixelHash, snapshotHash, receiptHash} = snapshot;
+  const scientific = nativeScientificSemantics(result, {requireFourierContext: true});
   const sourceCal = result.source.calibration.map((axis, index) => ({...axis, axis: index === 0 ? 'x' : 'y'}));
   const workCal = result.roi_calibration.map((axis, index) => ({...axis, axis: index === 0 ? 'x' : 'y'}));
   return {schema_version: 1, capture_id: captureId, shape_yx: result.shape, dtype: result.dtype, byte_order: 'little', array_order: 'C',
     axes: ['y', 'x'], axis_roles: [{numpy_axis: 0, dm_dimension: 1, role: 'y'}, {numpy_axis: 1, dm_dimension: 0, role: 'x'}],
     source_image_id: result.source_image_id, source_shape_yx: result.source.shape, source_rect_xyxy: result.effective_rect,
     source_rect_convention: 'zero-based half-open [x0,y0,x1,y1]', source_calibration_dm: sourceCal, working_calibration_xy: workCal,
-    pixel_coordinate_model: 'pixel centers at integer x,y; physical value = calibrated_value_at_pixel_zero + index*scale',
+    pixel_coordinate_model: scientific.domain === 'frequency' ?
+      'pixel centers at integer x,y; use scientific_semantics.coordinate_axes for Fourier bins; working_calibration_xy is unmodified native DM metadata' :
+      'pixel centers at integer x,y; physical value = calibrated_value_at_pixel_zero + index*scale',
+    scientific_context: result.scientific_context ?? null, scientific_semantics: scientific,
+    native_calibration_semantics: 'native DM calibration; not necessarily mathematical Fourier bin coordinates',
     calibration_complete: result.calibration_complete, source_metadata: result.source,
     intensity_calibration: {origin: null, scale: null, unit: null, status: 'NOT_READ'}, intensity_calibration_applied: false,
     input_file: 'input.npy', input_sha256: sha(npy), input_file_bytes: npy.length, raw_bytes: result.raw_bytes,

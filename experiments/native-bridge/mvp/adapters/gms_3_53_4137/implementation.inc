@@ -88,6 +88,14 @@ struct RetainedResult {
     std::vector<std::string> source_metadata;
     std::string metadata, semantics;
     bool uint32_operation_lineage = false;
+    // Our metadata only, never a vendor ABI structure or another image reference.
+    // A frozen v2 Fourier result explains bins/phase independently of DM's
+    // half-bin native calibration. Unknown lineage is never guessed from units.
+    std::string scientific_result = "null", scientific_operation{}, scientific_request_id{};
+    std::vector<std::uint32_t> scientific_args{};
+    std::array<std::uint32_t, 2> scientific_offset{{0, 0}};
+    std::vector<std::string> scientific_processing{};
+    bool scientific_unresolved = false;
 };
 std::map<std::uint32_t, RetainedResult> retained_results;
 std::uint64_t retained_result_bytes = 0;
@@ -335,7 +343,8 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
                           const std::vector<std::uint32_t>& source_ids,
                           const std::vector<std::string>& source_metadata,
                           const std::string& output_metadata, const std::string& semantics,
-                          bool uint32_lineage = false) {
+                          bool uint32_lineage = false,
+                          const std::string& scientific_result = "null") {
     require_ready();
     if (!output.value.image || !output_id || api.id(output.value.image) != output_id || retained_results.count(output_id))
         throw std::runtime_error("native_result_output_identity_invalid");
@@ -347,6 +356,50 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
                       request.op == "BINARY" ? ResultKind::Binary : ResultKind::NativeOperation;
     RetainedResult retained{output.value, bytes, kind, api.dtype(output.value.image), request.op, request.id,
                             vendor_operator, source_ids, source_metadata, output_metadata, semantics, uint32_lineage};
+    if (scientific_result != "null") {
+        if (!nb::is_fft_operation353(request.op) || !nb::valid_json(scientific_result))
+            throw std::runtime_error("native_result_scientific_context_invalid");
+        retained.scientific_result = scientific_result;
+        retained.scientific_operation = request.op;
+        retained.scientific_request_id = request.id;
+        retained.scientific_args = request.args;
+    } else {
+        // Cropping translates the index frame. Unary/filter operations preserve
+        // coordinates but not the original component's value meaning. Mixed or
+        // untracked binary lineage is explicitly unresolved, never spatial by default.
+        const RetainedResult* inherited = nullptr;
+        for (const auto source_id : source_ids) {
+            const auto parent = retained_results.find(source_id);
+            if (parent != retained_results.end() &&
+                (parent->second.scientific_result != "null" || parent->second.scientific_unresolved)) {
+                if (source_ids.size() != 1 || parent->second.scientific_unresolved) {
+                    retained.scientific_unresolved = true; break;
+                }
+                inherited = &parent->second;
+            }
+        }
+        if (inherited && !retained.scientific_unresolved) {
+            if (source_metadata.size() != 1 || source_metadata[0] != inherited->metadata)
+                throw std::runtime_error("native_result_scientific_metadata_changed");
+            retained.scientific_result = inherited->scientific_result;
+            retained.scientific_operation = inherited->scientific_operation;
+            retained.scientific_request_id = inherited->scientific_request_id;
+            retained.scientific_args = inherited->scientific_args;
+            retained.scientific_offset = inherited->scientific_offset;
+            retained.scientific_processing = inherited->scientific_processing;
+            if (request.op == "CROP") {
+                for (unsigned axis = 0; axis < 2; ++axis) {
+                    if (request.args.at(1 + axis) > UINT32_MAX - retained.scientific_offset[axis])
+                        throw std::runtime_error("native_result_scientific_offset_overflow");
+                    retained.scientific_offset[axis] += request.args[1 + axis];
+                }
+            } else {
+                if (retained.scientific_processing.size() >= 32)
+                    throw std::runtime_error("native_result_scientific_history_over_budget");
+                retained.scientific_processing.push_back(vendor_operator);
+            }
+        }
+    }
     if (!retained_results.emplace(output_id, std::move(retained)).second)
         throw std::runtime_error("native_result_output_identity_invalid");
     retained_result_bytes += bytes;

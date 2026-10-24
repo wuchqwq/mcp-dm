@@ -4,6 +4,10 @@
 
 This is the entry point for an agent helping a researcher install or use the MCP. For code changes, also read AGENTS.md and the relevant implementation/tests. Do not treat instructions for using tools as permission to modify the repository, install dependencies, upload data or change unrelated client settings.
 
+For Fourier-derived READ/NPY data, preserve both native DM calibration and
+`scientific_semantics.coordinate_axes`; see [scientific handoff](docs/SCIENTIFIC_HANDOFF.md).
+Unknown context is not permission to guess the frequency origin or phase units.
+
 ## 1. User goal and division of work
 
 The researcher may normally work through DM's GUI and use external Python for specialized analysis. Do not require them to learn DM scripting or force every request through a capture/report pipeline.
@@ -20,20 +24,20 @@ Reports and replay are optional. A profile request needs a correct profile, not 
 
 Inspect the actual checkout, branch and configuration. Do not reset or overwrite a user's checkout to match this document. The live tool catalog and status describe the connected implementation, not capabilities mentioned in a different branch's README.
 
-| Backend | Mainline scope at this documentation change | Required handling |
+| Backend | Current mainline scope | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Five tools: `dm_status`, `dm_datasets`, `dm_native_mean`, `dm_native_result`, `dm_crop` | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
+| Opt-in native | Fourteen tools, including qualified bounded native operations, preview, READ and visible-document delivery; see the native workflow | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
-In this `feature/native-bridge-mvp` checkout, the native catalog has fourteen
+The integrated native catalog has fourteen
 tools, including qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect
 `native_capabilities` and its reason fields, not the tool count alone. See the
 [workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md) for the complete
 native crop/processing → numeric READ → explicit NPY handoff → external example.
-This feature was not merged into main or released.
+The integration remains experimental and is not a stable native release.
 
 The initial uint32 subset covers ordinary-packed 2D metadata, raw mean/SUMMARY,
 same-dtype crop, preview and READ. Mean/SUMMARY stop at 2,097,152 pixels; uint32

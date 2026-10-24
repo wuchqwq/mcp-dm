@@ -186,6 +186,6 @@ std::string execute_fft(const NativeRequest& request) {
     require_ready();
     retain_native_result(output, output_descriptor.id, plan.output_bytes, request,
                          nb::fft_operator353(operation), {source_descriptor.id},
-                         {source_info}, output_info, semantics, uint32_lineage);
+                         {source_info}, output_info, semantics, uint32_lineage, result);
     return result;
 }

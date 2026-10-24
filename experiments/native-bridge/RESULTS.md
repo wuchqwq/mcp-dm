@@ -1,5 +1,17 @@
 # Native bridge validation matrix
 
+## Integration follow-up: scientific metadata handoff
+
+The reviewed native feature is integrated as an opt-in experiment; default
+v0.6 remains unchanged. The new metadata-only follow-up preserves Fourier
+producer context through retained results, crop/READ and NPY packaging. It does
+not change vendor entrypoints, pixels, size/type limits or the build gate.
+The new path has offline/synthetic validation only; the d59c0ce real-host
+records below do not qualify the changed wire/metadata path. A focused actual-DM
+continuation remains NOT_TESTED. See [handoff contract](../../docs/SCIENTIFIC_HANDOFF.md) and the
+[next-stage official comparison](../../docs/NATIVE_NEXT_STAGE.md).
+
+
 **PASS** means the stated scope has evidence; **FAIL** means a requirement was
 observed to fail; **NOT_TESTED** means no accepted execution covers that scope.
 Offline, static and historical results are kept separate from current DM

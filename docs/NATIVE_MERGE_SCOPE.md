@@ -1,4 +1,18 @@
-# Native core partial integration
+# Native integration history
+
+## Current integration
+
+The reviewed feature through d59c0ce and its scientific-metadata repair are now
+integrated as the explicit experimental native backend. The fourteen-tool
+workflow, per-dtype limits and exact GMS fingerprint gates remain documented
+in the current native HANDOFF/RESULTS. Default v0.6 is unchanged. This is not a
+stable release, another supported build or new real-data/model-client evidence.
+The additive scientific-context path has its own offline-only validation
+boundary in [SCIENTIFIC_HANDOFF.md](SCIENTIFIC_HANDOFF.md).
+
+The original partial-integration notes below describe the earlier mainline
+snapshot and retain their historical scope, not the current feature catalog.
+
 
 This records the earlier partial integration into main. It is not the current
 feature catalog or machine state. The later feature has completed separate

@@ -204,6 +204,14 @@ integer sum, checks NumPy uint64, and divides once for a raw binary64 mean.
 Only new synthetic images qualify this extension; real ADF files remain
 NOT_TESTED and must not be edited as part of that trial.
 
+The scientific-context integration adds bridge-owned Fourier creation metadata
+through retained results, READ and the saved-response encoder. Preserve native
+calibration and mathematical `scientific_semantics.coordinate_axes` separately;
+never derive FFT bins only from the native half-bin origin. Crop offsets compose;
+postprocessed phase/power is not an unchanged component. Legacy/mixed lineage
+stays explicit unknown. The new metadata path has offline/synthetic tests, not
+new actual-DM acceptance. See docs/SCIENTIFIC_HANDOFF.md.
+
 Only explicit saved READ data may feed the external handoff CLI. Persist the
 caller handoff ID/parameters and fsync the complete journal before creating a
 new output directory. Same ID/parameters returns the existing verified receipt;

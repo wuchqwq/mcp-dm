@@ -140,6 +140,11 @@ def run(workspace_arg, capture_arg, output_relative):
                   "source_calibration_dm": info["source_calibration_dm"], "working_calibration_xy": info["working_calibration_xy"],
                   "python_version": sys.version, "numpy_version": np.__version__, "platform": platform.platform(),
                   "dm_called": False, "result_returned_to_dm": False}
+    # Preserve interpretation for downstream consumers without applying any
+    # coordinate or intensity conversion to these raw sample values.
+    if "scientific_semantics" in info:
+        parameters["scientific_semantics"] = info["scientific_semantics"]
+        parameters["scientific_context"] = info.get("scientific_context")
     if dtype == "uint32":
         # The READ sample bound makes the worst-case sum exact in both uint64
         # and binary64. No float32 conversion occurs at any stage.
