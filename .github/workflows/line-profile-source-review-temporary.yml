@@ -1,0 +1,24 @@
+name: Isolated line-profile review source
+on:
+  push:
+    branches: [validation/line-profile-source-review-20261025]
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 82564a78a031c7db43895fc406bd62fa2a154606
+          persist-credentials: false
+      - name: Archive exact reviewed source only
+        run: |
+          test "$(git rev-parse HEAD)" = '82564a78a031c7db43895fc406bd62fa2a154606'
+          git archive --format=tar.gz -o /tmp/public-source-82564a7.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-source-82564a7
+          path: /tmp/public-source-82564a7.tar.gz
+          retention-days: 3
