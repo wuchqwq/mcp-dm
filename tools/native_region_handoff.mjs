@@ -27,14 +27,23 @@ export function hashFile(filename,skip=0) {
   finally{fs.closeSync(fd);}return digest.digest('hex');
 }
 
-export function planRegion({imageId,rect,blockSamples=LIMIT.samplesPerBlock,session,hostPid,requestId}) {
+function regionLayout({imageId,rect,blockSamples=LIMIT.samplesPerBlock,session,hostPid,requestId}) {
   check(uint(imageId)&&imageId>0&&uint(hostPid)&&hostPid>0&&/^[a-f0-9]{32}$/.test(session)&&validRequestId(requestId),'Explicit image/session/PID/export ID required');
   check(Array.isArray(rect)&&rect.length===4&&rect.every(uint)&&rect[2]>rect[0]&&rect[3]>rect[1],'Positive half-open integer rectangle required');
   const width=rect[2]-rect[0],height=rect[3]-rect[1];
   check(width*height<=LIMIT.sourcePixels&&Number.isInteger(blockSamples)&&blockSamples>0&&blockSamples<=LIMIT.samplesPerBlock,'Pixel/block budget exceeded before reads');
   const tileWidth=Math.min(width,blockSamples),tileHeight=Math.max(1,Math.floor(blockSamples/tileWidth));
   check(Math.ceil(width/tileWidth)*Math.ceil(height/tileHeight)<=LIMIT.blocks,'Block/session request budget exceeded before reads');
-  const prefix='region-'+hash(canonical({imageId,rect,blockSamples,session,hostPid,requestId})).slice(0,32);
+  return {width,height,tileWidth,tileHeight};
+}
+
+// A null namespace exists only to validate completed historical journals.
+// It must never be used for a new capture or a live recovery.
+function regionPlan({imageId,rect,blockSamples=LIMIT.samplesPerBlock,session,hostPid,requestId},captureId) {
+  const options={imageId,rect,blockSamples,session,hostPid,requestId};
+  const {width,height,tileWidth,tileHeight}=regionLayout(options);
+  const identity=captureId===null?options:{...options,captureId};
+  const prefix='region-'+hash(canonical(identity)).slice(0,32);
   const make=(op,args,suffix)=>{const id=prefix+'-'+suffix;return {protocol:'NB2',session,host_pid:hostPid,id,op,args,
     wire:`NB2 ${session} ${id} ${op}${args.length?' '+args.join(' '):''}\n`};};
   const blocks=[];
@@ -47,6 +56,12 @@ export function planRegion({imageId,rect,blockSamples=LIMIT.samplesPerBlock,sess
   return {shape:[height,width],blocks,status:{request:make('STATUS',[],'status'),state:'PLANNED'},
     new_request_records:blocks.length+1,max_new_request_records:LIMIT.blocks+1,session_record_reservation:false,
     disk_budget_bytes:LIMIT.diskBytes,disk_estimate_bytes:estimate,io_buffer_bytes:LIMIT.ioBufferBytes};
+}
+
+export function planRegion(options) {
+  check(typeof options.captureId==='string'&&options.captureId.length===32&&/^[a-f0-9]{32}$/.test(options.captureId),
+    'Explicit persisted capture ID required for request isolation');
+  return regionPlan(options,options.captureId);
 }
 
 function checkReply(reply,request) {
@@ -111,7 +126,9 @@ function verifiedCapture(target,journal,plan) {
 // real native transport after the original full plan has been durably saved.
 export async function handoffRegion({workspace:workspaceArg,output,requestId,imageId,rect,session,hostPid,blockSamples=16384,recover=false},
   makeBridge=options=>new NativeBridge(options)) {
-  const plan=planRegion({imageId,rect,session,hostPid,blockSamples,requestId});
+  const planning={imageId,rect,session,hostPid,blockSamples,requestId};
+  regionLayout(planning); // Validate bounds before filesystem changes; no wire IDs yet.
+  let plan;
   const workspace=fs.realpathSync(workspaceArg);check(fs.statSync(workspace).isDirectory(),'Existing independent workspace required');
   const {target,relative}=newTarget(workspace,output);
   const parameters={imageId,rect,session,hostPid,blockSamples,requestId,output:relative};
@@ -121,15 +138,34 @@ export async function handoffRegion({workspace:workspaceArg,output,requestId,ima
     write(lockFd,jsonBytes({pid:process.pid,request_id:requestId}));fs.fsyncSync(lockFd);
     if(fs.existsSync(filename)) {
       journal=json(filename);check(equal(journal.parameters,parameters)&&journal.parameters_sha256===hash(canonical(parameters)),'Export ID parameters conflict; no calls or output overwrite');
-      check(equal(journal.plan,plan)&&journal.blocks.every((b,i)=>equal(b.request,plan.blocks[i]?.request))&&journal.blocks.length===plan.blocks.length,'Original saved plan changed');
+      check(typeof journal.capture_id==='string'&&journal.capture_id.length===32&&/^[a-f0-9]{32}$/.test(journal.capture_id),'Invalid saved capture identity');
+      const legacy=!Object.hasOwn(journal,'request_namespace_version');
+      if(legacy) {
+        // Completed files are historical evidence only. Incomplete legacy IDs
+        // may already collide with another export; never query/replay them here.
+        check(journal.state==='CAPTURED','LEGACY_REGION_RECOVERY_UNSAFE: preserve old files; start a new export ID in a new output directory');
+        plan=regionPlan(planning,null);
+      } else {
+        check(journal.request_namespace_version===2,'Unsupported region request namespace version');
+        check(journal.workspace_realpath===workspace,'Journal belongs to another output directory/workspace; copied recovery is not supported');
+        plan=planRegion({...planning,captureId:journal.capture_id});
+      }
+      check(equal(journal.plan,plan)&&Array.isArray(journal.blocks)&&journal.blocks.every((b,i)=>equal(b.request,plan.blocks[i]?.request))&&
+        journal.blocks.length===plan.blocks.length&&equal(journal.status?.request,plan.status.request),'Original saved plan changed');
       const stat=fs.lstatSync(target);check(stat.isDirectory()&&!stat.isSymbolicLink()&&fs.realpathSync(target)===target,'Capture directory changed');
-      if(journal.state==='CAPTURED')return verifiedCapture(target,journal,plan);
+      if(journal.state==='CAPTURED') {
+        const receipt=verifiedCapture(target,journal,plan);
+        return legacy?{...receipt,request_namespace_status:'legacy_unscoped_saved_evidence_only'}:receipt;
+      }
       if(!recover)return {state:'UNKNOWN_INCOMPLETE',request_id:requestId,capture_dir:target,automatic_retry:false,query_original_ids:journal.blocks.filter(b=>b.state==='SENT').map(b=>b.request.id)};
       check(['CAPTURING','PARTIAL'].includes(journal.state),'Failed capture requires inspection; not automatically repaired');
       fd=fs.openSync(filename,'r+');
     } else {
       check(!fs.existsSync(target),'Existing output is never overwritten');
-      journal={schema_version:1,state:'CAPTURING',capture_mode:'native_chunked_read',capture_id:randomUUID().replaceAll('-',''),parameters,
+      const captureId=randomUUID().replaceAll('-','');
+      plan=planRegion({...planning,captureId});
+      journal={schema_version:1,request_namespace_version:2,workspace_realpath:workspace,
+        state:'CAPTURING',capture_mode:'native_chunked_read',capture_id:captureId,parameters,
         parameters_sha256:hash(canonical(parameters)),plan,blocks:structuredClone(plan.blocks),status:structuredClone(plan.status),
         created_utc:new Date().toISOString(),pixel_capture_atomic:false};
       fd=fs.openSync(filename,'wx+');update(fd,journal); // before output creation or first connection

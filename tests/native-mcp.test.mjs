@@ -99,6 +99,7 @@ test("existing native MCP tools carry uint32 statistics/crop/preview/READ withou
     for (let index = 0; index < calls.length; ++index) {
       const [name, args] = calls[index], request_id = "uint32-mcp-" + index;
       const response = await client.tool(name, {image_id: 77, ...args, request_id}), output = toolOutput(response);
+      assert.equal(Object.hasOwn(output, "display_context"), false, "non-SHOW outputs do not claim delivery");
       assert.equal(output.native_receipt.request_id, request_id);
       assert.equal((output.source || output.image).dtype, "uint32");
       const queried = await client.tool("dm_native_result", {request_id}); assert.deepEqual(queried.result.content, response.result.content);
@@ -131,6 +132,8 @@ test("typed uint32 binary and described SHOW preserve actual output metadata thr
     const shown = await client.tool("dm_native_show", {image_id: 99, request_id: "candidate-show"});
     assert.equal(shown.result.content.length, 1, "a DM document receipt never creates an MCP image block");
     const text = toolOutput(shown); assert.equal(text.image.dtype, "uint32"); assert.equal(text.file_saved, false);
+    assert.equal(text.display_context.active_workspace_visibility, "unknown");
+    assert.equal(text.display_context.workspace_activation_requested, false);
     assert.equal(text.model_visual_verification, false);
     assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id: "candidate-show"})), text);
   } finally {await client.close(); await host.close();}
@@ -640,7 +643,11 @@ test("native SHOW polls same ID once submitted and reuses a completed record wit
       {id: "show-saved", operation: "SHOW", args: ["88"]},
       {id: "show-saved", operation: "QUERY", args: []},
     ], "the facade must only QUERY after the initial SHOW is accepted");
-    assert.deepEqual({...first, native_receipt: undefined}, {...result, native_receipt: undefined}, "host fields stay unchanged without invented delivery claims");
+    const {display_context, ...nativeFields} = first;
+    assert.deepEqual({...nativeFields, native_receipt: undefined}, {...result, native_receipt: undefined}, "host fields stay unchanged without invented delivery claims");
+    assert.deepEqual(display_context, {scope: "document_delivery_only", active_workspace_visibility: "unknown",
+      workspace_activation_requested: false, model_visual_verification: false, observation: "not_performed_by_mcp"});
+    assert.equal(Object.hasOwn(result, "display_context"), false, "stored host result is not rewritten");
     assert.equal(first.native_receipt.request_id, args.request_id); assert.equal(first.native_receipt.session, host.session);
     assert.deepEqual(toolOutput(await client.tool("dm_native_show", args)), first);
     assert.deepEqual(toolOutput(await client.tool("dm_native_result", {request_id: args.request_id})), first);

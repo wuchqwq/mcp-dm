@@ -66,7 +66,19 @@ This is an explicitly invoked data handoff helper, not an extra MCP tool. An
 Agent can run the fixed command without reading source or writing a tile loop.
 Use a unique export ID and retain its original workspace and journal. Export IDs
 are scoped to that workspace; copying journals to another workspace is not a
-cross-directory recovery mechanism.
+cross-directory recovery mechanism. Each newly created capture now has a random
+`capture_id` persisted before any connection; STATUS/READ IDs include that
+capture's namespace. Independent directories using the same short export ID
+therefore cannot retrieve one another's cached READs. The journal records
+`request_namespace_version:2` and its canonical workspace. Explicit recovery
+uses the saved capture ID and original wire plan, never a newly generated ID.
+
+Completed legacy journals without that version can be verified offline only;
+the returned `request_namespace_status` is `legacy_unscoped_saved_evidence_only`.
+Hash agreement verifies the saved bytes, not their freshness at the old capture
+time. Incomplete legacy journals are refused with `LEGACY_REGION_RECOVERY_UNSAFE`,
+even with `--recover`: preserve their evidence and use a new export ID/output.
+No automatic journal migration, old-ID resend or overwrite is performed.
 
 The journal durably saves the full plan, original wire requests, session/PID,
 parameters and output before the first connection. Each block becomes SENT
@@ -151,9 +163,14 @@ tab indices or a request to process the current/front image.
 
 A first SHOW creates its result document in the active workspace in this tested
 scope. Repeating SHOW of that existing result from a different workspace reuses
-the document in its original workspace without activating that tab. The current
+the document in its original workspace without activating that tab. The legacy
 `document_visible`/visible-document receipt is **not proof of visibility in the
-active workspace**, focus, or model viewing. The tool has no workspace-targeting
+active workspace**, focus, or model viewing. The MCP facade adds `display_context`
+to completed SHOW responses and their QUERY results: `scope:document_delivery_only`,
+`active_workspace_visibility:unknown`, `workspace_activation_requested:false`,
+`model_visual_verification:false`, and `observation:not_performed_by_mcp`.
+This is a conservative interface policy, not a live workspace observation or a
+mutation of the original native receipt. The tool has no workspace-targeting
 parameter. Do not repeatedly SHOW or change IDs hoping to select a different tab.
 
 | Requested capability | Reviewed interface evidence | Missing qualification; current status |

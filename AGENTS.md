@@ -291,3 +291,13 @@ Use an external development venv with `requirements-dev.txt` for tifffile and `r
 Optional worker contracts: profile sampled_coordinates are source coordinates; sampled_coordinates_local and its calibration are capture-relative. Report intensity is raw, not calibrated by a unit label alone. Verification failure/unresolved state must exit nonzero. Preview allocations must be bounded before source scans/display allocation; full-frame floating/RGB intermediates are prohibited. No automatic Skill installation or overwriting user settings.
 
 Manual synthetic workspace switching was separately observed: explicit native image IDs remain stable across tabs; DATASETS is registry-wide. SHOW can reuse a document in an inactive workspace without activating it. A SHOW receipt is not proof of active-tab visibility or model viewing. Native workspace enumeration/activation, GUI ROI, profile/histogram and annotations remain unqualified; do not expose candidates or use UI automation/Python as their runtime fallback. A read-only authorized ADF ROI trial preserved original memory/file data and exact exports, but its inverse round trip failed the predeclared accuracy tolerance. Preserve that FAIL separately from passing operations and cleanup; do not claim lossless integer Fourier round trips or general real-data qualification.
+
+Complete-region export requests must be isolated by a random, durably recorded
+capture instance, not just the user-facing export name or mutable source ID.
+New journals bind their canonical workspace and namespace version; recovery
+reuses the exact saved wire IDs. Incomplete legacy unscoped journals must not
+be silently migrated or replayed. Completed legacy packages are saved evidence
+only and cannot be retroactively qualified as fresh reads by a hash check.
+MCP SHOW/QUERY `display_context` describes document-delivery policy, not a fresh
+GUI observation; preserve historical native receipts and report unknown active
+workspace visibility rather than claiming a tab was activated.

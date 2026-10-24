@@ -516,6 +516,18 @@ async function callNativeTool(name, args, signal) {
       throw new NativeBridgeError("Native SHOW completed without the requested image identity and visible DM document delivery", {session: bridge.session, requestId: reply.id, code: "NATIVE_PROTOCOL", sent: true});
     }
     const output = reply.state === "completed" ? {...result, native_receipt} : {native_receipt, error: reply.error || `Native request is ${reply.state}; only completed is success`};
+    // SHOW confirms document delivery, not the active workspace or GUI focus.
+    // Also annotate recovered historical SHOWs; this is adapter policy, not
+    // a fresh visibility probe or a rewrite of the stored native receipt.
+    if (reply.state === "completed" && reply.original_operation === "SHOW") {
+      output.display_context = {
+        scope: "document_delivery_only",
+        active_workspace_visibility: "unknown",
+        workspace_activation_requested: false,
+        model_visual_verification: false,
+        observation: "not_performed_by_mcp",
+      };
+    }
     const content = [{type: "text", text: JSON.stringify(output, null, 2)}];
     if (reply.state === "completed" && reply.original_operation === "PREVIEW") content.push(nativePreviewImage(result));
     return {content, ...(reply.state !== "completed" ? {isError: true} : {})};

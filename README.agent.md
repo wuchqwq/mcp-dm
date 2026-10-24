@@ -58,7 +58,9 @@ Inspect the actual capability and `dtype_semantics`; these operations are not
 lossless integer processing. Export the actual result dtype, never its ancestor's.
 Other integer types, native 4D and model-client acceptance remain outside this extension; native SaveAs is still unavailable. A bounded authorized real-input trial does not qualify arbitrary experimental datasets; its inverse round trip failed the predeclared tolerance, so do not claim lossless uint32 Fourier round trips.
 
-Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. GUI ROI, profile/histogram and native workspace enumeration/activation remain unqualified; see the lifecycle guide for the specific ABI gaps.
+New complete-region exports persist a per-capture request namespace before dispatch. Resume only the original journal in its original workspace; incomplete legacy unscoped journals are refused, never migrated or replayed. Completed old packages remain offline evidence, not newly verified source reads.
+
+Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. MCP SHOW/QUERY adds `display_context` with active-workspace visibility explicitly unknown; this does not probe or activate a workspace. GUI ROI, profile/histogram and native workspace enumeration/activation remain unqualified; see the lifecycle guide for the specific ABI gaps.
 
 Native main targets Windows x64 GMS 3.53.4137.0 with exact binary gates. Do not relax a fingerprint check or reuse an unqualified ABI for another build. A missing optional feature is not an instruction to enable arbitrary scripts.
 

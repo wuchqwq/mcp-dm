@@ -37,14 +37,15 @@ function fixture({unsigned=false,mutate=()=>{},source=imageMetadata(77,{unsigned
   return {bridge,calls,saved,response};
 }
 test('deterministic coverage includes right/bottom remainder and rejects budgets before calls',()=>{
-  const plan=planRegion(opts('unused')),covered=new Set();
+  const planning={...opts('unused'),captureId:'a'.repeat(32)};
+  const plan=planRegion(planning),covered=new Set();
   assert.equal(plan.blocks.length,5);
   for(const block of plan.blocks){const [id,x0,y0,x1,y1]=block.request.args;assert.equal(id,77);assert.ok((x1-x0)*(y1-y0)<=8);
     for(let y=y0;y<y1;++y)for(let x=x0;x<x1;++x){assert.ok(!covered.has(`${x},${y}`));covered.add(`${x},${y}`);}}
   assert.equal(covered.size,35);
-  const split=planRegion({...opts('unused'),rect:[2,3,21,8],blockSamples:12});assert.equal(split.blocks.length,10);assert.deepEqual(split.blocks.at(-1).request.args,[77,14,7,21,8]);
+  const split=planRegion({...planning,rect:[2,3,21,8],blockSamples:12});assert.equal(split.blocks.length,10);assert.deepEqual(split.blocks.at(-1).request.args,[77,14,7,21,8]);
   for(const bad of [{rect:[0,0,2049,2048]},{blockSamples:0},{blockSamples:16385},{rect:[0,0,1000,1000],blockSamples:1},{requestId:'bad id'},{hostPid:0},{session:'bad'}])
-    assert.throws(()=>planRegion({...opts('unused'),...bad}));
+    assert.throws(()=>planRegion({...planning,...bad}));
 });
 for(const unsigned of [false,true])test(`streamed ${unsigned?'uint32':'float32'} capture independently reopens with exact positions and bits; reuse makes no calls`,async t=>{
   const dir=temp(t),f=fixture({unsigned}),options=opts(dir);
@@ -209,4 +210,158 @@ test('real NativeBridge Windows pipe transports each planned READ once; output r
   const pipe=`\\\\.\\pipe\\dm_mcp_native_${s}`;await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(pipe,resolve);});
   try{const result=await handoffRegion({...opts(dir),session:s});assert.equal(result.state,'captured');assert.equal(f.calls.length,6);assert.equal(hashFile(path.join(dir,'capture','input.npy')),result.files_sha256['input.npy']);}
   finally{for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));}
+});
+
+for (const unsigned of [false, true]) test(`independent directories with the same export name read fresh ${unsigned ? 'uint32' : 'float32'} pixels`, async t => {
+  const firstDir = temp(t), secondDir = temp(t);
+  let epoch = 1, executions = 0;
+  const f = fixture({unsigned, mutate: reply => {
+    if (reply.original_operation !== 'READ') return;
+    const bytes = Buffer.from(reply.result.values_base64, 'base64');
+    for (let i = 0; i < bytes.length; i += 4) {
+      if (unsigned) bytes.writeUInt32LE(16777216 + epoch, i);
+      else bytes.writeFloatLE(epoch + 0.25, i);
+    }
+    reply.result.values_base64 = bytes.toString('base64');
+  }});
+  // Emulate the production core's immutable same-session deduplication, not
+  // an echo peer which incorrectly executes every repeated READ afresh.
+  f.bridge.execute = async (op, args, {requestId}) => {
+    f.calls.push([op, requestId, args]);
+    if (!f.saved.has(requestId)) {
+      const reply = f.response(op, args, requestId);
+      f.saved.set(requestId, reply);
+      if (op === 'READ') ++executions;
+    }
+    return f.saved.get(requestId);
+  };
+  const first = await handoffRegion(opts(firstDir), () => f.bridge);
+  const firstFile = path.join(firstDir, 'capture', 'input.npy');
+  const firstBytes = fs.readFileSync(firstFile);
+  epoch = 2; // Editing BETWEEN completed exports, never during a capture.
+  const second = await handoffRegion(opts(secondDir), () => f.bridge);
+  const secondBytes = fs.readFileSync(path.join(secondDir, 'capture', 'input.npy'));
+  assert.equal(first.state, 'captured'); assert.equal(second.state, 'captured');
+  assert.equal(executions, 10, 'both independent exports must execute all five READs');
+  assert.notDeepEqual(firstBytes, secondBytes, 'the new directory must not receive a cached old capture');
+  assert.deepEqual(fs.readFileSync(firstFile), firstBytes, 'the old capture remains immutable');
+  const value = bytes => unsigned ? bytes.readUInt32LE(bytes.length - 4) : bytes.readFloatLE(bytes.length - 4);
+  assert.equal(value(firstBytes), unsigned ? 16777217 : 1.25);
+  assert.equal(value(secondBytes), unsigned ? 16777218 : 2.25);
+  const calls = f.calls.length;
+  assert.deepEqual(await handoffRegion(opts(firstDir), () => { throw Error('reuse must be offline'); }), first);
+  assert.deepEqual(await handoffRegion(opts(secondDir), () => { throw Error('reuse must be offline'); }), second);
+  assert.equal(f.calls.length, calls);
+});
+
+const journalPath = dir => path.join(dir, fs.readdirSync(dir).find(name => name.startsWith('.native-region-') && name.endsWith('.json')));
+const saveJson = (filename, value) => fs.writeFileSync(filename, JSON.stringify(value, null, 2) + '\n');
+const shaBytes = value => createHash('sha256').update(value).digest('hex');
+
+test('wire plans are deterministic only within one persisted capture identity', () => {
+  const args = {...opts('unused'), captureId: 'a'.repeat(32)};
+  const first = planRegion(args), same = planRegion(args), next = planRegion({...args, captureId: 'c'.repeat(32)});
+  assert.deepEqual(first, same);
+  const ids = p => [p.status.request.id, ...p.blocks.map(block => block.request.id)];
+  assert.ok(ids(first).every(id => !ids(next).includes(id) && /^[A-Za-z0-9_-]{1,64}$/.test(id)));
+  for (const captureId of [undefined, null, '', true, 'A'.repeat(32), 'a'.repeat(32) + '\n'])
+    assert.throws(() => planRegion({...args, captureId}), /capture ID/);
+});
+
+test('capture namespace is durable before dispatch and is reused on explicit recovery', async t => {
+  const dir = temp(t), f = fixture(); let interrupt = true, original;
+  const execute = f.bridge.execute;
+  f.bridge.execute = async (...args) => {
+    const reply = await execute(...args);
+    if (args[0] === 'READ' && interrupt) { interrupt = false; throw Error('accepted then disconnected'); }
+    return reply;
+  };
+  await assert.rejects(() => handoffRegion(opts(dir), () => {
+    original = readJson(journalPath(dir));
+    assert.equal(original.request_namespace_version, 2);
+    assert.equal(original.workspace_realpath, fs.realpathSync(dir));
+    assert.deepEqual(original.plan, planRegion({...opts(dir), captureId: original.capture_id}));
+    assert.equal(f.calls.length, 0);
+    return f.bridge;
+  }), /disconnected/);
+  await handoffRegion({...opts(dir), recover: true}, () => f.bridge);
+  const restored = readJson(journalPath(dir));
+  assert.equal(restored.capture_id, original.capture_id);
+  assert.deepEqual(restored.plan, original.plan);
+  assert.equal(f.calls.filter(([op]) => op === 'READ').length, 5, 'no accepted READ resubmitted');
+});
+
+test('copied partial journals fail before connecting or changing existing evidence', async t => {
+  const dir = temp(t), f = fixture();
+  const execute = f.bridge.execute;
+  f.bridge.execute = async (...args) => { const r = await execute(...args); if (args[0] === 'READ') throw Error('disconnect'); return r; };
+  await assert.rejects(() => handoffRegion(opts(dir), () => f.bridge), /disconnect/);
+  const copy = temp(t); fs.cpSync(dir, copy, {recursive: true});
+  const filename = journalPath(copy), before = fs.readFileSync(filename);
+  await assert.rejects(() => handoffRegion({...opts(copy), recover: true}, () => { throw Error('must not connect'); }), /another output directory/);
+  assert.deepEqual(fs.readFileSync(filename), before);
+  assert.equal(fs.readdirSync(copy).some(name => name.endsWith('.lock')), false);
+});
+
+test('changed capture namespace and STATUS request fail before native calls', async t => {
+  const dir = temp(t), f = fixture(); await handoffRegion(opts(dir), () => f.bridge);
+  const filename = journalPath(dir), original = readJson(filename);
+  for (const mutate of [
+    j => { j.capture_id = 'c'.repeat(32); },
+    j => { j.capture_id += '\n'; },
+    j => { j.request_namespace_version = 99; },
+    j => { j.status.request.id = 'another-status'; },
+  ]) {
+    const changed = structuredClone(original); mutate(changed); saveJson(filename, changed);
+    const before = fs.readFileSync(filename);
+    await assert.rejects(() => handoffRegion({...opts(dir), recover: true}, () => { throw Error('must not connect'); }), /identity|namespace|plan/);
+    assert.deepEqual(fs.readFileSync(filename), before);
+  }
+  saveJson(filename, original);
+});
+
+// Construct a saved legacy fixture by rewriting only wire identities and all
+// dependent hashes. No legacy producer/recovery path is enabled in production.
+function convertCompletedToLegacy(dir) {
+  const file = journalPath(dir); let journal = readJson(file);
+  const p = journal.parameters;
+  const oldPrefix = 'region-' + shaBytes(canonical({imageId:p.imageId, rect:p.rect, blockSamples:p.blockSamples,
+    session:p.session, hostPid:p.hostPid, requestId:p.requestId})).slice(0,32);
+  const prefix = journal.plan.status.request.id.slice(0, -7);
+  const remap = value => JSON.parse(JSON.stringify(value).replaceAll(prefix, oldPrefix));
+  journal = remap(journal);
+  delete journal.request_namespace_version; delete journal.workspace_realpath;
+  const target = path.join(dir, p.output);
+  let info = remap(readJson(path.join(target,'input.json'))), manifest = remap(readJson(path.join(target,'capture.json')));
+  for (let i=0;i<journal.blocks.length;++i) {
+    const name = path.join(target, `read-${i}.json`);
+    saveJson(name, remap(readJson(name)));
+    const digest = hashFile(name);
+    journal.blocks[i].snapshot_sha256 = digest; info.native_receipts[i].snapshot_sha256 = digest;
+  }
+  manifest.blocks = structuredClone(journal.blocks);
+  saveJson(path.join(target,'input.json'), info);
+  manifest.input_metadata_sha256 = shaBytes(canonical(info));
+  saveJson(path.join(target,'capture.json'), manifest);
+  for(const name of ['input.npy','input.json','capture.json']) journal.capture_receipt.files_sha256[name]=hashFile(path.join(target,name));
+  saveJson(file, journal);
+  return {file, journal};
+}
+
+test('completed legacy journals remain verifiable offline, without claiming new isolated reads', async t => {
+  const dir=temp(t),f=fixture(); await handoffRegion(opts(dir),()=>f.bridge);
+  const {file}=convertCompletedToLegacy(dir),before=fs.readFileSync(file);
+  const result=await handoffRegion({...opts(dir),recover:true},()=>{throw Error('legacy never connects');});
+  assert.equal(result.state,'captured');
+  assert.equal(result.request_namespace_status,'legacy_unscoped_saved_evidence_only');
+  assert.deepEqual(fs.readFileSync(file),before);
+  assert.equal(JSON.parse(execFileSync('python',['tools/verify_native_region.py','--capture',path.join(dir,'capture')],{encoding:'utf8'})).status,'PASS_INDEPENDENT_CHUNKED_FILES');
+});
+
+test('incomplete legacy journals are not silently migrated or recovered with colliding IDs', async t => {
+  const dir=temp(t),f=fixture(); await handoffRegion(opts(dir),()=>f.bridge);
+  const {file,journal}=convertCompletedToLegacy(dir);journal.state='PARTIAL';saveJson(file,journal);
+  const before=fs.readFileSync(file);
+  for(const recover of [false,true]) await assert.rejects(()=>handoffRegion({...opts(dir),recover},()=>{throw Error('legacy never connects');}),/LEGACY_REGION_RECOVERY_UNSAFE/);
+  assert.deepEqual(fs.readFileSync(file),before);
 });
