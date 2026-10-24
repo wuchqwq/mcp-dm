@@ -13,6 +13,15 @@ function Invoke-Compile([string[]]$Arguments) {
 }
 Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "core_tests.cpp"), "-o", (Join-Path $OutputDirectory "core_tests.exe"))
 Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "adapter_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "adapter_tests.exe"))
+Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "read_adapter_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "read_adapter_tests.exe"))
+Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "scientific_handoff_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "scientific_handoff_tests.exe"))
+Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "uint32_adapter_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "uint32_adapter_tests.exe"))
+Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "uint32_operations_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "uint32_operations_tests.exe"))
+Invoke-Compile @((Join-Path $PSScriptRoot "adapter_profile_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "adapter_profile_tests.exe"))
+Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "adapter_rejection_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "adapter_rejection_tests.exe"))
+# Candidate POD calls are exercised only with synthetic callbacks. They are
+# deliberately absent from the real-DM plugin and public protocol/catalog.
+Invoke-Compile @((Join-Path $PSScriptRoot "candidate_calls.cpp"), (Join-Path $PSScriptRoot "candidate_calls_tests.cpp"), "-o", (Join-Path $OutputDirectory "candidate_calls_tests.exe"))
 Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "bridge.cpp"), (Join-Path $PSScriptRoot "fake_adapter.cpp"), (Join-Path $PSScriptRoot "fake_host.cpp"), "-ladvapi32", "-luser32", "-o", (Join-Path $OutputDirectory "fake_host.exe"))
 if (-not $OfflineOnly) {
     Invoke-Compile @("-shared", (Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "bridge.cpp"), (Join-Path $PSScriptRoot "dm_adapter.cpp"), (Join-Path $PSScriptRoot "plugin.cpp"), "-ladvapi32", "-luser32", "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "dm_native_bridge.dll"))

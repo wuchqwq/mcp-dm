@@ -18,6 +18,8 @@ struct ProtocolError : std::runtime_error {
     ProtocolError(std::string c, std::string m) : std::runtime_error(m), code(std::move(c)) {}
 };
 struct Parsed { std::string session; NativeRequest request; };
+struct OperationContract { const char* operation; unsigned arguments; const char* result_type; unsigned result_version = 1; };
+const OperationContract* operation_contract(const std::string& operation) noexcept;
 bool valid_session(const std::string& value);
 bool valid_utf8(const std::string& value);
 Parsed parse_line(const std::string& line);
@@ -53,9 +55,11 @@ public:
 private:
     std::string receipt_locked(const Record& r) const;
     std::string unknown_locked(const std::string& id) const;
-    std::string failure_locked(const std::string& id, const std::string& code, const std::string& message) const;
+    std::string failure_locked(const std::string& id, const std::string& code, const std::string& message,
+                               const Record* original = nullptr) const;
     std::string prefix_locked(const std::string& id, const std::string& state,
-                              std::uint32_t exec_tid, std::uint64_t queue_us, std::uint64_t execute_us) const;
+                              std::uint32_t exec_tid, std::uint64_t queue_us, std::uint64_t execute_us,
+                              const Record* original = nullptr) const;
     mutable std::mutex mutex_;
     const std::string session_;
     const std::uint32_t host_pid_, host_tid_;

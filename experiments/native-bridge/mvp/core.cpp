@@ -8,6 +8,20 @@
 
 namespace nb {
 namespace {
+// One closed operation/result-schema registry. QUERY refers to these original
+// operations, never an adapter-provided discriminator or arbitrary symbol.
+constexpr OperationContract kContracts[] = {
+    {"STATUS", 0, "status"}, {"DATASETS", 0, "datasets"}, {"INFO", 1, "image_info"},
+    {"MEAN", 1, "native_mean"}, {"SUMMARY", 1, "native_summary"},
+    {"CROP", 5, "image_crop"}, {"SHOW", 1, "image_delivery"}, {"STOP", 0, "ipc_stop"},
+    {"UNARY", 2, "native_image_operation"}, {"BINARY", 3, "native_image_operation"},
+    {"FILTER", 2, "native_image_operation"},
+    {"PREVIEW", 3, "native_preview"},
+    {"READ", 5, "native_data_snapshot"},
+    {"FFT", 1, "native_fourier_operation", 2}, {"IFFT", 1, "native_fourier_operation", 2},
+    {"REAL", 1, "native_fourier_operation", 2}, {"IMAG", 1, "native_fourier_operation", 2},
+    {"VENDOR_ARG", 1, "native_fourier_operation", 2}, {"VENDOR_NORM", 1, "native_fourier_operation", 2},
+};
 bool valid_id(const std::string& s) {
     if (s.empty() || s.size() > 64) return false;
     for (unsigned char c : s) if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
@@ -94,6 +108,10 @@ public:
 };
 }
 
+const OperationContract* operation_contract(const std::string& operation) noexcept {
+    for (const auto& contract : kContracts) if (operation == contract.operation) return &contract;
+    return nullptr;
+}
 bool valid_session(const std::string& s) {
     if (s.size() != 32) return false;
     for (char c : s) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
@@ -129,14 +147,14 @@ Parsed parse_line(const std::string& line) {
     }
     if (field.empty()) throw ProtocolError("bad_frame", "trailing space");
     fields.push_back(field);
-    if (fields.size() < 4 || fields[0] != "NB1") throw ProtocolError("bad_protocol", "expected NB1 session id operation");
+    if (fields.size() < 4 || fields[0] != "NB2") throw ProtocolError("bad_protocol", "expected NB2 session id operation; legacy NB1 is not accepted");
     if (!valid_session(fields[1])) throw ProtocolError("bad_session", "session must be 32 lowercase hexadecimal characters");
     if (!valid_id(fields[2])) throw ProtocolError("bad_id", "id must match [A-Za-z0-9_-]{1,64}");
-    const auto& op = fields[3]; unsigned count = 0;
-    if (op == "INFO" || op == "MEAN") count = 1;
-    else if (op == "CROP") count = 5;
-    else if (op != "STATUS" && op != "DATASETS" && op != "QUERY" && op != "STOP")
+    const auto& op = fields[3];
+    const auto* contract = operation_contract(op);
+    if (!contract && op != "QUERY")
         throw ProtocolError("bad_operation", "unsupported operation");
+    const unsigned count = contract ? contract->arguments : 0;
     if (fields.size() != 4 + count) throw ProtocolError("bad_argument", "incorrect argument count");
     Parsed p; p.session = fields[1]; p.request.id = fields[2]; p.request.op = op;
     for (std::size_t i = 4; i < fields.size(); ++i) p.request.args.push_back(uint32(fields[i]));
@@ -163,24 +181,35 @@ void Core::mark_ready(std::uint32_t tid) {
     if (!closing_) ready_ = true;
 }
 std::string Core::prefix_locked(const std::string& id, const std::string& state, std::uint32_t tid,
-                               std::uint64_t q, std::uint64_t e) const {
-    return "{\"protocol\":\"NB1\",\"session\":" + quote(session_) + ",\"id\":" + quote(id) +
+                               std::uint64_t q, std::uint64_t e, const Record* original) const {
+    auto prefix = "{\"protocol\":\"NB2\",\"session\":" + quote(session_) + ",\"id\":" + quote(id) +
         ",\"state\":" + quote(state) + ",\"host_pid\":" + std::to_string(host_pid_) +
         ",\"worker_tid\":" + std::to_string(worker_tid_) + ",\"exec_tid\":" + std::to_string(tid) +
         ",\"timings_us\":{\"queue\":" + std::to_string(q) + ",\"execute\":" + std::to_string(e) + "}";
+    if (!original) return prefix + ",\"original_operation\":null,\"normalized_args\":null,\"result_type\":null,\"result_version\":null";
+    const auto& request = original->request;
+    const auto* contract = operation_contract(request.op);
+    if (!contract) throw std::logic_error("record contains an unsupported operation");
+    prefix += ",\"original_operation\":" + quote(request.op) + ",\"normalized_args\":[";
+    for (std::size_t i = 0; i < request.args.size(); ++i) {
+        if (i) prefix += ',';
+        prefix += std::to_string(request.args[i]);
+    }
+    return prefix + "],\"result_type\":" + quote(contract->result_type) + ",\"result_version\":" + std::to_string(contract->result_version);
 }
-std::string Core::failure_locked(const std::string& id, const std::string& code, const std::string& error) const {
+std::string Core::failure_locked(const std::string& id, const std::string& code, const std::string& error,
+                                 const Record* original) const {
     // Fixed-size error text prevents a malicious adapter exception growing a receipt.
     const std::string message = !valid_utf8(error) ? "error text is not valid UTF-8" :
         (error.size() <= 2048 ? error : "error text exceeded 2048-byte limit");
-    return prefix_locked(id, "failed", 0, 0, 0) + ",\"code\":" + quote(code) + ",\"error\":" + quote(message) + "}\n";
+    return prefix_locked(id, "failed", 0, 0, 0, original) + ",\"code\":" + quote(code) + ",\"error\":" + quote(message) + "}\n";
 }
 std::string Core::failure(const std::string& id, const std::string& code, const std::string& msg) const {
     std::lock_guard<std::mutex> lock(mutex_); return failure_locked(id, code, msg);
 }
 std::string Core::unknown_locked(const std::string& id) const { return prefix_locked(id, "unknown", 0, 0, 0) + "}\n"; }
 std::string Core::receipt_locked(const Record& r) const {
-    auto out = prefix_locked(r.request.id, r.state, r.exec_tid, r.queue_us, r.execute_us);
+    auto out = prefix_locked(r.request.id, r.state, r.exec_tid, r.queue_us, r.execute_us, &r);
     if (r.state == "completed") out += ",\"result\":" + r.result;
     if (r.state == "failed") out += ",\"code\":" + quote(r.code) + ",\"error\":" + quote(r.error);
     return out + "}\n";
@@ -192,7 +221,7 @@ Admission Core::accept(const Parsed& p) {
     if (r.op == "QUERY") return {it == records_.end() ? unknown_locked(r.id) : receipt_locked(*it->second)};
     if (it != records_.end()) {
         if (it->second->request.op != r.op || it->second->request.args != r.args)
-            return {failure_locked(r.id, "id_conflict", "id is already bound to different operation parameters")};
+            return {failure_locked(r.id, "id_conflict", "id is already bound to different operation parameters", it->second.get())};
         return {receipt_locked(*it->second)};
     }
     if (closing_) return {failure_locked(r.id, "bridge_stopped", "bridge is stopping and accepts no new operations")};

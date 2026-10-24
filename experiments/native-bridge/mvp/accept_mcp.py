@@ -1,7 +1,7 @@
 """Strict stdio MCP acceptance client; it starts/closes only its own Node child.
 
 Run against an already prepared, idle synthetic DM fixture. This validates
-protocol and numerical receipts, never WorkBuddy UI or visual acceptance.
+protocol and numerical receipts, never client UI or visual acceptance.
 """
 import argparse
 from datetime import datetime, timezone
@@ -21,6 +21,36 @@ import uuid
 MAX_MESSAGE = 2 * 1024 * 1024
 MAX_SAFE_INTEGER = (1 << 53) - 1
 ROOT = Path(__file__).resolve().parents[3]
+RESULT_CONTRACTS = {
+    "STATUS": (0, "status"), "DATASETS": (0, "datasets"), "INFO": (1, "image_info"),
+    "MEAN": (1, "native_mean"), "SUMMARY": (1, "native_summary"), "CROP": (5, "image_crop"),
+    "SHOW": (1, "image_delivery"), "STOP": (0, "ipc_stop"),
+    "UNARY": (2, "native_image_operation"), "BINARY": (3, "native_image_operation"),
+    "FILTER": (2, "native_image_operation"), "FFT": (1, "native_fourier_operation"),
+    "PREVIEW": (3, "native_preview"), "READ": (5, "native_data_snapshot"),
+    "IFFT": (1, "native_fourier_operation"), "REAL": (1, "native_fourier_operation"), "IMAG": (1, "native_fourier_operation"),
+    "VENDOR_ARG": (1, "native_fourier_operation"), "VENDOR_NORM": (1, "native_fourier_operation"),
+}
+
+
+def validate_operation_identity(receipt, operation=None, arguments=None):
+    require(isinstance(receipt, dict) and receipt.get("protocol") == "NB2", "NB2 receipt required; legacy NB1 is not accepted by this client")
+    original = receipt.get("original_operation")
+    if original is None:
+        require(all(key in receipt and receipt[key] is None for key in
+                    ("original_operation", "normalized_args", "result_type", "result_version"))
+                and receipt.get("state") in ("unknown", "failed") and type(receipt.get("exec_tid")) is int and receipt["exec_tid"] == 0
+                and receipt.get("code") != "id_conflict", "NB2 missing-record identity must be explicitly null")
+        return
+    require(isinstance(original, str) and original in RESULT_CONTRACTS, "NB2 original operation is not supported")
+    count, result_type = RESULT_CONTRACTS[original]
+    args = receipt.get("normalized_args")
+    require(isinstance(args, list) and len(args) == count and all(integer(value, 0, 0xffffffff) for value in args)
+            and receipt.get("result_type") == result_type and type(receipt.get("result_version")) is int
+            and receipt["result_version"] in ((1, 2) if result_type == "native_fourier_operation" else (1,))
+            and receipt.get("state") != "unknown", "NB2 operation/result schema identity mismatch")
+    if operation is not None and operation != "QUERY" and receipt.get("code") != "id_conflict":
+        require(original == operation and args == arguments, "NB2 original operation/arguments differ from submitted request")
 
 
 def require(condition, message):
@@ -120,6 +150,25 @@ class StdioClient:
         require(isinstance(response, dict) and response.get("jsonrpc") == "2.0", "Invalid JSON-RPC response")
         require(type(response.get("id")) is int and response["id"] == ident, "MCP response ID mismatch or unsolicited message")
         require(("result" in response) != ("error" in response), "MCP response requires exactly one result/error")
+        if method == "tools/call" and "result" in response:
+            content = response["result"].get("content", []) if isinstance(response["result"], dict) else []
+            if content and isinstance(content[0], dict) and content[0].get("type") == "text":
+                output = strict_json(content[0]["text"])
+                if isinstance(output, dict) and "native_receipt" in output:
+                    name, args = params.get("name"), params.get("arguments", {})
+                    operations = {"dm_status": ("STATUS", []), "dm_datasets": ("DATASETS", []),
+                        "dm_native_mean": ("MEAN", [args.get("image_id")]), "dm_native_summary": ("SUMMARY", [args.get("image_id")]),
+                        "dm_crop": ("CROP", [args.get("image_id")] + args.get("rect", [])),
+                        "dm_native_show": ("SHOW", [args.get("image_id")]), "dm_native_result": ("QUERY", []),
+                        "dm_native_read": ("READ", [args.get("image_id")] + args.get("rect", [])),
+                        "dm_native_preview": ("PREVIEW", [args.get("image_id"), args.get("max_width", 128), args.get("max_height", 128)]),
+                        "dm_native_unary": ("UNARY", [args.get("image_id"), {"negate": 1, "abs": 2, "square": 3}.get(args.get("operation"))]),
+                        "dm_native_binary": ("BINARY", [args.get("left_image_id"), args.get("right_image_id"), {"add": 1, "subtract": 2, "multiply": 3}.get(args.get("operation"))]),
+                        "dm_native_filter": ("FILTER", [args.get("image_id"), {"smooth": 1, "sobel": 2, "laplace": 3, "sharpen": 4}.get(args.get("operation"))]),
+                        "dm_native_fft": ({"forward": "FFT", "inverse": "IFFT"}.get(args.get("direction")), [args.get("image_id")]),
+                        "dm_native_complex": ({"real": "REAL", "imaginary": "IMAG", "phase": "VENDOR_ARG", "power": "VENDOR_NORM"}.get(args.get("component")), [args.get("image_id")])}
+                    operation, native_args = operations.get(name, (None, None))
+                    validate_operation_identity(output["native_receipt"], operation, native_args)
         return response
 
     def tool(self, name, arguments):
@@ -168,10 +217,10 @@ def validate_fixture(fixture):
     for image in images:
         require(isinstance(image, dict) and integer(image.get("id"), 0, 0xffffffff) and image["id"] not in ids, "Invalid/duplicate fixture image ID")
         ids.add(image["id"])
-        require(isinstance(image.get("name"), str) and image["name"] and image.get("dtype") == "float32", "Invalid fixture name/dtype")
+        require(isinstance(image.get("name"), str) and image["name"] and image.get("dtype") in ("float32", "uint32"), "Invalid fixture name/dtype")
         shape = image.get("shape")
         require(isinstance(shape, list) and len(shape) == 2 and all(integer(n, 1, 4194304) for n in shape)
-                and math.prod(shape) <= 4194304 and finite(image.get("mean")), "Invalid fixture shape/mean")
+                and math.prod(shape) <= (2097152 if image["dtype"] == "uint32" else 4194304) and finite(image.get("mean")), "Invalid fixture shape/mean")
         calibration = image.get("calibration")
         require(isinstance(calibration, list) and len(calibration) == 2, "Missing fixture calibration")
         require({axis.get("dm_axis") for axis in calibration if isinstance(axis, dict)} == {0, 1}, "Invalid fixture calibration axes")
@@ -184,7 +233,8 @@ def validate_fixture(fixture):
 def validate_receipt(output, request_id, session, expected_backend, host_pid=None, host_thread=None):
     require(output.get("backend") == expected_backend, "Native backend mismatch; mock-native must never pass as real DM")
     receipt = output.get("native_receipt")
-    require(isinstance(receipt, dict) and receipt.get("protocol") == "NB1" and receipt.get("session") == session
+    validate_operation_identity(receipt)
+    require(isinstance(receipt, dict) and receipt.get("protocol") == "NB2" and receipt.get("session") == session
             and receipt.get("id") == request_id and receipt.get("request_id") == request_id
             and receipt.get("state") == "completed", "Native receipt correlation/state mismatch")
     for field in ("host_pid", "worker_tid", "exec_tid"):
@@ -206,6 +256,10 @@ def validate_image(actual, truth):
             and integer(actual.get("ndim"), 2, 2) and integer(actual.get("pixels"), 1)
             and actual.get("dm_dimensions") == list(reversed(truth["shape"])) and actual.get("pixels") == math.prod(truth["shape"]), "Image shape/dtype mismatch")
     require(actual.get("native_mean_supported") is True, "Fixture not marked as supported native mean input")
+    if truth["dtype"] == "uint32":
+        require(actual.get("data_type_code") == 11 and actual.get("is_integer") is True and
+                actual.get("is_unsigned") is True and actual.get("packing_style") == 1 and
+                actual["pixels"] <= 2097152, "Native uint32 dtype/code/integer/unsigned/packing/budget mismatch")
     require(actual.get("coordinate_rule") == "physical(i)=calibrated_value_at_pixel_zero+i*scale", "Unknown coordinate rule")
     axes = actual.get("calibration")
     require(isinstance(axes, list) and len(axes) == 2, "Missing native image calibration")
@@ -235,7 +289,25 @@ def run_acceptance(client, fixture, backend, build, expected_pid=None, repeats=1
     core_names = {"dm_status", "dm_datasets", "dm_native_mean", "dm_native_result"}
     require(isinstance(catalog, list) and all(isinstance(tool, dict) and isinstance(tool.get("name"), str) for tool in catalog), "Invalid native tool catalog")
     names = {tool["name"] for tool in catalog}
-    require(len(catalog) == len(names) and core_names <= names <= core_names | {"dm_crop"}, "Unexpected native tool catalog")
+    require(len(catalog) == len(names) and core_names <= names <= core_names | {
+        "dm_crop", "dm_native_show", "dm_native_summary", "dm_native_unary", "dm_native_binary",
+        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read"}, "Unexpected native tool catalog")
+    if "dm_native_summary" in names:
+        summary_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_summary")
+        require(set(summary_schema.get("required", [])) == {"image_id"}
+                and summary_schema.get("properties", {}).get("image_id", {}).get("type") == "integer"
+                and summary_schema.get("properties", {}).get("request_id", {}).get("type") == "string",
+                "Native summary requires explicit image_id and an optional read-only request_id")
+    if "dm_crop" in names:
+        crop_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_crop")
+        require("request_id" in crop_schema.get("required", []) and crop_schema.get("properties", {}).get("request_id", {}).get("type") == "string",
+                "Native crop must require a caller-saved request_id before dispatch")
+    if "dm_native_show" in names:
+        show_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_show")
+        require({"image_id", "request_id"} <= set(show_schema.get("required", []))
+                and show_schema.get("properties", {}).get("image_id", {}).get("type") == "integer"
+                and show_schema.get("properties", {}).get("request_id", {}).get("type") == "string",
+                "Native show must require explicit image_id and a caller-saved request_id before dispatch")
     session, checks = fixture["session"], []
 
     def submit(name, arguments):
@@ -295,7 +367,7 @@ def main(argv=None):
     fixture = validate_fixture(strict_json(args.fixture.read_text(encoding="utf-8-sig")))
     evidence = args.evidence_directory.resolve()
     evidence.mkdir(parents=True, exist_ok=False)
-    report = {"status": "FAIL", "scope": "strict stdio MCP and native receipts; no WorkBuddy UI/visual validation",
+    report = {"status": "FAIL", "scope": "strict stdio MCP and native receipts; no client UI/visual validation",
               "fixture_kind": "synthetic-only", "session": fixture["session"], "backend": args.expected_backend}
     client = None
     try:

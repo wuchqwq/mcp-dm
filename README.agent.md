@@ -4,6 +4,10 @@
 
 This is the entry point for an agent helping a researcher install or use the MCP. For code changes, also read AGENTS.md and the relevant implementation/tests. Do not treat instructions for using tools as permission to modify the repository, install dependencies, upload data or change unrelated client settings.
 
+For Fourier-derived READ/NPY data, preserve both native DM calibration and
+`scientific_semantics.coordinate_axes`; see [scientific handoff](docs/SCIENTIFIC_HANDOFF.md).
+Unknown context is not permission to guess the frequency origin or phase units.
+
 ## 1. User goal and division of work
 
 The researcher may normally work through DM's GUI and use external Python for specialized analysis. Do not require them to learn DM scripting or force every request through a capture/report pipeline.
@@ -20,11 +24,39 @@ Reports and replay are optional. A profile request needs a correct profile, not 
 
 Inspect the actual checkout, branch and configuration. Do not reset or overwrite a user's checkout to match this document. The live tool catalog and status describe the connected implementation, not capabilities mentioned in a different branch's README.
 
-| Backend | Mainline scope at this documentation change | Required handling |
+| Backend | Current mainline scope | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Five tools: `dm_status`, `dm_datasets`, `dm_native_mean`, `dm_native_result`, `dm_crop` | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
+| Opt-in native | Fourteen tools, including qualified bounded native operations, preview, READ and visible-document delivery; see the native workflow | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
+
+The integrated native catalog has fourteen
+tools, including qualified limited arithmetic, Fourier/components, filters,
+sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
+is selected before ABI calls; other builds remain unsupported. Inspect
+`native_capabilities` and its reason fields, not the tool count alone. See the
+[workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md) for the complete
+native crop/processing → numeric READ → explicit NPY handoff → external example.
+The integration remains experimental and is not a stable native release.
+
+The initial uint32 subset covers ordinary-packed 2D metadata, raw mean/SUMMARY,
+same-dtype crop, preview and READ. Mean/SUMMARY stop at 2,097,152 pixels; uint32
+crop sources stop at 4,194,304 pixels and outputs at 4 MiB (1,048,576 pixels),
+with complete spatial calibration. Preview permits at most 4,194,304 source
+pixels and 128x128 display samples. READ permits that source bound and at most
+16,384 ROI samples, preserving exact little-endian uint32 bytes as `<u4` NPY
+through the explicit encoder. The optional external example records an exact
+integer sum and a binary64 fractional mean, without float32 conversion.
+The prepared trial and its STOP/normal-exit/removal evidence are separate from
+the final production qualification; use [the uint32 acceptance status](experiments/native-bridge/mvp/UINT32_ACCEPTANCE.md).
+The separate [uint32 operations qualification](experiments/native-bridge/mvp/UINT32_OPERATIONS_ACCEPTANCE.md)
+covers native arithmetic, filters, Fourier and eligible retained-result SHOW.
+Arithmetic produces float32; Smooth/Sharpen produce saturating/truncated uint32;
+Sobel/Laplace produce float32; FFT first rounds to binary32 and produces complex64.
+Inspect the actual capability and `dtype_semantics`; these operations are not
+lossless integer processing. Export the actual result dtype, never its ancestor's.
+Other integer types, native 4D, experimental-data and model-client
+acceptance remain outside this extension; native SaveAs is still unavailable.
 
 Native main targets Windows x64 GMS 3.53.4137.0 with exact binary gates. Do not relax a fingerprint check or reuse an unqualified ABI for another build. A missing optional feature is not an instruction to enable arbitrary scripts.
 
@@ -97,7 +129,17 @@ Physical coordinates follow `calibrated_value_at_pixel_zero + index * signed_sca
 | External analysis | `dm_export` or `dm_2d_capture` → agent-owned external script | Read exported numerical values plus sidecar/calibration; never calculate from the preview PNG. |
 | Optional report/replay | `dm_2d_analyze` → `dm_2d_result` | Use new output directories and retain provenance. Not required for ordinary measurements. |
 
-Native tools are a separate catalog. On main, crop returns a retained hidden image ID; it does not promise visible display, preview, a saved file or automatic external transfer. For the native setup and rollback procedure read [the native guide](experiments/native-bridge/mvp/README.md) and [INSTALL.md](experiments/native-bridge/mvp/INSTALL.md). Later feature-branch Show and summary capabilities require that branch's own evidence and configuration.
+Native tools are a separate catalog. The mainline baseline's crop returns a
+retained hidden image. In this feature, explicitly use qualified show, preview
+or READ as appropriate: show hands the exact result to a document, preview
+returns display pixels, and READ returns numerical bytes with calibration.
+Scientific persistence uses the explicit saved-response NPY encoder; it is not
+DM SaveAs. For uint32, use an explicit ID/ROI and the separately qualified
+operation, then SHOW or READ its returned ID. Preserve native dtype/precision
+semantics and export uint32 as `<u4`, float32 as `<f4`. For a complex spectrum,
+request an eligible real/imaginary component before the scalar READ interface.
+Setup and rollback remain in [the native guide](experiments/native-bridge/mvp/README.md)
+and [INSTALL.md](experiments/native-bridge/mvp/INSTALL.md).
 
 Do not equate a document visible in DM with an MCP image received by the model, or either with a permanent scientific file.
 
@@ -114,6 +156,12 @@ Reopening an exported file and comparing its pixels/calibration is stronger evid
 Cancellation stops waiting; it does not prove DM stopped. Never automatically repeat a dispatched operation with side effects.
 
 For native crop, save and supply `request_id` before dispatch, together with the session and parameters. Query `dm_native_result` with that original ID in the same live session. Preserve `queued`, `running`, `failed` and `unknown` as distinct outcomes. There is no promised recovery after native STOP, host exit or a different session.
+
+The same requirement applies to native show, unary, binary, FFT, complex and
+filter calls, and the separate file encoder's handoff ID. NB2 QUERY retains the
+original operation, normalized arguments and result schema. Save the original
+records; do not infer operation identity from a few result fields. Use the
+matching NB2 DLL; an old NB1 plugin is rejected without protocol downgrade.
 
 Do not transfer native recovery guarantees to the default backend. Use only its documented result mechanism; optional 2D result packages have `dm_2d_result`, but not every default operation has a retained native-style record.
 

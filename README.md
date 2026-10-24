@@ -47,8 +47,8 @@ FFT 的频率峰也不是自动确认的晶面或物相。预览是否能被模�
 | 路径 | 当前范围 | 使用前要知道 |
 |---|---|---|
 | **主线默认：v0.6 Python 后端** | 图像与元数据读取、二维统计、剖面、FFT 摘要、裁剪、科学数据导出，以及可选的捕获与预览 | 通过 DM 内嵌 Python 连接；部分数值计算使用 NumPy。预览需要独立环境，详见安装指南。 |
-| **主线可选：原生 C++ 实验后端** | 状态、图像枚举、原生均值、操作结果查询、独立裁剪副本 | 仅针对已验证的 Windows x64 GMS **3.53.4137.0** 及精确模块指纹。该主线版本没有原生预览、文件保存或可见文档交付。 |
-| **开发分支** | 原生摘要与显示交付等后续工作 | 尚未随这次文档更新合入主线；功能和验收范围以[开发分支记录](https://github.com/wuchqwq/mcp-dm/blob/feature/native-bridge-mvp/experiments/native-bridge/mvp/HANDOFF.md)为准，不是默认安装承诺。 |
+| **主线可选：原生 C++ 实验后端** | 14 个工具：原生摘要、裁剪、有限算术/FFT/滤波、PNG 预览、可见文档和有界数值交接 | 仅限 Windows x64 GMS **3.53.4137.0** 的精确指纹与各操作已验证的类型/尺寸。NPY 交接不等于 DM 原生文件保存；详见[原生工作流](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md)。 |
+| **下一阶段** | GUI 选区、原生剖面/直方图、分块交接和结果释放 | 见[官方功能对照与优先级](docs/NATIVE_NEXT_STAGE.md)；未实现的项目不是当前能力。 |
 
 **第一次试用，先用主线默认后端。** 原生版本请单独阅读[实验说明与版本限制](experiments/native-bridge/mvp/README.md)，不要直接在未知 GMS 版本上使用。
 
@@ -78,7 +78,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\setup\start_bridge.ps1
 
 Node 服务没有 npm 运行依赖。随后按 [MCP 配置示例](mcp.json.example)填写仓库绝对路径，并在自己的客户端注册服务。完整的环境检查、Codex 注册、停止方式和故障排查见 [Agent 安装与使用指南](README.agent.md)及[技术参考](REFERENCE.md)。
 
-**需要图像预览时**，另外创建外部 Python 环境，安装 [requirements-preview.txt](requirements-preview.txt) 并配置它的解释器路径；不要安装进 GMS 管理的环境。只做基本读取和测量不需要这一步。
+**默认 Python 后端需要图像预览时**，另外创建外部 Python 环境，安装 [requirements-preview.txt](requirements-preview.txt) 并配置它的解释器路径；不要安装进 GMS 管理的环境。只做基本读取和测量不需要这一步。
 
 第一次连接可以说：“确认连接的是真实 DM，然后只列出图像和标定。”配置成功、发现工具和实际执行成功是三件不同的事。
 
@@ -95,6 +95,8 @@ Node 服务没有 npm 运行依赖。随后按 [MCP 配置示例](mcp.json.examp
 ## 继续了解
 
 [Agent 安装与使用指南](README.agent.md)说明如何接入、选对数据、处理错误和交接结果；[完整技术参考](REFERENCE.md)保留安装命令、工具参数和数值约定。修改代码请读 [AGENTS.md](AGENTS.md)，开发方向见 [ROADMAP.md](ROADMAP.md)。
+
+原生频谱导出同时保留数学频率坐标和 DM 原始标定；该新增元数据链的实机验收仍需单独完成，见[科学数据交接说明](docs/SCIENTIFIC_HANDOFF.md)。
 
 多版本兼容层生成器目前只是[独立提案](https://github.com/wuchqwq/mcp-dm/pull/3)，不是现成的自动适配功能。
 

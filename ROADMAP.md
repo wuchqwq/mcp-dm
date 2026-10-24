@@ -1,8 +1,18 @@
 # mcp-dm scope and roadmap
 
+最新集成后的优先级见 [Gatan 官方功能对照与下一阶段](docs/NATIVE_NEXT_STAGE.md)。
+科学语义交接修复的范围与待补实机验证见 [handoff contract](docs/SCIENTIFIC_HANDOFF.md)。
+
+
 ## Goal
 
 Let a general-purpose agent inspect DM data, view selected images, invoke common post-acquisition operations correctly and retrieve calibrated results for further work. This repository is a tool interface, not a scientific decision-maker or a new agent application.
+
+Future native processing stays inside DigitalMicrograph. The MCP/plugin layer
+adapts verified built-in operations and handles data identity, parameters,
+calibration, ownership and result delivery. It does not grow a parallel
+Python/C++ analysis engine. Existing v0.6 and optional report paths remain
+compatible; independent numerical oracles are for tests only.
 
 ## Core acceptance
 
@@ -27,14 +37,57 @@ The report/replay worker remains optional. Preview needs only NumPy/Pillow in an
 
 ## Build-pinned native experiment
 
+Current feature status: fourteen native tools now include bounded arithmetic,
+Fourier, filters, sampled preview and numeric READ. An explicit saved-response
+NPY handoff and external example passed a complete synthetic real-host workflow,
+including source protection and persistence after normal cleanup. Adapter
+selection is extensible, but only the exact Windows x64 GMS 3.53.4137.0 profile
+is qualified. See [the current handoff](experiments/native-bridge/mvp/HANDOFF.md)
+and [operation limits](experiments/native-bridge/mvp/OPERATIONS_ACCEPTANCE.md).
+Next priorities are separately qualified dtype/data-handoff extensions and
+ordinary client acceptance; native SaveAs/Open, other builds and native 4D
+remain unsupported. The earlier notes below are historical progression, not
+the latest catalog or an instruction to reopen a closed session.
+
 The default v0.6 backend stays unchanged. The opt-in native backend targets
 Windows x64 GMS 3.53.4137.0 and exposes status, datasets, native mean, retained
-result queries and experimental crop. Limited idle-host acceptance of the core
+result queries, experimental crop and the SHOW candidate. Earlier limited idle-host acceptance of the core
 metadata/mean/MCP path and source preservation has passed with synthetic inputs
 without a resident Python listener. Historical probe results and offline
 surrogates do not certify changed native code.
 
-Native crop separately passed actual MCP and an independent one-shot GMS
+Current P0 decouples raw mean from recognized incomplete spatial calibration,
+while crop remains strict. Crop and new side-effect tools require a saved
+request ID/session before dispatch, with same-session QUERY recovery only.
+The current actual-host strict MCP trial passed calibrated/empty-unit raw
+mean metadata, safe errors and immutable crop recovery/conflicts. Other
+invalid spatial-number cases remain offline-only. P1 selects the bounded
+`dm_native_show` native-document route for an existing plugin crop, without a
+data copy or file-save interface; completed receipts and image correlation
+passed. The trial remains HOLD: independent full-pixel/source checks, actual
+display, document count and post-STOP document ownership are NOT_TESTED due
+to pending desktop acceptance. IPC STOP/pipe/window cleanup passed; normal
+host exit and owned DLL removal remain pending with the test host still open.
+Native SaveAs stays deferred for insufficient string ABI and exclusive-write
+evidence. The [synthetic trial](experiments/native-bridge/mvp/TRIAL_ACCEPTANCE.md)
+keeps its independent answers private and separates protocol receipts from
+actual host display and lifetime checks.
+
+While the test desktop is unavailable, continue bounded static interface
+review and independent acceptance design. [FFT readiness](experiments/native-bridge/mvp/FFT_READINESS.md)
+tracks DM's own FFT entrypoints, unresolved complex-data/normalization and
+calibration semantics, and the result-delivery requirements. Finding an export
+does not qualify its ABI or add a public tool. Do not replace the loaded DLL or
+use the pending host for exploratory calls; current SHOW/lifecycle HOLD remains.
+
+The [batch candidate handoff](experiments/native-bridge/mvp/BATCH_CANDIDATES.md)
+prepares typed calls for native arithmetic, complex components, FFT families,
+filters, phase correlation and scalar statistics. Synthetic ownership tests
+cover only this call boundary. The candidates remain outside the real plugin
+and public catalog; per-operator integration and host acceptance are still
+required. Resume by closing the preserved trial before exploring new operators.
+
+Earlier native crop separately passed actual MCP and an independent one-shot GMS
 Python oracle for explicit IDs, half-open bounds, every pixel, separate memory,
 signed calibration, unchanged sources and duplicate-request identity. Its
 output lifetime through STOP was separately accepted: the hidden crop ID
@@ -44,7 +97,7 @@ prior inventory without changing client configuration. The
 qualified name scope is ASCII; the legacy Python/native non-ASCII name
 comparison failed and remains NOT_QUALIFIED without heuristic conversion.
 A plugin-retained result ID is not a displayed DM
-document or model visual acceptance. WorkBuddy, real experimental data, other
+document or model visual acceptance. Real experimental data, other
 builds, concurrent image API use and vendor exception isolation remain
 unverified. Keep the backend opt-in and the original client configuration
 unchanged. See [the matrix](experiments/native-bridge/RESULTS.md) and

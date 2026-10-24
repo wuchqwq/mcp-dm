@@ -37,6 +37,11 @@ def main():
             response = client.rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "native-crop-acceptance", "version": "1"}})
             require("error" not in response, "Initialize failed")
             client.notify("notifications/initialized")
+            catalog_response = client.rpc("tools/list", {})
+            require("error" not in catalog_response, "tools/list failed")
+            crop_tools = [tool for tool in catalog_response["result"].get("tools", []) if tool.get("name") == "dm_crop"]
+            require(len(crop_tools) == 1 and "request_id" in crop_tools[0].get("inputSchema", {}).get("required", []),
+                    "Native crop must require a caller-saved request_id")
             status_id = "crop-status-" + uuid.uuid4().hex
             status = client.tool("dm_status", {"request_id": status_id})
             validate_receipt(status, status_id, fixture["session"], "digitalmicrograph-native", args.expected_host_pid)

@@ -5,10 +5,73 @@ below were checked against local export tables and machine code. They are
 **static evidence**, not a claim that the new adapter has executed successfully
 inside DM. Runtime acceptance belongs in RESULTS.md.
 
-Resolve symbols with `GetModuleHandleW` and `GetProcAddress`. Do not load a
+Resolve exported symbols with `GetModuleHandleW` and `GetProcAddress`. Do not load a
 second copy of a host module. Require the allowlisted host/module identities,
 architecture, and all required symbols before acquiring an image reference.
+The adapter selection, compatibility states and per-capability negotiation are
+documented in [adapter compatibility](mvp/ADAPTERS.md). Only the exact pinned
+Windows x64 3.53.4137.0 profile is registered; other builds are not qualified.
 The SDK compatibility export alone does not identify the image ABI.
+The SHOW candidate additionally needs non-exported typed entrypoints; its
+separate full-binary and executable-entry gates are described below. This is
+not permission to guess another build's addresses or revive the old PE resolver.
+
+## Version isolation and additional typed operations
+
+The common dispatcher and Windows identity reader contain no vendor object
+layout or call address. The current implementation, POD contracts and exact
+profile live in `mvp/adapters/gms_3_53_4137/`. Common request records, transport
+and object lifecycle are not duplicated for each version. Full fingerprints
+remain mandatory; optional capability groups have independent entry lists.
+
+The qualified image-producing calls use an explicit one-pointer `NativeRef`
+hidden result destination, checked return address, new image identity and paired
+strong-reference release. Unary wrappers take one source reference; binary
+wrappers take two. There is no bridge scientific kernel. Packing is a separate
+four-byte structure returned through its destination pointer: it is **not** a
+scalar integer-return getter. This is checked before any ordinary-packing pixel
+or Fourier path.
+
+The real-value getter returns `double` and consumes only the proven 2D index
+prefix: dimension count at byte 0, signed X at byte 8, signed Y at byte 16.
+This is not a complete definition of the vendor's multidimensional class.
+Only ordinary-packed float32 and the separately qualified uint32 2D paths are
+admitted. READ rejects nonfinite or inexact float32 conversion, preserves signed
+zero, or validates an unsigned integral double in [0, 2^32-1] before writing
+explicit little-endian uint32 bytes. Every uint32 value is exact in double;
+none passes through float32. Preview performs display scaling only. Neither path maps a generic pixel
+buffer or supports arbitrary dtype/layout. See the per-version contracts and
+[operation qualification](mvp/OPERATIONS_ACCEPTANCE.md) for the tested limits.
+
+The additional uint32 native operator paths use the same proven reference/POD
+signatures, not a new pixel-memory ABI. Static tracing distinguishes the
+scientific conversions: unary and paired arithmetic zero-extend uint32, convert
+to binary64, execute the vendor operator, then store binary32. Native 3x3
+convolution accumulates in binary64; uint32 stores saturate negatives/overflow
+and truncate toward zero. Sobel/Laplace use binary32 result storage, with Sobel
+combining its native gradient images. Real_FFT instead assigns uint32 directly
+to binary32 before invoking the native transform. These are vendor operations,
+not bridge-side conversion or numerical corrections. Runtime qualification and
+the empirical small dense-FFT acceptance policy are recorded separately in
+[uint32 operations](mvp/UINT32_OPERATIONS_ACCEPTANCE.md); no general FFT error
+theorem or arbitrary integer-exact result follows from these static findings.
+
+Fourier descendants carry explicit retained uint32 lineage for qualification
+and precision disclosure, with immediate input dtype complex64 where appropriate.
+SHOW checks the live image dtype against its retained type before requesting
+a document; mutable object identity does not freeze a descriptor or pixels.
+
+Real_FFT is followed by its reviewed native unpack path to obtain a full
+complex image. IFFT/component admission binds the exact retained parent object
+and immutable creation metadata. Fourier v2 reports the measured sign,
+normalization, centering and vendor calibration separately from mathematical
+frequency-bin coordinates; the bridge does not rewrite pixels or calibration
+to approximate another library's convention.
+
+SaveAs and Open remain blocked. Partial string-construction evidence is not
+enough to call either interface: format preservation, exclusive output, source
+filename mutation and error/ownership contracts still need decisive evidence.
+The explicit saved-READ NPY encoder is a separate data handoff, not DM SaveAs.
 
 ## Image identity and ownership
 
@@ -63,10 +126,16 @@ previously obtained dimension count. DM dimension 0 is x and dimension 1 is y;
 an exported row-major 2D shape is consequently `[size_y, size_x]`.
 
 `GetDataType` reads the native descriptor and does not require touching pixels.
-The first numerical adapter can accept only known code 2 (`float32`) and two
-dimensions. Other codes must remain explicitly unsupported rather than being
-inferred from byte count or appearance. Existing Python dtype mapping can be
-reused later only with separately accepted native cases.
+The initial numerical adapter admitted code 2 (`float32`) and two dimensions.
+The separate uint32 trial binds code 11 to a host-created NumPy uint32 view and
+exact native high-bit reads, rather than relying on the older Python dtype
+table alone. Integer/unsigned metadata is derived from that fixed descriptor
+contract; no new opaque descriptor layout or guessed flag getter is used.
+The existing native slice passes the source descriptor and packing into result
+creation; runtime checks require matching source/output type before retaining
+the independent copy. uint32 mean/SUMMARY are limited to 2,097,152 pixels so
+the worst possible sum stays below 2^53. Other codes remain unsupported.
+See [uint32 qualification](mvp/UINT32_ACCEPTANCE.md) for actual evidence status.
 
 Calibration's explicit call shape is:
 
@@ -102,6 +171,27 @@ The corresponding exports are:
 ?GetDimensionCalibration@Image@GMS@@QEAAXKPEAM0PEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@J@Z
 ?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z
 ```
+
+## FFT interface investigation: not qualified
+
+Bounded local machine-code inspection supports the existing one-pointer image
+reference and caller-provided output-reference shape for the exported FFT,
+Real_FFT and Packed_FFT candidates. They impose different descriptor/packing
+constraints; FFT must not be selected merely because the input is real
+float32. The real-input path includes a native packed-to-complex conversion
+branch, strong-reference handling and native frequency-calibration transfer.
+
+These are partial static findings, not a production call contract. Exact
+complex representation, normalization, data centering/phase, usable reciprocal
+axes, source preservation, workspace bounds and end-to-end output ownership
+remain unqualified. Native raw-origin arithmetic does not establish NumPy
+fftshift equivalence. Existing mean/crop or Python FFT passes do not qualify
+these candidates, and crop-only SHOW does not provide FFT-result delivery.
+
+No production function binding, FFT protocol operation or MCP tool is added.
+Scientific processing must remain in DM; MCP/C++ adapts verified calls and
+hands off results. See [FFT readiness](mvp/FFT_READINESS.md) for unresolved
+conditions and the separate offline/real-host acceptance sequence.
 
 ## MSVC string ABI shim
 
@@ -221,12 +311,106 @@ The returned reference has the same ownership rule as lookup.
 ```
 
 This is the static contract used by the fixed-build MVP's experimental crop.
-Separate actual-host acceptance covered new/repeated object identity, shape,
+Earlier separate actual-host acceptance covered new/repeated object identity, shape,
 dtype, every selected pixel against an independent oracle, signed calibration,
 source invariance, and retained-output release after STOP. It does not certify
 other builds, concurrent image work or every vendor-failure path. Current
 limited runtime evidence and the ASCII-qualified/non-ASCII name boundary are
 recorded in [RESULTS.md](RESULTS.md); static ABI notes alone are not acceptance.
+
+## Visible-document SHOW candidate
+
+SHOW accepts only an exact numeric ID in this plugin session's retained crop
+registry. On the host thread, `FindByID` must agree with both the stored native
+pointer and numeric ID. It then calls the native factory for a document
+containing that image, followed by the document display entrypoint. It never
+selects a front image, user name or most-recent window.
+
+These typed entrypoints have no applicable public DLL exports in the inspected
+build. The candidate binds the fixed-build entries only after complete
+host/module SHA256 and version gates pass, then verifies the entry lies in
+that module's image, an executable section and a committed executable memory
+page. No vendor function addresses, RVA values or private build hashes are
+needed in this document.
+
+Only native pointers and explicit POD layout cross the boundary. The returned
+document holder is 16 bytes: a 64-bit reference count followed by a native
+document pointer. The Window remains opaque except for its separately proven
+fixed-build 64-bit reference counter. Each return is one owned reference. Local
+guards release Window first, then the document holder; only a count reaching
+zero calls its matched vendor final destructor. Never use MinGW `free` or
+`delete`, retain a borrowed pointer, or assume a C++ standard-library ABI.
+
+The plugin retains neither document nor Window. STOP releases its crop
+reference and must not close a shown document. Actual document ownership after
+STOP requires a separate host test from hidden-output release. Empty returns
+fail explicitly; malformed layout latches the adapter disabled without guessed
+destruction. A successful hash/page gate is not vendor crash isolation, and
+MinGW catches do not establish safe handling of MSVC native exceptions.
+
+SHOW can have UI effects before a later failure or timeout. Save its original
+session/ID before dispatch, QUERY that ID and do not automatically call SHOW
+again. The result explicitly denies file saving and model visual verification.
+The candidate's native completed receipt and explicit-image correlation
+passed a limited actual-host MCP check. A later new strict session independently
+passed actual visibility, unique-document count, ownership after STOP and final
+image release after normal document closure. This qualifies only the explicit
+plugin-crop document path on the pinned build, not saving or model vision.
+See [RESULTS.md](RESULTS.md) for the distinct runtime evidence boundaries.
+
+## Legacy Python and native Unicode paths
+
+Static inspection of the pinned Python wrapper confirms that the name and
+unit setters obtain UTF-8 bytes, then pass through a vendor narrow-string
+service with encoding argument zero. The getters request narrow bytes with
+that argument, try Python's UTF-8 decoder and fall back to `bytes` after a
+decode error. Separately, the inspected GMS encoding resolver maps zero to
+the Windows system code page. The exact indirect binding from the Python
+string service to that implementation is not fully established. These facts
+identify a compatibility risk; they do not prove the complete cause of the
+earlier failed comparison or the historical process's actual code page.
+
+The native bridge takes the vendor UTF-16 name and calibration-unit getters
+directly and converts the fixed-build string POD with explicit `CP_UTF8` and
+strict invalid-character checking, preserving vendor allocation ownership.
+A legacy Python setter/getter round trip can conceal a stored-Unicode
+difference and is not a UI or native-string truth oracle. No reverse-codec
+guess or product encoding change is justified by this inspection.
+
+Non-ASCII interoperation remains **NOT_QUALIFIED**. Future synthetic tests
+must record UI-entered characters separately from Python-set names, preserve
+legacy getter result type/raw bytes as well as text code points, and compare
+the native/MCP result for the exact image ID. Units need their own comparison.
+The legacy probe now records typed getter observations: text and exact code
+points, or raw byte hex/length with decoding explicitly not attempted. Even
+valid UTF-8 byte sequences remain bytes. Lone surrogates, getter exceptions
+and unexpected types are retained as diagnostic failures; encoding exceptions
+also retain the original input and byte/character range. Its status is only
+RECORDED or FAIL, with qualification always NOT_QUALIFIED. Offline fake-getter
+tests qualify this retention behavior, not the stored host characters. No real
+Unicode probe was executed in this offline continuation, and the independent
+UI/native/MCP comparison remains pending.
+
+## Native SUMMARY reductions
+
+SUMMARY binds the same pinned processing module's exact decorated GetMinimum,
+GetMaximum and GetSum exports, each taking `const NativeRef*` and returning a
+native double, together with the existing GetMean binding. The static wrapper
+review follows vendor image-data/layout reduction paths; no bridge pixel kernel
+or value derived from another returned scalar is used. A strong image reference,
+explicit numeric ID, bounded 2D float32 shape and the existing readiness/ABI gates
+remain required. Each call's finite result and readiness are checked before the
+next call; a failure yields no partial successful summary.
+
+The raw-intensity contract was separately checked in a new real host with
+nontrivial intensity origin/negative scale/unit, plus default and missing spatial
+unit controls. Strict MCP and an independent same-PID oracle matched the raw
+values and verified full source pixels, spatial/intensity calibration and
+document invariance. This is a limited synthetic qualification, not a proof for
+other dtypes, versions or concurrent source edits. The four native calls are
+sequential with `snapshot_atomic:false`. Generic NB1 QUERY carries no original
+operation; independent acceptance continues semantic checks using its original
+tool/ID/parameter ledger. See [SUMMARY acceptance](mvp/SUMMARY_ACCEPTANCE.md).
 
 ## Minimum runtime verification order
 

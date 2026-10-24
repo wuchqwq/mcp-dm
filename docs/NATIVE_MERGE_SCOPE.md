@@ -1,4 +1,23 @@
-# Native core partial integration
+# Native integration history
+
+## Current integration
+
+The reviewed feature through d59c0ce and its scientific-metadata repair are now
+integrated as the explicit experimental native backend. The fourteen-tool
+workflow, per-dtype limits and exact GMS fingerprint gates remain documented
+in the current native HANDOFF/RESULTS. Default v0.6 is unchanged. This is not a
+stable release, another supported build or new real-data/model-client evidence.
+The additive scientific-context path has its own offline-only validation
+boundary in [SCIENTIFIC_HANDOFF.md](SCIENTIFIC_HANDOFF.md).
+
+The original partial-integration notes below describe the earlier mainline
+snapshot and retain their historical scope, not the current feature catalog.
+
+
+This records the earlier partial integration into main. It is not the current
+feature catalog or machine state. The later feature has completed separate
+processing, data-handoff and cleanup acceptance; see
+[its current handoff](../experiments/native-bridge/mvp/HANDOFF.md).
 
 ## Accepted scope
 
@@ -27,7 +46,7 @@ Do not cherry-pick those tests alone: they depend on the later implementation.
 
 The current feature trial remains HOLD. Its pending desktop/document checks,
 independent pixel/source checks, post-STOP ownership, final document-reference
-release, normal removal and actual WorkBuddy use must be completed separately.
+release, normal removal and actual ordinary-client use must be completed separately.
 The last reported local state was stopped experimental IPC with the test DM
 and DLL still loaded; this document does not assert the current machine state.
 
