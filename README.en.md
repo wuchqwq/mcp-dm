@@ -26,6 +26,14 @@ The last example requires an agent that can work with files and execute code: **
 
 FFT frequency peaks are not confirmed lattice planes or phases. Whether the model can actually see a preview depends on the client; producing a PNG does not establish model vision.
 
+## Product direction: iterative microscopy analysis (planned)
+
+The goal is to let researchers keep inspecting and selecting data in DM while an Agent **brings back the actual image, prepares alternative presentations, produces local FFT views, adds editable annotations and revises scientific hypotheses over multiple turns**. Profiles, histograms and indexing are enabling tools, not the finished user experience.
+
+For example: “Show my ADF image, raise the midtones and make two versions”; “Make a readable FFT of this ROI, and annotate diffuse streaks and two possible reflection families separately”; “Compare local patterns across this possible twin/fault boundary, then revise the overlay after I correct a peak.”
+
+**These are planned workflows, not claims that generic image return, arbitrary curves/high-pass filters, automatic annotation or writing results back into DM already works.** The design separates untouched scientific pixels, explicit derived computations, display-only settings and revisable annotation layers, preserving calibration, provenance and revision history. See the [interactive microscopy roadmap](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md).
+
 ## Keep your workflow. Remove the repetitive steps.
 
 Keep inspecting data and selecting regions in DM. Delegate repeated measurements, crops and result organization to an agent. When a different scientific library is needed, export the data explicitly and continue there.
@@ -48,7 +56,7 @@ The priorities are straightforward: use the intended image, do not silently chan
 |---|---|---|
 | **Default on main: v0.6 Python backend** | Images and metadata, 2D statistics, profiles, FFT summaries, cropping, scientific exports, and optional capture/preview | Connects through DM's embedded Python. Some numerical operations use NumPy. Previews require a separate environment. |
 | **Optional experimental native C++ backend** | Nineteen tools in this checkout: native summaries, crop, bounded arithmetic/FFT/filters, GUI rectangle/line identity, limited 1D profiles and histograms, PNG preview, visible documents and numerical handoff | Exact Windows x64 GMS **3.53.4137.0** fingerprints and per-operation dtype/size limits. NPY handoff is not native DM file saving; see the [native workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md). |
-| **Next stage: crystallographic measurements** | Diffraction scale, lattice-spacing and angle measurements; FCC/BCC indexing candidates; local HRTEM/ADF FFT comparison | See the [next-stage task](docs/DIFFRACTION_NEXT_STAGE.md). Start with user-confirmed centres and spots. These are development goals, not implemented automatic calibration or phase identification. |
+| **Next stage: iterative microscopy analysis** | Return viewable DM images, adjust non-destructive presentation, produce and annotate local FFTs, revise analyses across turns, then use crystallographic measurements in context | See the [interactive roadmap](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md) and [crystallography tasks](docs/DIFFRACTION_NEXT_STAGE.md). These are goals, not claims of complete existing support. |
 
 **For a first trial, use the default backend on main.** Read the [native guide and build restrictions](experiments/native-bridge/mvp/README.md) before trying the C++ experiment. Do not use it on an unrecognized GMS build.
 
@@ -94,7 +102,7 @@ For your first request, ask: “Verify the real DM connection, then only list im
 
 ## Further reading
 
-The [agent guide](README.agent.md) covers setup, data targeting, errors and handoff. The [technical reference](REFERENCE.en.md) preserves detailed installation commands, tool parameters and numerical conventions. Read [AGENTS.md](AGENTS.md) before changing code; see [ROADMAP.md](ROADMAP.md) for development direction.
+The [agent guide](README.agent.md) covers setup, data targeting, errors and handoff. The [technical reference](REFERENCE.en.md) preserves detailed installation commands, tool parameters and numerical conventions. Read [AGENTS.md](AGENTS.md) before changing code; see [ROADMAP.md](ROADMAP.md) and the [interactive microscopy roadmap](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md) for development direction.
 
 The agent-assisted multi-version compatibility generator is an [independent proposal](https://github.com/wuchqwq/mcp-dm/pull/3), not a working automatic adapter.
 
