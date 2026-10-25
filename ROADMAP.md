@@ -4,7 +4,7 @@
 
 用户日常工作包括在 DM 中观察/调整 HRTEM、STEM-ADF 和衍射图像，生成清晰的局部 FFT/衍射出图，测间距与方向，并逐轮修正标注、孪晶/层错/多相等**候选**解释。研究者希望 Agent 能**真正取回并看到 DM 图像、做非破坏式出图、标注并继续对话**。ROI、画线、直方图和索引均是基础能力，不是独立终点。
 
-**当前主要产品路线为[交互式显微分析工作流](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md)。** [衍射与晶格测量](docs/DIFFRACTION_NEXT_STAGE.md)是其中的定量分析子任务；原生 API 对照仍见[接口参考](docs/NATIVE_NEXT_STAGE.md)。这些文档规定下一阶段工作方向，不意味着相关功能已经在 main 完成。PR #12/#13 的 ASE 伴随工具仍须以当时实际 GitHub 合并状态为准。
+**当前主要产品路线为[交互式显微分析工作流](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md)。** [衍射与晶格测量](docs/DIFFRACTION_NEXT_STAGE.md)是其中的定量分析子任务；原生 API 对照仍见[接口参考](docs/NATIVE_NEXT_STAGE.md)。这些文档规定下一阶段工作方向，不意味着相关功能已经在 main 完成。独立推进的晶体学伴随工具和 FFT 扩展只有在评审、合并和实际资格核对后才能标为主线能力。
 
 ## Goal and architecture
 
