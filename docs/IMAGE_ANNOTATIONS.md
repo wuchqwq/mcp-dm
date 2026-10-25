@@ -75,6 +75,26 @@ qualify every client's image UI or DM native annotations.
 
 ## Readable spectrum figures
 
+Start ordinary FFT presentation with `image_preview(display_preset:"fft_detail")`.
+This reusable recipe reads the saved complex spectrum, selects log amplitude,
+disables smoothing/background subtraction and large axis frames, sets gamma 1,
+enlarges to a 512-pixel display and uses the 5th/99.8th percentiles as display
+limits. Explicit fields override the recipe. Those percentiles are a starting
+point, not a claim that every weak feature is visible; inspect the actual image
+and revise limits when needed. Changing only gamma/size later inherits the
+computed limits. `display_range:null` explicitly requests full min/max instead.
+The recipe never changes FFT computation or scientific values.
+
+Representative microscopy figures retain granular background, compact spots
+and continuous streaks, with sparse thin arrows/circles or restrained labels.
+See Fig. 3b in [Németh et al., 2014](https://doi.org/10.1038/ncomms6447), Fig. 1
+in [Németh et al., 2020](https://doi.org/10.1021/acs.nanolett.0c00556), and Fig. 3
+in [Németh et al., 2022](https://doi.org/10.1073/pnas.2203672119).
+These are visual references, not interchangeable processing recipes. A
+frequency mask used to reconstruct a real-space amplitude image is different
+from smoothing the FFT's displayed amplitude. Do not copy a paper's mask width,
+physical scale, indexing or phase conclusion onto uncalibrated data.
+
 For a small saved FFT, use `image_preview` with `upscale:true`, `max_size:640`
 and `spectrum_axes:true` (axes need a budget of at least 256). Axes are signed
 cycles/pixel with y down, not a claim of physical reciprocal scale. Insets and
@@ -105,6 +125,9 @@ For sparse guides, start with `line_width:1` and `arrowhead_size:3` or `4`
 feature, keep labels near the outer tail, and avoid drawing lines through the
 evidence unless that line itself is the proposed observation. User feedback
 can revise the presentation without confirming a scientific interpretation.
+`color:"white"` is useful for grayscale figures. Display color is independent
+of the explicit hypothesis/confirmation/retraction status; green alone never
+means that a scientific interpretation has been verified.
 Preserve earlier renders when a user requests filtered/enlarged views or
 smaller arrows. Human approval of the revised figure is a separate step,
 not inferred from successful tool calls.

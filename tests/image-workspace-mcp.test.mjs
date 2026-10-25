@@ -162,6 +162,17 @@ test('readable FFT presentation filters, axes and small arrows are actual MCP re
   assert.equal((await c.tool('image_preview',{object_id:fft.object_id,spectrum_filter:{smooth_sigma_bins:2,background_sigma_bins:1},request_id:'figure-invalid-filter'})).result.isError,true);
   assert.equal((await c.tool('image_preview',{object_id:fft.object_id,spectrum_axes:true,max_size:128,request_id:'figure-too-small'})).result.isError,true);
   assert.equal((await c.tool('image_annotate',{object_id:view.object_id,annotations:[{...mark,arrowhead_size:100}],request_id:'figure-oversize-arrow'})).error.code,-32602);
+  const detailMessage=await c.tool('image_preview',{object_id:revised.object_id,display_preset:'fft_detail',request_id:'figure-detail-preset'});
+  const detail=result(detailMessage);picture(detailMessage);
+  assert.equal(detail.display.spectrum_filter,null);assert.equal(detail.display.spectrum_axes,false);
+  assert.equal(detail.display.range_source,'percentile');assert.deepEqual(detail.display.range_percentiles,[5,99.8]);
+  assert.deepEqual(readFileSync(detail.array_path),originalSpectrum);
+  const whiteMessage=await c.tool('image_annotate',{object_id:detail.object_id,annotations:[{...mark,color:'white'}],request_id:'figure-white-candidate'});
+  const white=result(whiteMessage);picture(whiteMessage);
+  assert.equal(white.annotations[0].color,'white');assert.equal(white.annotations[0].status,'hypothesized');
+  const inheritedWhite=result(await c.tool('image_preview',{object_id:white.object_id,gamma:.9,request_id:'figure-white-revision'}));
+  assert.equal(inheritedWhite.annotations[0].color,'white');assert.equal(inheritedWhite.display.spectrum_filter,null);
+  assert.equal((await c.tool('image_preview',{object_id:frame.object_id,display_preset:'fft_detail',request_id:'figure-preset-wrong-domain'})).result.isError,true);
   assert.deepEqual(readFileSync(f.source),original);
  }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
 });

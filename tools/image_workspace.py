@@ -32,7 +32,7 @@ OBJECT_ID = re.compile(r"[a-f0-9]{32}\Z")
 FIELDS = {
     "open": {"source_path"}, "frame": {"object_id", "frame_index"},
     "import_capture": {"source_path"},
-    "view": {"object_id", "rect", "display_range", "gamma", "max_size", "representation", "spectrum_filter", "upscale", "spectrum_axes"},
+    "view": {"object_id", "rect", "display_range", "gamma", "max_size", "representation", "spectrum_filter", "upscale", "spectrum_axes", "display_preset"},
     "compare": {"object_ids", "rect", "display_range", "gamma", "max_size"},
     "fft": {"object_id", "rect", "window", "subtract_mean", "max_size"},
     "annotate": {"object_id", "annotations"}, "context": {"object_id", "metadata"},
@@ -527,6 +527,8 @@ class Workspace:
                      "spectrum_filter is only valid for a saved complex FFT display")
                 need(spectral_view or "spectrum_axes" not in request,
                      "spectrum_axes is only valid for a saved complex FFT display")
+                need(spectral_view or "display_preset" not in request,
+                     "fft_detail display_preset requires a saved complex FFT")
             else:
                 parent, _, context, values = self.scalar(request.get("object_id"))
             metadata.update(parent_object_id=request["object_id"], user_context=context,
@@ -536,19 +538,41 @@ class Workspace:
                 need(request.get("rect") is None,
                      "FFT re-rendering uses the full saved spectrum; select a spatial ROI before FFT, not a hidden frequency crop")
                 old_display = dict(parent.get("display") or {})
+                recipe = dict(request)
+                detail_preset = "display_preset" in request
+                if detail_preset:
+                    need(request["display_preset"] == "fft_detail", "Only the explicit fft_detail display preset is supported")
+                    # A reusable starting point, not a sample-specific denoiser.
+                    # Explicit caller parameters always override the recipe.
+                    recipe = {"representation": "log_amplitude", "spectrum_filter": None,
+                              "spectrum_axes": False, "upscale": True, "max_size": 512, "gamma": 1, **request}
                 previous_mode = old_display.get("representation", "log_amplitude")
-                mode = request.get("representation", previous_mode)
+                mode = recipe.get("representation", previous_mode)
                 shown, expression = spectrum_display(values, mode)
-                filter_spec = request.get("spectrum_filter", old_display.get("spectrum_filter"))
+                filter_spec = recipe.get("spectrum_filter", old_display.get("spectrum_filter"))
                 shown, filter_provenance = spectrum_filter_display(shown, filter_spec)
                 if mode != previous_mode or filter_spec != old_display.get("spectrum_filter"):
                     # Amplitude, power and log amplitude have different units;
                     # preserve gamma/size, but never inherit their old limits.
                     old_display.pop("display_range", None)
-                settings = display_options(request, [shown], old_display)
+                percentile_range = detail_preset and "display_range" not in request
+                if percentile_range:
+                    limits = np.percentile(shown, [5, 99.8]).tolist()
+                    recipe["display_range"] = limits if limits[0] < limits[1] else None
+                settings = display_options(recipe, [shown], old_display)
+                if percentile_range:
+                    if limits[0] < limits[1]:
+                        settings.update(range_source="percentile", range_percentiles=[5, 99.8])
+                    else:
+                        settings.update(range_source="percentile_fallback_raw_minmax", attempted_range_percentiles=[5, 99.8],
+                                        range_fallback_reason="percentile limits are equal")
+                elif "display_range" not in request and mode == previous_mode and filter_spec == old_display.get("spectrum_filter"):
+                    if "range_percentiles" in old_display:
+                        settings["range_percentiles"] = old_display["range_percentiles"]
+                settings["display_preset"] = "fft_detail" if detail_preset else old_display.get("display_preset")
                 settings["representation"] = mode
                 settings.update(spectrum_filter=filter_spec, filter_provenance=filter_provenance)
-                settings["spectrum_axes"] = request.get("spectrum_axes", old_display.get("spectrum_axes", False))
+                settings["spectrum_axes"] = recipe.get("spectrum_axes", old_display.get("spectrum_axes", False))
                 spectrum_id = parent.get("spectrum_object_id", parent["object_id"])
                 image, spectrum_panel = spectrum_canvas(shown, settings, spectrum_id)
                 save_array(directory, "data.npy", values)
@@ -740,7 +764,7 @@ class Workspace:
         return self.publish(metadata, directory)
 
     def revise_comparison(self, parent, parent_directory, context, request, metadata, directory, annotations):
-        need(request.get("rect") is None and "representation" not in request and "spectrum_filter" not in request and "spectrum_axes" not in request,
+        need(request.get("rect") is None and not any(key in request for key in ("representation", "spectrum_filter", "spectrum_axes", "display_preset")),
              "Saved comparison preview changes display only; choose a new ROI using image_compare")
         names = ["data-{}.npy".format(i) for i in range(len(parent["panels"]))]
         values = [load_array(parent_directory / name) for name in names]
@@ -829,11 +853,11 @@ def annotation(item, image_size, panels, reproject=False):
     if reproject:
         anchor = item.get("anchor")
         need(anchor is not None, "Annotation has no unique source anchor; replace or remove it before re-rendering")
-        supplied = {key: item[key] for key in ("kind", "text", "status", "note", "annotation_id", "line_width", "arrowhead_size") if key in item}
+        supplied = {key: item[key] for key in ("kind", "text", "status", "note", "annotation_id", "line_width", "arrowhead_size", "color") if key in item}
         supplied.update(anchor)
         item = supplied
     allowed = {"kind", "coordinates", "text", "status", "note", "annotation_id", "coordinate_space", "source_object_id",
-               "line_width", "arrowhead_size"}
+               "line_width", "arrowhead_size", "color"}
     need(type(item) is dict and set(item) <= allowed, "Unknown annotation field")
     kind, coords = item.get("kind"), item.get("coordinates")
     lengths = {"point": 2, "text": 2, "rectangle": 4, "line": 4, "arrow": 4}
@@ -854,6 +878,8 @@ def annotation(item, image_size, panels, reproject=False):
     need(ident is None or type(ident) is str and REQUEST_ID.fullmatch(ident), "Invalid annotation_id")
     line_width, arrowhead_size = item.get("line_width", 1), item.get("arrowhead_size", 4)
     need(integer(line_width, 1, 4) and integer(arrowhead_size, 1, 12), "Annotation line_width needs 1..4 and arrowhead_size 1..12 display pixels")
+    color = item.get("color", "green" if status == "user_confirmed" else "amber")
+    need(color in ("white", "cyan", "amber", "green"), "Unsupported display annotation color")
     space = item.get("coordinate_space", "rendered_image_pixels")
     need(space in ("rendered_image_pixels", "source_pixels", "source_array_indices", "frequency_cycles_per_pixel"),
          "Unsupported annotation coordinate space")
@@ -913,6 +939,7 @@ def annotation(item, image_size, panels, reproject=False):
             "coordinate_convention": "pixel edges" if edges else "pixel/bin centres; x right, y down",
             "status": status, "text": text, "note": note, "source_mappings": mappings, "anchor": anchor,
             "line_width": line_width, "arrowhead_size": arrowhead_size,
+            "color": color,
             **({"annotation_id": ident} if ident is not None else {}),
             "visibility": "outside_view" if space != "rendered_image_pixels" and not visible else "visible",
             "mapping_status": "one_source" if len(matches) == 1 else "not_a_single_source_region"}
@@ -929,7 +956,7 @@ def overlay(image, annotations, panels, reproject=False):
         result.append(mark)
         if mark["status"] == "retracted" or mark["visibility"] != "visible":
             continue
-        color = "#00e060" if mark["status"] == "user_confirmed" else "#ffba30"
+        color = {"white": "#ffffff", "cyan": "#45e8ff", "amber": "#ffba30", "green": "#00e060"}[mark["color"]]
         coords, kind = mark["coordinates"], mark["kind"]
         if kind == "point":
             x, y = coords

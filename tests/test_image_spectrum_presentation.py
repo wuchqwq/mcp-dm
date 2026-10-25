@@ -302,6 +302,179 @@ class ImageSpectrumPresentationTests(unittest.TestCase):
         valid = self.ok("view", object_id=self.fft["object_id"], spectrum_axes=True, max_size=256)
         self.assertFalse(self.execute("view", object_id=valid["object_id"], max_size=192)["ok"])
 
+    def test_fft_detail_preset_starts_from_complex_with_light_percentile_display(self):
+        heavy = self.ok("view", object_id=self.fft["object_id"], representation="power", gamma=4,
+                        spectrum_filter={"smooth_sigma_bins": 3, "background_sigma_bins": 8},
+                        spectrum_axes=True, max_size=256, upscale=False, display_range=[0, 10])
+        previous_png = Path(heavy["image_path"]).read_bytes()
+        raw = np.load(self.fft["array_path"])
+        expected = np.percentile(np.log1p(np.abs(raw)), [5, 99.8])
+        with patch.object(np.fft, "fft2", side_effect=AssertionError("Preset must reuse original complex spectrum")):
+            detail = self.ok("view", object_id=heavy["object_id"], display_preset="fft_detail")
+        settings = detail["display"]
+        self.assertEqual(settings["display_preset"], "fft_detail")
+        self.assertEqual(settings["representation"], "log_amplitude")
+        self.assertIsNone(settings["spectrum_filter"])
+        self.assertFalse(settings["spectrum_axes"])
+        self.assertEqual(settings["gamma"], 1)
+        self.assertTrue(settings["upscale"])
+        self.assertEqual(settings["max_size"], 512)
+        self.assertEqual(settings["range_source"], "percentile")
+        self.assertEqual(settings["range_percentiles"], [5, 99.8])
+        self.assertNotIn("attempted_range_percentiles", settings)
+        self.assertNotIn("range_fallback_reason", settings)
+        np.testing.assert_allclose(settings["display_range"], expected, rtol=0, atol=1e-13)
+        self.assertEqual(detail["spectrum_object_id"], self.fft["object_id"])
+        self.assertEqual(Path(detail["array_path"]).read_bytes(), self.complex_before)
+        self.assertEqual(Path(heavy["image_path"]).read_bytes(), previous_png)
+        self.assertEqual(self.ok("get", object_id=heavy["object_id"])["display"]["spectrum_filter"],
+                         {"smooth_sigma_bins": 3, "background_sigma_bins": 8})
+        self.assert_inputs_unchanged()
+
+    def test_fft_detail_inherits_range_without_reapplying_defaults_or_percentiles(self):
+        first = self.ok("view", object_id=self.fft["object_id"], display_preset="fft_detail")
+        with patch.object(np, "percentile", side_effect=AssertionError("Omitted preset must not run again")), \
+             patch.object(np.fft, "fft2", side_effect=AssertionError("No FFT during display revision")):
+            revised = self.ok("view", object_id=first["object_id"], gamma=1.7, max_size=768)
+        self.assertEqual(revised["display"]["display_preset"], "fft_detail")
+        self.assertEqual(revised["display"]["display_range"], first["display"]["display_range"])
+        self.assertEqual(revised["display"]["gamma"], 1.7)
+        self.assertEqual(revised["display"]["max_size"], 768)
+        self.assertIsNone(revised["display"]["spectrum_filter"])
+        self.assertEqual(Path(revised["array_path"]).read_bytes(), self.complex_before)
+
+    def test_explicit_range_and_null_override_preset_percentiles_with_honest_metadata(self):
+        direct = self.ok("view", object_id=self.fft["object_id"], display_preset="fft_detail", display_range=[1, 9])
+        self.assertEqual(direct["display"]["display_range"], [1, 9])
+        self.assertEqual(direct["display"]["range_source"], "explicit")
+        self.assertNotIn("range_percentiles", direct["display"])
+        first = self.ok("view", object_id=self.fft["object_id"], display_preset="fft_detail")
+        reset = self.ok("view", object_id=first["object_id"], display_range=None)
+        log_values = np.log1p(np.abs(np.load(self.fft["array_path"])))
+        self.assertEqual(reset["display"]["range_source"], "shared_raw_minmax")
+        np.testing.assert_allclose(reset["display"]["display_range"], [log_values.min(), log_values.max()], rtol=0, atol=1e-13)
+        self.assertNotIn("range_percentiles", reset["display"])
+        simultaneous = self.ok("view", object_id=self.fft["object_id"], display_preset="fft_detail", display_range=None)
+        self.assertEqual(simultaneous["display"]["range_source"], "shared_raw_minmax")
+        self.assertEqual(simultaneous["display"]["display_range"], reset["display"]["display_range"])
+        self.assertNotIn("range_percentiles", simultaneous["display"])
+
+    def test_explicit_fields_override_fft_detail_recipe(self):
+        parameters = {"smooth_sigma_bins": .5, "background_sigma_bins": 2}
+        detail = self.ok("view", object_id=self.fft["object_id"], display_preset="fft_detail",
+                         representation="amplitude", spectrum_filter=parameters, spectrum_axes=True,
+                         gamma=1.3, max_size=256, upscale=False, display_range=[0, 100])
+        settings = detail["display"]
+        self.assertEqual(settings["representation"], "amplitude")
+        self.assertEqual(settings["spectrum_filter"], parameters)
+        self.assertTrue(settings["spectrum_axes"])
+        self.assertEqual(settings["gamma"], 1.3)
+        self.assertEqual(settings["max_size"], 256)
+        self.assertFalse(settings["upscale"])
+        self.assertEqual(settings["display_range"], [0, 100])
+        self.assertEqual(settings["range_source"], "explicit")
+        self.assertEqual(Path(detail["array_path"]).read_bytes(), self.complex_before)
+
+    def test_fft_detail_rejects_unknown_preset_and_non_spectrum_inputs(self):
+        for value in ("auto", "fft_smooth", "", 1, None):
+            with self.subTest(preset=value):
+                self.assertFalse(self.execute("view", object_id=self.fft["object_id"], display_preset=value)["ok"])
+        self.assertFalse(self.execute("view", object_id=self.frame["object_id"], display_preset="fft_detail")["ok"])
+        other, _ = self.new_frame("preset-other", self.values+1)
+        compare = self.ok("compare", object_ids=[self.frame["object_id"], other["object_id"]])
+        self.assertFalse(self.execute("view", object_id=compare["object_id"], display_preset="fft_detail")["ok"])
+
+    def test_equal_percentiles_report_raw_minmax_fallback_for_constant_and_dc_only_spectra(self):
+        impulse = np.zeros((32, 32), np.uint16)
+        impulse[0, 0] = 1
+        cases = [("constant-spectrum", impulse), ("dc-only-spectrum", np.full((32, 32), 7, np.uint16))]
+        for name, pixels in cases:
+            with self.subTest(case=name):
+                frame, source = self.new_frame(name, pixels)
+                source_before = source.read_bytes()
+                fft = self.ok("fft", object_id=frame["object_id"])
+                complex_before = Path(fft["array_path"]).read_bytes()
+                log_values = np.log1p(np.abs(np.load(fft["array_path"])))
+                attempted = np.percentile(log_values, [5, 99.8])
+                self.assertEqual(attempted[0], attempted[1])
+                raw_range = [float(log_values.min()), float(log_values.max())]
+                with patch.object(np.fft, "fft2", side_effect=AssertionError("Fallback must not recompute FFT")):
+                    detail = self.ok("view", object_id=fft["object_id"], display_preset="fft_detail")
+                    inherited = self.ok("view", object_id=detail["object_id"], gamma=1.5, max_size=256)
+                settings = detail["display"]
+                self.assertEqual(settings["range_source"], "percentile_fallback_raw_minmax")
+                self.assertEqual(settings["display_range"], raw_range)
+                self.assertEqual(settings["attempted_range_percentiles"], [5, 99.8])
+                self.assertEqual(settings["range_fallback_reason"], "percentile limits are equal")
+                self.assertNotIn("range_percentiles", settings)
+                self.assertEqual(inherited["display"]["range_source"], "inherited_display")
+                self.assertEqual(inherited["display"]["display_range"], raw_range)
+                self.assertNotIn("range_percentiles", inherited["display"])
+                # Any retained fallback details remain true provenance of the
+                # inherited numerical range, never an active percentile claim.
+                if "attempted_range_percentiles" in inherited["display"]:
+                    self.assertEqual(inherited["display"]["attempted_range_percentiles"], [5, 99.8])
+                    self.assertEqual(inherited["display"]["range_fallback_reason"], "percentile limits are equal")
+                explicit = self.ok("view", object_id=detail["object_id"], display_range=[0, 1])
+                self.assertEqual(explicit["display"]["range_source"], "explicit")
+                self.assertEqual(explicit["display"]["display_range"], [0, 1])
+                self.assertNotIn("range_percentiles", explicit["display"])
+                self.assertNotIn("attempted_range_percentiles", explicit["display"])
+                self.assertNotIn("range_fallback_reason", explicit["display"])
+                for result in (detail, inherited, explicit):
+                    self.assertEqual(Path(result["array_path"]).read_bytes(), complex_before)
+                self.assertEqual(Path(fft["array_path"]).read_bytes(), complex_before)
+                self.assertEqual(source.read_bytes(), source_before)
+                if name == "constant-spectrum":
+                    self.assertTrue(settings["constant_range"])
+                    self.assertTrue(np.all(np.asarray(self.png(detail)) == 0))
+                else:
+                    self.assertEqual(raw_range[0], 0)
+                    self.assertAlmostEqual(raw_range[1], math.log1p(7*32*32), places=13)
+                    self.assertFalse(settings["constant_range"])
+
+    def test_annotation_color_is_independent_of_status_and_survives_preset_revision(self):
+        detail = self.ok("view", object_id=self.fft["object_id"], display_preset="fft_detail")
+        original = {"kind": "point", "coordinates": [0, 0], "coordinate_space": "frequency_cycles_per_pixel",
+                    "source_object_id": self.fft["object_id"], "annotation_id": "white-candidate",
+                    "color": "white", "status": "hypothesized"}
+        candidate = self.ok("annotate", object_id=detail["object_id"], annotations=[original])
+        confirmed = self.ok("annotate", object_id=detail["object_id"],
+                            annotations=[dict(original, status="user_confirmed")])
+        self.assertEqual(candidate["annotations"][0]["color"], "white")
+        self.assertEqual(confirmed["annotations"][0]["color"], "white")
+        np.testing.assert_array_equal(np.asarray(self.png(candidate)), np.asarray(self.png(confirmed)))
+        before = np.asarray(self.png(detail).convert("RGB"))
+        after = np.asarray(self.png(candidate).convert("RGB"))
+        changed = np.any(before != after, axis=2)
+        self.assertTrue(changed.any())
+        self.assertTrue(np.all(after[changed] == 255))
+        revised = self.ok("view", object_id=candidate["object_id"], gamma=1.4, max_size=768)
+        self.assertEqual(revised["annotations"][0]["color"], "white")
+        self.assertEqual(revised["annotations"][0]["status"], "hypothesized")
+        self.assertEqual(revised["annotations"][0]["anchor"], candidate["annotations"][0]["anchor"])
+        output = self.root / "detail-white-export"
+        self.ok("export", object_id=revised["object_id"], output_dir=str(output))
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["display_mapping"]["display_preset"], "fft_detail")
+        self.assertEqual(manifest["display_object"]["annotations"][0]["color"], "white")
+        self.assertEqual((output / "data.npy").read_bytes(), self.complex_before)
+
+    def test_color_choices_reject_unknown_and_keep_default_status_palette_compatible(self):
+        view = self.ok("view", object_id=self.frame["object_id"], upscale=True, max_size=128)
+        original = {"kind": "line", "coordinates": [10, 10, 50, 30], "status": "hypothesized"}
+        default = self.ok("annotate", object_id=view["object_id"], annotations=[original])
+        amber = self.ok("annotate", object_id=view["object_id"], annotations=[dict(original, color="amber")])
+        np.testing.assert_array_equal(np.asarray(self.png(default)), np.asarray(self.png(amber)))
+        for color in ("white", "cyan", "amber", "green"):
+            with self.subTest(color=color):
+                marked = self.ok("annotate", object_id=view["object_id"], annotations=[dict(original, color=color)])
+                self.assertEqual(marked["annotations"][0]["color"], color)
+        for color in ("red", "White", "", True):
+            with self.subTest(invalid_color=color):
+                self.assertFalse(self.execute("annotate", object_id=view["object_id"],
+                                             annotations=[dict(original, color=color)])["ok"])
+
 
     def test_small_unscaled_spectrum_keeps_a_readable_legend_canvas(self):
         # Coordinate labels need their own space even if scientific bins are

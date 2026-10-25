@@ -32,6 +32,12 @@ display-only Gaussian smoothing/background suppression, enlarge the figure and
 label cycles/pixel axes. Keep arrows small and outside the evidence; inspect
 the returned image before calling a plot usable. See [annotation and figure
 recipes](docs/IMAGE_ANNOTATIONS.md). Filtered PNGs never replace complex NPY.
+For ordinary FFT figures start with `image_preview(display_preset:"fft_detail")`:
+an unfiltered log-amplitude view with a recorded percentile display range.
+Inspect it before applying filters. Keep fine texture and streaks visible;
+do not assume that a black background or smooth bright blobs are improvements.
+Use sparse white marks on grayscale when suitable; status remains separate.
+Published reciprocal masks/indices require their own evidence and calibration.
 
 The researcher may normally work through DM's GUI and use external Python for specialized analysis. Do not require them to learn DM scripting or force every request through a capture/report pipeline.
 
