@@ -56,6 +56,11 @@ class GeometryTests(unittest.TestCase):
             self.assertEqual(result["angles"][0]["angle_deg"], 45. if usable else None)
             self.assertEqual(result["spots"][0]["length_ratio_to_first"], 1. if usable else None)
 
+    def test_geometry_limitations_do_not_deny_upstream_automatic_localization(self):
+        result = measure_geometry([0., 0.], [dict(id="a", xy=[1., 0.])], self.mapping())
+        self.assertTrue(any("optional automatic localization" in item for item in result["limitations"]))
+        self.assertNotIn("No automatic peak localization or centre estimation", result["limitations"])
+
     def test_capture_xy_axes_convert_units_independently(self):
         axes = [dict(scale=-.2, calibrated_value_at_pixel_zero=9., unit="1/nm"),
                 dict(scale=.03, calibrated_value_at_pixel_zero=-2., unit="1/angstrom")]
