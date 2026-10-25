@@ -5,8 +5,14 @@ from existing DM native operations. They do not establish an experimental
 material or add a native operator. The native plugin, Node catalog and default
 v0.6 implementation remain unchanged. New dependencies stay outside GMS Python.
 
-The initial companion baseline below is historical; its full-suite PASS must
-not be substituted for the current revision's regression result.
+The records below describe distinct revisions and scopes. The initial companion
+baseline and the later 707-test timeout run remain historical. PR #12 at
+`c8723c1` reports a newer full Python 715/715 PASS, Node 214/214 PASS, 13 C++
+offline executables PASS and a passing default-backend selftest. These newer
+figures are taken from the PR author's closeout report, not a fresh independent
+run of the candidate by this documentation-only review. An earlier full-suite
+FAIL is preserved even when a subsequent complete run passes; its underlying
+timeout cause has not been established.
 
 | Scope | Result |
 | --- | --- |
@@ -14,9 +20,12 @@ not be substituted for the current revision's regression result.
 | Initial Node complete regression | Historical PASS, 206/206, zero skipped; existing Windows synthetic host and scientific fixture enabled |
 | Initial default backend selftest | Historical PASS, existing 21-tool behavior |
 | Initial full Python regression | Historical PASS, 701/701, zero errors/failures/skips; original deadlines unchanged |
-| Current companion tests | PASS, 103 methods, including all 19 detector tests and six added DC/localization controls |
-| Current Node complete regression / default backend selftest | PASS, 206/206, zero skipped; Windows synthetic-host/scientific fixtures executed; default 21-tool selftest PASS |
-| Current full Python regression | FAILED, 707 methods, three existing 15-second subprocess timeouts, zero assertion failures/skips. One installation-recovery method and two STOP-identity subcases timed out; cause is not established |
+| Earlier post-localization companion tests | Historical PASS, 103 methods, including all 19 detector tests and six added DC/localization controls |
+| Earlier post-localization Node complete regression / default selftest | Historical PASS, 206/206, zero skipped; Windows synthetic-host/scientific fixtures executed; default 21-tool selftest PASS |
+| Earlier post-localization full Python regression | Historical **FAILED**, 707 methods, three original 15-second subprocess timeouts, zero assertion failures/skips. One installation-recovery method and two STOP-identity subcases timed out; cause is not established |
+| Latest PR #12 reported full Python regression | **Reported PASS**, 715/715, zero failures/skips; original deadlines unchanged; not independently rerun in this documentation-only review |
+| Latest PR #12 reported full Node and default selftest | **Reported PASS**, 214/214 Node, zero failures/skips; default backend selftest PASS; not independently rerun in this review |
+| Latest PR #12 reported C++ offline suites | **Reported PASS**, 13 test executables; offline/surrogate evidence, not an additional live-host qualification |
 | Subsequent serial diagnosis of the affected methods | PASS, 2/2 methods, including the existing 20 STOP-identity negative subcases; original deadlines and source hashes unchanged. This does not replace the complete failed run |
 | Blind independent Agent over saved synthetic inputs | PASS, both automatic run/verify workflows completed without additional human input; no source/test/answer access |
 | Independent withheld-truth check of blind results | PASS, centre/spacing and fixed hexagonal reference checks; ambiguous alternatives retained; input files unchanged |
@@ -48,7 +57,7 @@ the mask evidence. This prevents dominant FFT DC and its smoothing halo from
 setting the scale for nearby reflections. Mathematical FFT DC still comes from
 the recorded native frequency grid; source arrays and display PNGs are not
 substituted or modified. Focused controls cover this admission boundary; the
-current full regression remains distinct from those targeted checks.
+later reported full regression, historical failed full regression and targeted checks remain separate evidence.
 
 File checks reject tampered numerical bytes, metadata/receipt/session identity,
 forged frequency axes, missing outputs, rehashed inconsistent request identities,
