@@ -5,11 +5,37 @@
 The `feature/pixel-image-workflow` branch preserves FRAME and the existing
 physical operation contracts. New CROP_PIXEL/FILTER_PIXEL/Fourier *_PIXEL
 requests have separate immutable identities, cycles-per-pixel scientific
-coordinates and optional profile groups. All three public pixel groups remain
-disabled; their own real-host trial is HOLD. Offline callbacks and client
-fixtures do not supply that qualification. Do not replace a loaded DLL or
-promote the private candidate without its separate source/value/calibration,
-request recovery and reference-lifecycle checks for each supported dtype.
+coordinates and profile groups. `native_pixel_crop`, `native_pixel_filters`
+and `native_pixel_fft` now have limited synthetic real-host qualification on
+the exact fingerprint-matched Windows x64 GMS 3.53.4137.0 build. The qualified
+artifact's frozen profile/test files were promoted without changing its native
+implementation. Ordinary float32/uint32 and uint16-through-FRAME working copies
+keep their existing dtype, size, finite-data and shared-pool guards. Missing
+units are allowed only in explicit pixel mode; finite origins/zero values,
+finite nonzero signed scales and consistent native getter formats remain
+required. Default physical mode and the default v0.6 backend are unchanged.
+
+Actual Node stdio MCP, independent same-host numerical/calibration/source
+checks, known READ context/FRAME ancestry, original-ID QUERY/duplicate/mode
+conflict, exact scalar-document delivery and independent after-idle lifetime
+checks passed within that synthetic scope. Original pre-saved STOP identity,
+owned cleanup, normal exit, manifest-only removal and post-exit NPY reopening
+were checked separately. A native QUERY cannot recover records across STOP,
+host exit or a new session. A tool receipt does not prove model viewing.
+
+Preserve the initial power-oracle FAIL: its binary64 expression followed by
+float32 storage did not match the native result's rounding on the new fixture.
+A separate round used new request IDs/objects and a predeclared reference with
+separate binary32 squares and addition, and passed exactly. No tolerance was
+widened or original record rewritten. This is bounded numerical qualification,
+not a vendor instruction-chain or arbitrary-input rounding proof. A read-only
+uncalibrated sequence then passed explicit frame/ROI, native FFT/component
+export, complete source protection and after-idle working-reference checks.
+Its saved native captures returned a fixed-range PNG through an explicit
+image_* stdio client, with fresh-client view recovery and Codex pixel viewing.
+General mathematical real-image FFT accuracy, ordinary native model clients
+and other clients remain unqualified. Native SaveAs, arbitrary image sizes and
+other GMS builds remain unsupported. Never replace a loaded DLL.
 
 Meanwhile [opt-in external image tools](../../../docs/PIXEL_IMAGE_WORKFLOW.md)
 provide a usable uint16 TIFF frame/ROI/view/comparison/FFT/annotation/export

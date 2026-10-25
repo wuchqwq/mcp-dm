@@ -68,7 +68,7 @@ ABI, scientific, source-protection and lifecycle qualification before admission.
 | `dm_native_mean` | Raw intensity mean for explicit-ID 2D float32 (at most 4,194,304 pixels) or ordinary-packed uint32 (at most 2,097,152); subject to dtype qualification below |
 | `dm_native_summary` | DM's minimum, maximum, sum and mean within the same dtype/pixel limits; raw intensity, no stddev/variance |
 | `dm_native_result` | Query the retained receipt using its original operation ID |
-| `dm_crop` | Explicit-ID half-open crop into a separate same-dtype plugin-retained image with full spatial calibration; uint32 source at most 4,194,304 pixels, output at most 4 MiB (1,048,576 pixels) |
+| `dm_crop` | Explicit-ID half-open crop into a separate same-dtype plugin-retained image; default physical mode requires full spatial calibration, separately qualified pixel mode preserves unknown units with valid numeric calibration; uint32 source at most 4,194,304 pixels, output at most 4 MiB (1,048,576 pixels) |
 | `dm_native_show` | Exact qualified plugin-result delivery to a DM document; separate 1D PROFILE float64 and HISTOGRAM uint32 groups preserve true rank/type; saved request ID required; document lifetime is separate from file persistence |
 | `dm_native_unary` | Native negate, absolute value and square of qualified float32/uint32 2D inputs; actual output dtype is explicit |
 | `dm_native_binary` | Native add, subtract and multiply; same shape and calibration, no broadcasting |
@@ -93,6 +93,32 @@ FRAME real-host qualification is **LIMITED_SYNTHETIC_REAL_HOST_PASS**; inspect t
 selected adapter capability before calling it. READ/NPY records actual float32
 storage plus the original uint16 frame provenance, not a native SaveAs claim.
 
+The exact-build `native_pixel_crop`, `native_pixel_filters` and
+`native_pixel_fft` groups now have limited synthetic real-host qualification
+for ordinary float32/uint32 and converted FRAME working copies. Choose
+`coordinate_mode:"pixel"` explicitly; default/physical calls retain their old
+calibration contract. Pixel mode only removes the spatial-unit prerequisite:
+origins/zero values must be finite, signed scales finite and nonzero, getter
+formats consistent, and existing dtype, size, finite-result and pool checks
+still apply. Mathematical Fourier axes use cycles_per_pixel; raw native
+calibration stays separate and intensity calibration is not applied.
+
+Crop/filter remain version 1 and Fourier version 2 under separate `*_PIXEL`
+request identities. Save the request ID before submission; changing coordinate
+mode under the same ID conflicts. Original-ID recovery is limited to the same
+live native session. Scientific READ/NPY, source protection, exact document
+delivery, after-idle reference cleanup, original STOP, normal exit/manifest
+removal and post-exit files passed in the synthetic scope. The initial power
+comparison with a binary64-expression oracle remains FAIL; a separate new-request
+round passed a predeclared exact stepwise-binary32 reference without changing
+tolerances or old evidence. A separate read-only uncalibrated sequence completed
+explicit frame/ROI and native FFT/component export with exact source ROI and
+bitwise native/export agreement, unchanged source memory/file and after-idle
+release checks. An explicit image_* stdio client displayed its saved native
+captures to Codex. These observations do not establish arbitrary-input Fourier
+accuracy, native SaveAs or ordinary native model-client qualification.
+See [pixel workflow](../../../docs/PIXEL_IMAGE_WORKFLOW.md#qualified-native-pixel-continuation).
+
 The profile path has limited synthetic-host qualification, including separate
 fresh-host confirmation of the final qualified artifact and its exact loaded
 identity. Independent source/GUI, raw 1D values, NPY, original-ID recovery,
@@ -115,7 +141,9 @@ qualification is recorded separately in [uint32 acceptance](UINT32_ACCEPTANCE.md
 earlier float32 production PASS does not qualify a changed uint32 build.
 The statistics bound keeps every possible uint32 sum below 2^53; a fractional
 mean is a binary64 result, not an exact rational. Missing spatial units may be
-reported for raw mean/SUMMARY and READ; crop still requires complete calibration.
+reported for raw mean/SUMMARY and READ; default physical crop still requires
+complete calibration. Qualified pixel crop preserves unknown units with valid
+numeric calibration.
 The explicit encoder writes exact `<u4` NPY bytes without float32 conversion.
 Its optional external example records an exact integer sum and float64 mean,
 script, parameters and input hashes; it is never a native fallback.
@@ -134,7 +162,8 @@ missing unit, zero/nonfinite spatial scale or unusable spatial origin does not
 by itself prohibit a supported raw mean. The result retains
 `calibration_complete:false` and specific per-axis issues; it still reports
 `intensity_calibration_applied:false`, with `intensity_semantics` set to
-`raw pixel intensity`. Crop continues to require usable spatial calibration. Invalid
+`raw pixel intensity`. Default physical crop requires usable spatial calibration;
+explicit qualified pixel crop retains the numeric-calibration safety checks. Invalid
 IDs, unsupported dtype/dimensions, work budgets, nonfinite mean results and
 native/ABI failures remain errors. The empty-unit case passed separate
 actual-host mean/metadata checks; other invalid spatial-number cases currently
@@ -174,8 +203,9 @@ unit. Enumeration marks incomplete calibration with
 `calibration_complete:false` and per-axis issues, so a hidden utility image
 without units need not prevent other datasets from being listed. Raw mean can
 remain supported with incomplete spatial calibration, which is reported as a
-limitation rather than converted to invented units. Crop still requires usable
-calibration. The mean never applies intensity calibration.
+limitation rather than converted to invented units. Default physical crop still
+requires usable calibration; qualified pixel crop does not invent missing units.
+The mean never applies intensity calibration.
 `native_mean_supported` reports dtype/dimension/budget eligibility; a native
 failure or nonfinite result can still reject the operation.
 

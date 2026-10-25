@@ -65,15 +65,15 @@ inline const AdapterProfile& profile() {
             {"mfc140.dll", "#1487"},
         },
         {
-            {"native_pixel_crop", false, "NOT_QUALIFIED; explicit pixel coordinates; existing native crop ABI/type/size guards; finite numeric calibration retained, units may be unknown", {
+            {"native_pixel_crop", true, "limited synthetic real-host qualification; explicit pixel coordinates; existing native crop ABI/type/size guards; finite numeric calibration retained, units may be unknown", {
                 {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
                 {"GMSImage.dll", "?GetSubSliceAsImage@Image@GMS@@QEBA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSlice@Imaging@4@@Z"}}, {}},
-            operation_capability("native_pixel_filters", false, "NOT_QUALIFIED; explicit pixel filters; existing native filter ABI/type/size guards; finite numeric calibration retained, units may be unknown", {
+            operation_capability("native_pixel_filters", true, "limited synthetic real-host qualification; explicit pixel filters; existing native filter ABI/type/size guards; finite numeric calibration retained, units may be unknown", {
                 "?SmoothFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
                 "?SobelFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
                 "?LaplaceFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
                 "?SharpenFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z"}),
-            operation_capability("native_pixel_fft", false, "NOT_QUALIFIED; explicit cycles-per-pixel Fourier coordinates; existing native Fourier ABI/type/size guards; finite numeric calibration retained, units may be unknown", {
+            operation_capability("native_pixel_fft", true, "limited synthetic real-host qualification; explicit cycles-per-pixel Fourier coordinates; existing native Fourier ABI/type/size guards; finite numeric calibration retained, units may be unknown", {
                 "?Real_FFT@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
                 "?IFFT@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
                 "?Real@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",

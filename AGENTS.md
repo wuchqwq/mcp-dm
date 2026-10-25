@@ -12,8 +12,9 @@ software provenance. They are never a fallback for a failed `dm_*` call.
 Missing physical calibration does not block pixel exploration; do not invent
 physical spacings, phase units, frame depth or square physical pixels. Keep
 user-supplied interpretation/calibration separate and revisable. Preserve
-native qualification gates; new pixel capabilities remain disabled until
-their own real-host qualification, regardless of tool-schema availability.
+native qualification gates. The three native pixel groups have limited
+synthetic real-host qualification on the exact pinned build; a new operator,
+dtype or build still needs its own qualification, regardless of tool schema.
 
 The core product is a reliable DM tool interface: inspect data, view images,
 execute explicit post-acquisition operations and return calibrated results.
@@ -81,6 +82,27 @@ The separate experimental native catalog has twenty entries: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
 dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_frame, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile and dm_native_histogram.
+
+Explicit `coordinate_mode:"pixel"` on crop/filter/Fourier selects separate
+`*_PIXEL` request identities and the qualified native_pixel_crop,
+native_pixel_filters or native_pixel_fft group. Ordinary float32/uint32 scopes
+retain their dtype, dimension, finite-data, numeric-calibration and pool guards;
+only the spatial-unit prerequisite is relaxed. Default/physical mode keeps its
+original requirements. Pixel Fourier axes are cycles_per_pixel, independent of
+preserved raw signed native calibration. uint16 enters through qualified FRAME
+conversion only. Known READ/NPY Fourier context and FRAME ancestry must not be
+lost under generic unknown-source compatibility. The initial binary64-expression
+power oracle FAIL remains historical; a separate fresh-request synthetic round
+passed its predeclared exact stepwise binary32 reference. This is bounded
+qualification, not an arbitrary-input rounding proof or lossless Fourier claim.
+Normal STOP/exit, after-idle reference cleanup and post-exit files were checked;
+live recovery remains same-session only. An authorized uncalibrated uint16
+sequence also passed explicit frame/ROI and native FFT/component data-handoff
+checks with unchanged source memory/file. Saved native captures were displayed
+to Codex through an explicit image_* stdio client. This proves the recorded
+path, not general real-image Fourier accuracy or ordinary native model-client
+qualification. See docs/PIXEL_IMAGE_WORKFLOW.md.
+
 `dm_native_frame` is a separate `native_frame` capability for explicit rank-three
 ordinary uint16 sources: DM dimension2 / NumPy axis0, never the GUI current frame
 or a summed image. DM makes an independent slice and explicitly converts it to
@@ -269,8 +291,10 @@ remain errors, without silent conversion or a backend fallback.
 - New FFT/complex submissions require native_fourier_operation version 2;
   version 1 remains explicitly recognizable for historical QUERY only.
   The base real-input scope remains ordinary-packed float32 or separately
-  qualified uint32, power-of-two dimensions 4..256 and complete spatial
-  calibration. Version 2 can admit dimensions 4..1024 and at most 1,048,576
+  qualified uint32, power-of-two dimensions 4..256 and, in default physical
+  mode, complete spatial calibration. Explicit pixel mode still requires
+  valid finite numeric calibration and its separate pixel capability.
+  Version 2 can admit dimensions 4..1024 and at most 1,048,576
   pixels; an axis above 256 requires the matching per-operation,
   source-dtype-lineage large capability. Inspect native_fft_large,
   native_ifft_large, native_real_large, native_imag_large, native_phase_large,
@@ -315,7 +339,9 @@ describe the fixed-build dtype contract, not nonexistent native flag getters.
 MEAN/SUMMARY use DM reductions with a 2,097,152-pixel conservative exact-integer
 sum budget. Fractional means remain binary64. uint32 CROP admits at most
 4,194,304 source pixels and 4 MiB output, preserves uint32 and requires complete
-spatial calibration. Uint32 SHOW, arithmetic, Fourier and filters have four
+spatial calibration in default physical mode; qualified pixel mode preserves
+unknown units with valid numeric calibration. Uint32 SHOW, arithmetic, Fourier
+and filters have four
 separate profile groups and their own UINT32_OPERATIONS_ACCEPTANCE.md evidence.
 Arithmetic is DM binary64 computation then float32 storage; FFT first rounds
 the uint32 source to binary32 and outputs complex64. Neither is arbitrary

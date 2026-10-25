@@ -118,14 +118,60 @@ qualify every MCP client's image display, automatic tool discovery/reloading or
 DM GUI visibility. Private trial inputs, IDs and numerical measurements are not
 published. Detailed current results live in the private run evidence.
 
-Native `coordinate_mode:"pixel"` has separate `*_PIXEL` wire identities and
-capabilities for crop/filter/Fourier. The implementation and offline substitutes
-preserve the old physical-mode contract, exact ABI, numeric-calibration safety,
-dtype, size and ownership checks. **Native pixel qualifications remain disabled
-pending their own synthetic real-host trial.** The existing loaded DLL must not
-be overwritten. An offline PASS does not admit a native call. Current numeric
-native calibration requirements are a remaining engineering limit, not a
-scientific need for a physical ruler.
+## Qualified native pixel continuation
+
+On the exact fingerprint-matched Windows x64 GMS 3.53.4137.0 adapter,
+`native_pixel_crop`, `native_pixel_filters` and `native_pixel_fft` now have
+limited synthetic real-host qualification. Select `coordinate_mode:"pixel"`
+explicitly on crop, filter, FFT and complex-component calls. Their distinct
+`*_PIXEL` request identities preserve the existing default physical-mode
+contract. Missing spatial units may remain unknown; origins/zero values must
+be finite, signed scales finite and nonzero, and native getter formats
+consistent. ABI/getter errors, unsupported types, nonfinite data and allocation
+budgets still reject.
+
+The qualified paths cover ordinary float32 and separately admitted uint32 2D
+inputs. Uint32 filter/Fourier output dtype and rounding retain their existing
+per-operation contract; pixel coordinates do not make integer FFTs lossless.
+A rank-three uint16 sequence enters through qualified `dm_native_frame`
+and its explicit, value-exact float32 working copy; uint16 is not globally
+enabled for old 2D operators. Crop retains the existing source/output limits;
+filters retain axes 5..256, and Fourier retains power-of-two dimensions and its
+per-operation/dtype large-window gates. The shared 16 MiB/32-object budget is
+unchanged. This does not enable arbitrary whole-frame dimensions or native
+SaveAs.
+
+Native pixel FFT reports mathematical `cycles_per_pixel` axes with DC at N/2.
+Raw signed native calibration and the half-bin offset remain separate; no
+physical frequency or pixel aspect is invented. Phase remains radians and
+power remains squared magnitude, with DM's finite-precision output. READ and
+NPY retain known Fourier context, processing history and frozen FRAME ancestry.
+Scientific NPY is an explicit data handoff; a PNG remains display-only.
+
+Save each side-effect request ID before submission. Same-ID QUERY/duplicates
+recover the original object in the same live native session; changing coordinate
+mode conflicts rather than creating a second result. STOP/host exit ends live
+recovery. Independent source/value/calibration, document ownership, after-idle
+release, normal exit and post-exit file checks passed in the synthetic scope.
+The initial power check against a binary64-expression reference remains FAIL;
+a separate fresh-request round passed its predeclared, exact stepwise binary32
+reference. No tolerance was widened and no old result was rewritten.
+
+An authorized uncalibrated uint16 sequence also completed explicit frame
+selection, the same pixel ROI, DM-native FFT and REAL/IMAG export. Independently
+reopened ROI values matched the source file exactly; the exported complex data
+matched the native FFT object bitwise. Original source memory, raw calibration,
+file identity and hash stayed unchanged, and released working objects became
+invalid after host idle. This establishes the recorded native/data-handoff path,
+not general mathematical Fourier accuracy on experimental images.
+
+The saved native captures were explicitly imported into image_* tools for a
+fixed-range comparison. An actual stdio MCP client received the PNG image block,
+recovered the same view from a fresh client, and Codex viewed those pixels.
+Display encoding is external and performs no replacement FFT or native fallback.
+Ordinary native model-client setup/tool reloading and other clients remain
+NOT_TESTED. Physical spacings, reconstruction-value units and frame depth still
+require independently sourced calibration.
 
 References: [tifffile](https://pypi.org/project/tifffile/),
 [NumPy FFT](https://numpy.org/doc/stable/reference/routines.fft.html),

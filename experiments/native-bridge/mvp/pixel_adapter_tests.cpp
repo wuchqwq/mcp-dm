@@ -44,19 +44,22 @@ void pixel_tests() {
     const auto original = fake.pixels;
     fake.unit[0].clear(); fake.unit[1].clear();
     api.crop = pixel_crop_fake; api.sobel_filter = api.laplace_filter = pixel_sobel_fake;
-    // Shipping stays unqualified, including when the old operation is qualified.
+    // Exercise declared production admission; a separately unqualified profile
+    // is independently refused in profile/dispatcher tests before vendor calls.
     for (const auto* name : {"native_pixel_crop","native_pixel_filters","native_pixel_fft"})
-        check(!qualified_capability353(name));
+        check(qualified_capability353(name));
+    std::uint32_t admitted_fft=0;
     for (const auto* op : {"CROP_PIXEL","FILTER_PIXEL","FFT_PIXEL","IFFT_PIXEL","REAL_PIXEL","IMAG_PIXEL","VENDOR_ARG_PIXEL","VENDOR_NORM_PIXEL"}) {
-        const auto before = operation_calls + crop_calls;
-        NativeRequest request{"shipping_refused",op,{17}};
+        NativeRequest request{std::string("admitted_")+op,op,{17}};
         if (request.op == "CROP_PIXEL") request.args = {17,0,0,4,4};
-        if (request.op == "FILTER_PIXEL") request.args = {17,1};
-        const std::string group = request.op == "CROP_PIXEL" ? "native_pixel_crop" : request.op == "FILTER_PIXEL" ? "native_pixel_filters" : "native_pixel_fft";
-        try { execute_native(request); check(false); }
-        catch (const std::runtime_error& error) { check(error.what() == "native_operation_not_qualified:" + group); }
-        check(operation_calls + crop_calls == before && retained_results.empty());
+        else if (request.op == "FILTER_PIXEL") request.args = {17,1};
+        else if (request.op != "FFT_PIXEL") request.args = {admitted_fft};
+        const auto admitted=execute_native(request);
+        check(admitted.find("\"coordinate_mode\":\"pixel\"")!=std::string::npos);
+        check(admitted.find("\"retention\":{\"token\":")!=std::string::npos);
+        if (request.op == "FFT_PIXEL") admitted_fft=last_retained_result353;
     }
+    clear_pixel_results();
     const auto before = operation_calls + crop_calls;
     pixel_fails([] { execute_crop({"old_crop","CROP",{17,1,2,5,6}}); },"unknown_image_units");
     pixel_fails([] { execute_filter({"old_filter","FILTER",{17,1}}); },"unknown_image_units");
@@ -165,7 +168,7 @@ int main(int argc,char** argv) {
             CloseHandle(destination);
             if (!success || written!=output.size()) throw std::runtime_error("fixture write failed");
         }
-        std::cout << "PASS pixel mode surrogates: " << assertions << " assertions; all pixel groups NOT_QUALIFIED; no DM loaded\n";
+        std::cout << "PASS pixel mode surrogates: " << assertions << " assertions; no DM loaded\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n';return 1; }
 }

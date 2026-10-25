@@ -1,5 +1,44 @@
 # Native bridge validation matrix
 
+## Explicit native pixel mode: limited synthetic qualification
+
+The exact fingerprint-matched Windows x64 GMS 3.53.4137.0 artifact now qualifies
+`native_pixel_crop`, `native_pixel_filters` and `native_pixel_fft`. These are
+explicit `coordinate_mode:"pixel"` paths for ordinary float32/uint32; uint16
+sequences use FRAME's separate, value-exact float32 working copy. Default
+physical calls still require usable spatial calibration. Pixel calls retain
+finite origins/zero values, finite nonzero signed scales, consistent getter
+formats, existing dtype/size/finite-result checks and the shared result budget.
+Mathematical Fourier axes are cycles_per_pixel; native raw calibration and
+unapplied intensity calibration remain separate. No new ABI or native SaveAs
+capability is admitted.
+
+| Scope | Actual result |
+| --- | --- |
+| Exact loaded artifact/module identity and explicit native capabilities | PASS in the pinned synthetic host |
+| float32/uint32 pixel crop, four filters and bounded Fourier/component paths; uint16 via FRAME | PASS within their existing type/size and numerical scopes |
+| Default unitless physical-mode refusals, original-ID QUERY/duplicate and changed-mode conflict | PASS; the original object/operation identity is preserved |
+| Independent raw values, signed calibration/intensity, source protection and known READ/NPY Fourier/FRAME provenance | PASS in the bounded synthetic scope |
+| Exact scalar-document delivery, plugin release, document close and independent after-idle observations | PASS; document and plugin ownership remain distinct |
+| Original pre-saved STOP, owned cleanup, normal exit and manifest-only removal | PASS |
+| Independent reopening of original host snapshots and scientific captures after exit | PASS for file/raw-value/calibration/context identity |
+| Initial power check against binary64 arithmetic followed by float32 storage | **FAIL**, preserved with its original reference and records |
+| Separate fresh-request power round with predeclared stepwise binary32 squares/addition | PASS, exact within the new bounded synthetic reference; no tolerance relaxation |
+| Authorized read-only uncalibrated sequence: explicit frame/ROI and DM-native FFT/component export | PASS for exact source ROI and bitwise native/export path agreement; general mathematical real-image FFT accuracy is not qualified |
+| Real source memory/calibration/file protection and released working objects after idle | PASS within that explicit read-only scope |
+| Saved native capture to explicit image_* comparison, actual stdio PNG content and fresh-client view recovery | PASS; Codex viewed the returned pixels; display encoding is external |
+| Ordinary native model-client setup/tool reloading and other clients | NOT_TESTED |
+| Other host builds, unsupported dimensions/types and native SaveAs | Unsupported / NOT_QUALIFIED as applicable |
+
+The power rounds are separate evidence. The later exact binary32 reference
+does not turn the earlier comparison into PASS, prove every vendor instruction
+path or guarantee arbitrary-input/integer Fourier precision. Historical FAIL,
+interruption and default-backend regression records below remain unchanged.
+Uint32 Fourier still rounds inputs to binary32; its historical high-dynamic
+inverse precision failure and unqualified large inverse remain separate limits.
+Live recovery is confined to the original queryable native session; post-exit
+file verification does not establish cross-restart operation recovery.
+
 ## Pixel exploration and independent image input
 
 This feature branch adds explicitly external, opt-in uint16 TIFF and verified
@@ -11,19 +50,20 @@ separate. See [pixel workflow](../../docs/PIXEL_IMAGE_WORKFLOW.md).
 
 | Scope | Actual result |
 | --- | --- |
-| Public-disabled native source, C++ offline programs | 15/15 PASS; substitutes only |
+| Earlier public-disabled native source, C++ offline programs | 15/15 PASS; substitutes only |
 | Final complete Node suite, including actual external-worker lifecycle and synthetic Windows pipe recovery | 248/248 PASS; zero skips |
 | Final complete Python discovery and default-backend selftest | 767/767 PASS, zero skips; selftest PASS |
 | Anonymous mathematical stat-fixture replacement, post-change targeted Python | 31/31 PASS; runtime Python source remained unchanged during the complete final run |
 | Independently rehashed negative controls for FRAME qualification, original IDs, imported metadata and scientific coordinate domains | PASS within offline scope |
 | Authorised read-only TIFF, actual stdio MCP → Codex image content → user-requested frame revision | PASS within this client/path scope |
 | Independent raw-page/ROI comparison, directly summed selected Fourier bins, reopened scientific exports and unchanged source file identity/hash | PASS within that real-file external scope |
-| Other clients/tool reloading; new native pixel real-host qualification | NOT_TESTED; HOLD respectively |
+| Other external clients/tool reloading | NOT_TESTED |
 
 An earlier real-file envelope check exposed large filesystem integers rounded
 by JSON binary64 transport. Decimal-string identities and negative controls
-correct that contract; the strict failed run remains preserved. Native pixel
-groups remain disabled and their prepared candidate was not installed. Exact
+correct that contract; the strict failed run remains preserved. At that earlier
+snapshot native pixel groups were disabled and the prepared candidate was not
+installed; their later, separate native qualification is recorded above. Exact
 module fingerprints, existing physical-mode checks and default v0.6 remain.
 This does not claim DM-native execution for external NumPy/Pillow tools, a
 physical scale from raw uint16 values or complete model-client qualification.

@@ -66,6 +66,25 @@ original frame ancestry; SHOW and later processing retain their own gates.
 FRAME has **LIMITED_SYNTHETIC_REAL_HOST_PASS** within its recorded scope; tool discovery alone
 does not authorize a call when `native_frame` is unavailable.
 
+For a source without spatial units, explicitly select `coordinate_mode:"pixel"`
+on `dm_crop`, `dm_native_filter`, `dm_native_fft` and `dm_native_complex`, and
+check the matching `native_pixel_crop`, `native_pixel_filters` or
+`native_pixel_fft` capability. These groups have limited synthetic real-host
+qualification on the pinned build for float32/uint32; a uint16 sequence first
+uses FRAME's exact float32 working copy. Default/physical mode still requires
+usable spatial calibration. Pixel mode preserves raw calibration and unknown
+units, but still rejects invalid numeric calibration, unsafe calls, types,
+dimensions and budgets. It does not relax filter/Fourier sizes or qualify
+arbitrary whole-frame processing. Pixel Fourier coordinates are
+`cycles_per_pixel`; preserve those mathematical axes separately from DM's raw
+signed calibration. The initial power-oracle FAIL is preserved beside a passing
+fresh-request stepwise-binary32 reference trial. A read-only uncalibrated
+sequence passed explicit frame/ROI, native FFT/component export and source
+protection checks; its saved native captures returned a viewable image through
+an explicit image_* stdio client. General real-image Fourier accuracy and
+ordinary native model clients remain unqualified. See
+[pixel-mode scope](docs/PIXEL_IMAGE_WORKFLOW.md#qualified-native-pixel-continuation).
+
 The new read-only `dm_native_rois` links an explicit image ID to document/display
 and rectangle ROI identities; inspect `native_gui_rois` before using it. Its
 corrected direct-image source-layout/mapping has limited synthetic real-host
@@ -107,7 +126,9 @@ all document-held or stack-held objects have already been destroyed.
 The initial uint32 subset covers ordinary-packed 2D metadata, raw mean/SUMMARY,
 same-dtype crop, preview and READ. Mean/SUMMARY stop at 2,097,152 pixels; uint32
 crop sources stop at 4,194,304 pixels and outputs at 4 MiB (1,048,576 pixels),
-with complete spatial calibration. Preview permits at most 4,194,304 source
+with complete spatial calibration in default physical mode; the separately
+qualified pixel mode permits unknown units with valid numeric calibration.
+Preview permits at most 4,194,304 source
 pixels and 128x128 display samples. READ permits that source bound and at most
 16,384 ROI samples, preserving exact little-endian uint32 bytes as `<u4` NPY
 through the explicit encoder. The optional external example records an exact
