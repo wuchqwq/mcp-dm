@@ -498,3 +498,12 @@ visual review and concurrent host use.
 | Delivered document of the calibrated count image | PASS, rank one, display type 3 |
 | Source pixels/calibration/document | PASS, unchanged |
 | Exact-equality guard | FAIL (impossible by construction), replaced by the binary32 round-trip bound and recorded here |
+
+## Histogram bar style (2026-10-25, third round)
+
+| Scope | Result |
+|---|---|
+| Display object proven by its own RTTI name before any write | PASS (offline fakes: matching and raster-rejected) |
+| One-byte style flag: setter applied, getter read back | PASS, offline 324 assertions |
+| Actual host, histogram delivery | PASS, `display_style:"histogram"` in the same run as the calibrated axis and the independent count check |
+| Raster display at the same offset | REFUSED (`display_is_not_a_line_plot`), nothing written |

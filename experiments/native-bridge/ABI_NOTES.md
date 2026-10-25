@@ -462,6 +462,18 @@ scale and unit comparison. Do not replace it with an exact-equality check, and d
 not treat it as a scientific tolerance: the exactness it protects is the vendor's
 own arithmetic.
 
+`LinePlotImageDisplaySetHistogramStyle` is a script-registered function whose
+argument goes through a script-object unwrap followed by
+`__RTDynamicCast(..., &Annotation::RTTI_Type_Descriptor,
+&LinePlotImageDisplay::RTTI_Type_Descriptor, 0)` before the internal setter runs.
+The internal setter only compares, stores and repaints one byte of the display
+object, and a dedicated two-instruction getter returns that byte; a scan of the
+module shows no other reader or writer of the field. The bridge therefore skips
+the script layer entirely: it resolves the display through the already qualified
+ROI display path, proves the dynamic type by reading the decorated name in the
+object's own complete object locator, calls the setter, and reads the byte back
+through the getter. Anything that is not proven to be that class is left alone.
+
 ## Minimum runtime verification order
 
 ### GUI line extraction and true one-dimensional handoff

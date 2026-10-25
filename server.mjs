@@ -436,7 +436,7 @@ const nativeTools = [
     rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "rect", "request_id"]),
-  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果（该 dtype 的交付能力也必须已合格）创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。接受二维原生结果，以及 dm_native_profile 产生的真一维 float64 结果（走独立的 native_profile_display 准入，条目仍是真实 [N] 形状和单条原生轴，不伪装成 [1,N] 光栅）。首次创建在当前工作区；复用已有文档不保证激活其工作区标签页，也不由 Bridge 断言显示类名。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
+  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果（该 dtype 的交付能力也必须已合格）创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。接受二维原生结果，以及 dm_native_profile 产生的真一维 float64 结果（走独立的 native_profile_display 准入，条目仍是真实 [N] 形状和单条原生轴，不伪装成 [1,N] 光栅）。对 dm_native_histogram 的一维计数图，交付后还会用宿主自己的 LinePlot 样式把计数显示成柱状：先按对象自身的 RTTI 名称确认它确实是 LinePlotImageDisplay，再调用原生设置器并用原生 getter 读回，回执里写明 display_style（host 显示偏好，可随时在 DM 界面改回，不构成科学声明）。首次创建在当前工作区；复用已有文档不保证激活其工作区标签页，也不由 Bridge 断言显示类名。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
     image_id: {...NATIVE_IMAGE_ID, description: "本插件仍持有的已合格原生结果 image_id（显式 uint32）；不接受任意源图、front 或数字字符串"},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "request_id"]),

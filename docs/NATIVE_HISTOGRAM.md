@@ -107,6 +107,22 @@ usual retention receipt. `operator` is `GMSImageProcessing::CalcHistogram` and
 through `native_profile_display`. It never becomes a `[1,N]` raster, and it is
 never admitted by the 2D display group.
 
+### Bar style
+
+A count image reads better as bars than as a connected line, so delivery also
+switches the host's own line plot to its bar style (`native_line_plot_style`).
+That flag is a single byte inside the display object, with a two-instruction
+getter and a setter that compares, stores and repaints. Because a raster display
+also has a byte at that offset, the bridge refuses to touch anything it has not
+proven: it reads the object's own RTTI type name through its complete object
+locator and requires `.?AVLinePlotImageDisplay@@`, calls the setter only then,
+and reads the byte back through the host getter.
+
+The receipt reports `display_style` (`"histogram"` or `"default"`), a scope note
+and, when it stayed `"default"`, the reason. This is presentation only: it makes
+no scientific claim, it never fails the delivery, and the researcher can switch
+the style back in the DM UI at any time.
+
 ## Recorded evidence
 
 - Offline: `histogram_adapter_tests.cpp` (169 assertions) covers the admitted
@@ -120,6 +136,7 @@ never admitted by the 2D display group.
   physical zero `-15.499999046325684` for a requested `-15.5` (round-trip error
   `9.5e-07`, bounded); the source pixels and intensity calibration were unchanged;
   the result document was rank 1 with display type 3 (line plot) while the source
-  raster stayed type 1.
+  raster stayed type 1, and the delivered document reported
+  `display_style:"histogram"` (type name accepted, setter applied, flag read back).
 - Not covered: uint32 or complex sources, ranges that do not cover the source,
   concurrent host edits, other builds, file saving and model-side visual review.

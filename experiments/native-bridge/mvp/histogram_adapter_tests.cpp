@@ -116,6 +116,56 @@ void expect_histogram_failure353(const char* message, NativeRequest request = hi
     check(histogram_create_calls353 == created && histogram_calc_calls353 == calculated);
     histogram_counts353.clear();
 }
+
+// --- Host line-plot style fakes -------------------------------------------------
+// A fake module image holds the decorated type name that the adapter's type check
+// reads through the complete object locator.
+alignas(8) unsigned char style_module353[0x200] = {};
+struct StyleLocator353 { std::uint32_t signature, offset, class_offset, descriptor_rva, class_rva; };
+StyleLocator353 style_locator353{0, 0, 0, 0x110, 0};
+void* style_vtable353[2] = {&style_locator353, nullptr};
+struct StyleDisplay353 { void* vftable; };
+StyleDisplay353 style_display353{&style_vtable353[1]};
+bool style_flag353 = false;
+int style_get_calls353 = 0, style_set_calls353 = 0;
+bool style_get_fake353(const void* object) {
+    ++style_get_calls353;
+    check(object == &style_display353);
+    return style_flag353;
+}
+void style_set_fake353(void* object, bool value) {
+    ++style_set_calls353;
+    check(object == &style_display353);
+    style_flag353 = value;
+}
+struct StyleHolder353 { std::int64_t references = 1; void* document; std::int32_t component_id; std::int32_t pad; void* cached_component; };
+void* style_last_image353 = nullptr;
+std::size_t style_display_count353(const NativeRef* image, const NativeRef*) {
+    check(image && image->image);
+    return 1;
+}
+void* style_display_at353(void* image, std::uint32_t index) {
+    check(image != nullptr && index == 0);
+    style_last_image353 = image;
+    return new StyleHolder353{1, nullptr, 7, 0, &style_display353};
+}
+void* style_resolve353(void* holder) { return static_cast<StyleHolder353*>(holder)->cached_component; }
+void* style_display_image353(void*) { return style_last_image353; }
+void style_destroy_holder353(void* holder) { delete static_cast<StyleHolder353*>(holder); }
+void setup_style_fake353(const char* type_name) {
+    std::memset(style_module353, 0, sizeof(style_module353));
+    std::memcpy(style_module353 + 0x110 + 0x10, type_name, std::strlen(type_name) + 1);
+    style_flag353 = false;
+    style_get_calls353 = style_set_calls353 = 0;
+    gms_base353 = reinterpret_cast<std::uintptr_t>(style_module353);
+    plot_style_get353 = style_get_fake353;
+    plot_style_set353 = style_set_fake353;
+    roi_api353.display_count = style_display_count353;
+    roi_api353.display_at = style_display_at353;
+    roi_api353.resolve_display = style_resolve353;
+    roi_api353.display_image = style_display_image353;
+    roi_api353.destroy_display = style_destroy_holder353;
+}
 } // namespace
 
 int main() {
@@ -143,8 +193,23 @@ int main() {
         check(output_image->unit[0] == L"counts" && output_image->scale[0] == 4.0f && output_image->origin[0] == 0.0f);
         // A rank-one counter image is delivered through its own group and keeps
         // its true [bins] shape instead of a fabricated 2D raster.
+        setup_style_fake353(".?AVLinePlotImageDisplay@@");
         const auto shown = execute_native({"show-histogram", "SHOW", {output_id}});
         check(nb::valid_json(shown) && document_calls == 1);
+        // The host object was proven by its own RTTI name and the flag read back.
+        check(shown.find("\"display_style\":\"histogram\"") != std::string::npos);
+        check(shown.find("\"display_style_scope\":") != std::string::npos);
+        check(style_set_calls353 == 1 && style_flag353 && style_get_calls353 >= 2);
+        // A second delivery finds the flag already set and does not rewrite it.
+        const auto shown_again = execute_native({"show-histogram-again", "SHOW", {output_id}});
+        check(shown_again.find("\"display_style\":\"histogram\"") != std::string::npos);
+        check(style_set_calls353 == 1);
+        // A raster display also carries a byte there; the type check refuses it.
+        setup_style_fake353(".?AVRasterImageDisplay@@");
+        const auto refused = execute_native({"show-histogram-raster", "SHOW", {output_id}});
+        check(refused.find("\"display_style\":\"default\"") != std::string::npos);
+        check(refused.find("display_is_not_a_line_plot") != std::string::npos);
+        check(style_set_calls353 == 0);
         check(shown.find("\"rank\":1") != std::string::npos);
         check(shown.find("\"retained_operation\":\"PROFILE\"") == std::string::npos);
         close_surrogate_documents();

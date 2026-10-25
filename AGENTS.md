@@ -92,6 +92,15 @@ raster. The reply keeps `rank:1`, `display_family:native_1d_image_document`,
 shape and one native axis; the bridge never asserts a display class name.
 See docs/NATIVE_LINE_PROFILE.md and docs/NATIVE_HISTOGRAM.md.
 
+Histogram delivery also switches the host line plot to its bar style through
+native_line_plot_style. That is one byte in the display object: the bridge first
+proves the object's dynamic type by the decorated name in its own complete object
+locator, then calls the vendor setter and reads the byte back through the vendor
+getter. A raster display carries a byte at the same offset, so an unproven object
+is never written; the receipt then reports display_style "default" with a reason.
+This is host presentation only: it never fails a delivery and it makes no
+scientific claim.
+
 native_histogram creates its destination with the exported
 `Image::CreateImage(DataSize, type, char_range)` and fills it with the exported
 `GMSImageProcessing::CalcHistogram`; there is no bridge binning kernel. Only

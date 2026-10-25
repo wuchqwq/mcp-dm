@@ -66,6 +66,13 @@ inline const AdapterProfile& profile() {
                 {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
             {"native_histogram_display", true, "limited synthetic qualification; plugin-owned rank-1 uint32 HISTOGRAM count image only; no file save; host decides the 1D display", {},
                 {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
+            // Histogram bar style is a display-only preference of the host's own line
+            // plot. It is applied only after the object is proven to be a
+            // LinePlotImageDisplay by its own RTTI name, then read back.
+            {"native_line_plot_style", true, "limited synthetic qualification; plugin-owned rank-1 HISTOGRAM document only; one-byte host style flag with a getter read-back; no scientific claim", {},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window",
+                 "roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_destroy_display_holder",
+                 "plot_style_get", "plot_style_set"}},
             // Histogram creation and binning are vendor calls: the destination
             // is a native 1D uint32 image from Image::CreateImage and the counts
             // come from GMSImageProcessing::CalcHistogram. No bridge kernel.
@@ -158,6 +165,11 @@ inline const AdapterProfile& profile() {
             {"roi_image_display_count", "GMS.dll", 0x2d8370},
             {"roi_image_display_at", "GMS.dll", 0x4c2d10},
             {"roi_resolve_display", "GMS.dll", 0x3cbbc0},
+            // One-byte display style flag of a LinePlotImageDisplay. The getter is
+            // two instructions; the setter compares, stores and repaints. Both are
+            // reached through the already qualified display resolution path.
+            {"plot_style_get", "GMS.dll", 0x20b490},
+            {"plot_style_set", "GMS.dll", 0x220cd0},
             {"roi_display_image", "GMS.dll", 0x3d2d20},
             {"roi_raster_count", "GMS.dll", 0x1a13a0},
             {"roi_raster_at", "GMS.dll", 0x1a4470},

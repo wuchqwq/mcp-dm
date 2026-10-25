@@ -51,6 +51,9 @@ using Binary = NativeRef* (*)(NativeRef*, const NativeRef*, const NativeRef*);
 using Packing = nb::NativePacking353* (*)(const void*, nb::NativePacking353*);
 using RealValue = double (*)(const void*, const nb::NativeDataIndex2D353*);
 using Crop = NativeRef* (*)(const void*, NativeRef*, const nb::NativeDataSlice353*);
+// LinePlot style flag: getter returns the byte, setter compares, stores, repaints.
+using PlotStyleGet = bool (*)(const void*);
+using PlotStyleSet = void (*)(void*, bool);
 using Delete = void (*)(void*);
 using VendorFree = void (*)(void*);
 using GetDocument = nb::ScriptImageDocument353* (*)(void*);
@@ -577,6 +580,22 @@ std::array<CropAxisCalibration, 2> crop_calibration(void* image) {
 void write_rect(std::ostringstream& s, const std::array<std::uint32_t, 4>& rect) {
     s << '[' << rect[0] << ',' << rect[1] << ',' << rect[2] << ',' << rect[3] << ']';
 }
+// Host line-plot style. Declared here because the entry points it needs live in
+// the ROI adapter, which is included after SHOW. Returns "histogram" only when the
+// host object was proven to be a LinePlotImageDisplay and the flag read back.
+const char* apply_histogram_style353(const NativeRef& image, const char** reason);
+// Appends a display-only style receipt to an already valid reply object.
+std::string attach_display_style353(std::string result, const char* style, const char* reason) {
+    if (result.empty() || result.back() != '}') throw std::runtime_error("native_show_result_invalid");
+    result.pop_back();
+    result += ",\"display_style\":";
+    result += nb::quote(style);
+    result += ",\"display_style_scope\":\"host line-plot presentation only; no scientific claim; reversible in the DM UI\"";
+    if (reason && *reason) result += ",\"display_style_reason\":" + nb::quote(reason);
+    result += '}';
+    if (!nb::valid_json(result)) throw std::runtime_error("native_show_result_invalid");
+    return result;
+}
 std::string execute_show(const NativeRequest& request) {
     if (request.args.size() != 1) throw std::runtime_error("native_show_requires_one_image_id");
     const auto id = request.args[0];
@@ -653,7 +672,7 @@ std::string execute_show(const NativeRequest& request) {
     }
     if (uint32 && !one_dimensional) s << ",\"image\":" << metadata(image.value.image);
     s << '}';
-    const auto result = s.str();
+    auto result = s.str();
     if (!nb::valid_json(result)) throw std::runtime_error("native_show_result_invalid");
     require_ready();
     ShowRef holder(api.get_document(image.value.image), 0, api.destroy_document_holder);
@@ -673,6 +692,14 @@ std::string execute_show(const NativeRequest& request) {
     if (!window.value) throw std::runtime_error("native_show_window_unavailable");
     validate_show_reference(window.value, nb::kNativeWindowReferenceOffset353);
     require_ready();
+    // The count image of a histogram reads far better with the host's own bar
+    // style. This is presentation only: it is applied after the document exists,
+    // proven against the host type name, and read back through the host getter.
+    if (histogram_1d && qualified_capability353("native_line_plot_style")) {
+        const char* reason = "";
+        const auto* style = apply_histogram_style353(image.value, &reason);
+        result = attach_display_style353(result, style, reason);
+    }
     // Reverse-order guards release our Window and holder references here. No
     // document/window is retained by the plugin or closed during native STOP.
     return result;
@@ -888,6 +915,7 @@ std::string execute_arithmetic(const NativeRequest& request) {
 #include "preview_adapter.inc"
 #include "read_adapter.inc"
 #include "roi_adapter.inc"
+#include "plot_style.inc"
 #include "line_profile_adapter.inc"
 #include "histogram_adapter.inc"
 #include "result_release.inc"
@@ -970,6 +998,7 @@ void initialize_native() {
             api.destroy_document_holder = nullptr; api.destroy_window = nullptr;
         }
         initialize_roi353(gms);
+        initialize_plot_style353(gms);
         initialize_histogram353(image, processing);
         initialize_line_profile353(gms, image);
         gate_error.clear();
@@ -1037,6 +1066,8 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("native_line_profile", available("native_line_profile", line_api353.ready() && roi_api353.ready()));
         capability("show_profile_float64_1d_visible_document", available("native_profile_display", display));
         capability("show_histogram_uint32_1d_visible_document", available("native_histogram_display", display));
+        capability("show_histogram_bar_style", available("native_line_plot_style",
+            display && plot_style_get353 && plot_style_set353 && roi_api353.ready()));
         capability("native_histogram", available("native_histogram", histogram_api353.ready() && finite_checks));
         capability("read_gui_rectangle_rois", available("native_gui_rois", roi_api353.ready() && api.packing));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
@@ -1231,4 +1262,8 @@ void nb353_observe_entries(nb::HostObservation& host) {
     if (api.show_document) host.valid_entry_contracts.insert("image_document_show");
     if (api.destroy_document_holder) host.valid_entry_contracts.insert("destroy_document_holder");
     if (api.destroy_window) host.valid_entry_contracts.insert("destroy_window");
+    if (plot_style_get353 && plot_style_set353 && roi_api353.ready()) {
+        host.valid_entry_contracts.insert("plot_style_get");
+        host.valid_entry_contracts.insert("plot_style_set");
+    }
 }
