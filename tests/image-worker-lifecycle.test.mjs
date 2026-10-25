@@ -45,12 +45,12 @@ if case=='hold':
   if time.monotonic()>deadline:emit({'ok':False,'error':'fake worker hold expired'},9)
   time.sleep(.01)
 result={'backend':'external-image-workspace','state':'completed','request_id':ident,'object_id':'object-'+ident}
-if case in ('png','outside_png','large_png','non_png'):
- target=(root.parent if case=='outside_png' else root)/('preview-'+ident+'.png')
+if case in ('png','resolved_png','outside_png','outside_resolved_png','large_png','non_png'):
+ target=(root.parent if case in ('outside_png','outside_resolved_png') else root)/('preview-'+ident+'.png')
  png=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==')
  if case=='large_png':png+=b'\0'*(2*1024*1024+1-len(png))
  if case=='non_png':png=b'This is not a scientific or display PNG'
- target.write_bytes(png);result['image_path']=str(target)
+ target.write_bytes(png);result['image_path']=str(target.resolve() if case in ('resolved_png','outside_resolved_png') else target)
 if case=='bad_backend':result['backend']='digitalmicrograph-native'
 if case=='bad_state':result['state']='unknown'
 if case=='pending':incomplete()
@@ -135,7 +135,11 @@ test('inline PNG requires a workspace-contained regular bounded PNG; invalid ima
   const good=await call(f,'good-png','png');
   assert.equal(good.content[1].type,'image');assert.equal(good.content[1].mimeType,'image/png');
   assert.equal(Buffer.from(good.content[1].data,'base64').subarray(0,8).toString('hex'),'89504e470d0a1a0a');
-  for(const [id,kind,reason] of [['outside','outside_png',/escapes workspace/],['large','large_png',/2 MiB/],['invalid','non_png',/not PNG/]])
+  // On Windows os.tmpdir() may use RUNNER~1 while Python Path.resolve()
+  // returns the same directory's long name. It is not an escape.
+  const canonical=await call(f,'canonical-png','resolved_png');
+  assert.equal(canonical.content[1].type,'image');
+  for(const [id,kind,reason] of [['outside','outside_png',/escapes workspace/],['outside-resolved','outside_resolved_png',/escapes workspace/],['large','large_png',/2 MiB/],['invalid','non_png',/not PNG/]])
     await assert.rejects(call(f,id,kind),reason);
 });
 

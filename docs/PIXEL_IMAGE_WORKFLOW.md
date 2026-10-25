@@ -42,7 +42,7 @@ No installer or client configuration is silently changed.
 | `image_open` | Inspect TIFF page metadata or validate a saved DM capture |
 | `image_frame` | Read one explicit zero-based page, retaining its uint16 values |
 | `image_info` / `image_result` | Inspect an object / query a pre-saved request |
-| `image_preview` | Render a full plane or half-open pixel ROI with a display recipe |
+| `image_preview` | Render a scalar plane/ROI, or re-render a saved external FFT without recomputing it |
 | `image_compare` | Compare 2..4 same-grid planes/ROIs with one shared gray range |
 | `image_fft` | Explicit external FFT, with optional mean subtraction/Hann window |
 | `image_measure` | Pixel-centre displacement, pixel distance and image-coordinate angle |
@@ -103,6 +103,41 @@ to each panel's source coordinates. Comparison coordinates refer to the entire
 horizontal composite. PNG resizing is display-only and is never quantitative
 input. Fixed cross-frame range/gamma prevent per-frame automatic contrast from
 masquerading as structural change; comparison does not imply registration.
+
+## Revising context and an existing FFT display
+
+Context attached to a frame, scalar view, FFT or FFT view is inherited by later
+partial `image_context` updates. An omitted field retains its current value;
+an explicit `null` withdraws that field, including after a preview. Original
+objects and requests remain immutable. This is user-supplied interpretation,
+not permission to invent or apply physical calibration.
+
+`image_preview` now accepts the `fft` object returned by `image_fft`, or a prior
+`fft_view`. It reads the saved complex128 NPY rather than executing FFT again.
+The new view preserves the exact complex values, original spectrum identity and
+frequency axes. `representation` selects `log_amplitude` (the initial default),
+`amplitude`, or `power` for **display only**; the scientific NPY remains complex.
+Native scalar FFT captures remain scalar views, not reconstructed complex data.
+
+For an existing scalar or FFT view, omitted `display_range`, `gamma` and
+`max_size` inherit the existing recipe. To ask for a new automatic range, pass
+`display_range:null`. Changing a spectrum's representation automatically
+recalculates the range unless a new range is supplied, because amplitude, power
+and log amplitude cannot share an implicit numerical range. Gamma and size
+still inherit. Rendering always starts from numerical values, not from the
+previous PNG, so adjustments do not compound on already-quantized pixels.
+
+For example, call `image_fft` once, then `image_preview` on that result with
+`gamma:2`; reference the returned view for a later `representation:"power"`
+request. Each step needs its own saved request ID. Annotating and exporting the
+new FFT view retain the original frequency-bin mapping and exact complex NPY.
+
+FFT re-rendering currently uses the full saved spectrum: a `rect` is rejected
+rather than silently cropping/recomputing it. Choose the spatial ROI before
+FFT. Annotated images and comparison composites are not directly re-rendered;
+use an annotation's `render_base_object_id`, then explicitly reapply annotations
+against the new view. Automatic annotation reprojection, frequency-cropped
+views, arbitrary curves and new native processing are not added here.
 
 ## Validation and remaining boundaries
 

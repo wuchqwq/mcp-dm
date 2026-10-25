@@ -32,7 +32,7 @@ OBJECT_ID = re.compile(r"[a-f0-9]{32}\Z")
 FIELDS = {
     "open": {"source_path"}, "frame": {"object_id", "frame_index"},
     "import_capture": {"source_path"},
-    "view": {"object_id", "rect", "display_range", "gamma", "max_size"},
+    "view": {"object_id", "rect", "display_range", "gamma", "max_size", "representation"},
     "compare": {"object_ids", "rect", "display_range", "gamma", "max_size"},
     "fft": {"object_id", "rect", "window", "subtract_mean", "max_size"},
     "annotate": {"object_id", "annotations"}, "context": {"object_id", "metadata"},
@@ -195,22 +195,51 @@ def cut(values, rect):
     return values[rect[1]:rect[3], rect[0]:rect[2]]
 
 
-def display_options(request, values):
-    gamma, maximum = request.get("gamma", 1.0), request.get("max_size", 1024)
+def display_options(request, values, inherited=None):
+    # Omitted fields revise a saved view; explicit null range requests a fresh
+    # auto-range. This never reapplies a display transform to scientific values.
+    inherited = inherited if inherited is not None else {}
+    gamma = request.get("gamma", inherited.get("gamma", 1.0))
+    maximum = request.get("max_size", inherited.get("max_size", 1024))
     need(number(gamma) and gamma > 0 and math.isfinite(1.0 / gamma), "gamma must be finite and positive")
     need(integer(maximum, 1, 1024), "max_size must be an integer in 1..1024")
     supplied = request.get("display_range")
-    if supplied is None:
+    if "display_range" not in request and "display_range" in inherited:
+        # A constant image can have an automatically calculated equal range;
+        # that saved range is valid even though explicit equal limits reject.
+        low, high = inherited["display_range"]
+        need(number(low) and number(high) and low <= high,
+             "Invalid inherited display range", "CORRUPT_OBJECT")
+        range_source = "inherited_display"
+    elif supplied is None:
         low = min(float(value.min()) for value in values)
         high = max(float(value.max()) for value in values)
+        range_source = "shared_raw_minmax"
     else:
         need(type(supplied) is list and len(supplied) == 2 and all(number(v) for v in supplied) and supplied[0] < supplied[1],
              "display_range requires finite [minimum,maximum] with minimum<maximum")
         low, high = map(float, supplied)
-    return {"display_range": [low, high], "range_source": "explicit" if supplied is not None else "shared_raw_minmax",
+        range_source = "explicit"
+    return {"display_range": [low, high], "range_source": range_source,
             "gamma": float(gamma), "max_size": maximum, "constant_range": low == high,
             "display_only": True, "quantitative": False,
             "resampling": "Pillow LANCZOS thumbnail; display interpolation only, no scientific resampling"}
+
+
+def spectrum_display(values, representation):
+    """Presentation of already saved complex values, never a second FFT."""
+    expressions = {"log_amplitude": "log1p(abs(complex128 spectrum))",
+                   "amplitude": "abs(complex128 spectrum)",
+                   "power": "abs(complex128 spectrum)**2"}
+    need(representation in expressions, "FFT representation must be log_amplitude, amplitude or power")
+    with np.errstate(over="ignore", invalid="ignore"):
+        shown = np.abs(values)
+        if representation == "log_amplitude":
+            shown = np.log1p(shown)
+        elif representation == "power":
+            shown = np.square(shown)
+    need(np.isfinite(shown).all(), "FFT display representation exceeds finite range")
+    return shown, expressions[representation]
 
 
 def render(values, settings, bound):
@@ -276,6 +305,11 @@ class Workspace:
             visited.add(ident)
             metadata, directory = self.object(ident)
             if metadata["kind"] != "context":
+                # Derived views/FFTs already carry effective user context.
+                # None means absent; empty patches and explicit null fields
+                # must not resurrect or discard an earlier interpretation.
+                if context is None:
+                    context = metadata.get("user_context")
                 return metadata, directory, context
             if context is None:
                 context = metadata["user_context"]
@@ -411,10 +445,45 @@ class Workspace:
                             array_domain=(info.get("scientific_semantics") or {}).get("domain", "unspecified_image"),
                             capture_verification_mode="image" if native else "default_schema1_hashes_dtype_axes")
         elif action in ("view", "fft", "measure"):
-            parent, _, context, values = self.scalar(request.get("object_id"))
-            metadata.update(parent_object_id=request["object_id"], user_context=context or parent.get("user_context"),
+            spectral_view = False
+            if action == "view":
+                parent, parent_directory, context = self.resolved(request.get("object_id"))
+                spectral_view = parent["kind"] in ("fft", "fft_view")
+                need(parent["kind"] in ("frame", "view", "fft", "fft_view"),
+                     "preview requires a frame/view or FFT; for annotations use render_base_object_id and reapply annotations")
+                values = load_array(parent_directory / "data.npy", allow_complex=spectral_view)
+                need(spectral_view or "representation" not in request,
+                     "representation is only valid for a saved complex FFT")
+            else:
+                parent, _, context, values = self.scalar(request.get("object_id"))
+            metadata.update(parent_object_id=request["object_id"], user_context=context,
                             source_object_id=parent["object_id"])
-            if action == "measure":
+            if spectral_view:
+                need(values.dtype == np.dtype("complex128"), "FFT view requires the saved complex128 spectrum")
+                need(request.get("rect") is None,
+                     "FFT re-rendering uses the full saved spectrum; select a spatial ROI before FFT, not a hidden frequency crop")
+                old_display = dict(parent.get("display") or {})
+                previous_mode = old_display.get("representation", "log_amplitude")
+                mode = request.get("representation", previous_mode)
+                shown, expression = spectrum_display(values, mode)
+                if mode != previous_mode:
+                    # Amplitude, power and log amplitude have different units;
+                    # preserve gamma/size, but never inherit their old limits.
+                    old_display.pop("display_range", None)
+                settings = display_options(request, [shown], old_display)
+                settings["representation"] = mode
+                image = render(shown, settings, (settings["max_size"], settings["max_size"]))
+                spectrum_id = parent.get("spectrum_object_id", parent["object_id"])
+                save_array(directory, "data.npy", values)
+                save_png(directory / "preview.png", image)
+                metadata.update(kind="fft_view", source_object_id=spectrum_id, spectrum_object_id=spectrum_id,
+                                dtype="complex128", shape_yx=list(values.shape), axes=["fy", "fx"], array_domain="frequency",
+                                frequency_unit=parent["frequency_unit"], physical_frequency_unit=parent["physical_frequency_unit"],
+                                frequency_axes=parent["frequency_axes"], display_representation=expression, display=settings,
+                                panels=[frequency_panel(spectrum_id, values.shape, [0, 0, image.width, image.height])],
+                                fft_recomputed=False, scientific_data_changed=False,
+                                rendering_scope="saved external complex FFT; amplitude/power/log are display-only; NPY remains complex")
+            elif action == "measure":
                 points = request.get("points")
                 need(type(points) is list and len(points) == 2 and all(type(p) is list and len(p) == 2 and all(number(v) for v in p) for p in points),
                      "measure requires two explicit [x,y] pixel-center coordinates")
@@ -443,8 +512,9 @@ class Workspace:
                     spectrum = np.fft.fftshift(np.fft.fft2(work))
                     need(np.isfinite(spectrum).all(), "External FFT produced nonfinite results")
                     save_array(directory, "data.npy", spectrum)
-                    displayed = np.log1p(np.abs(spectrum))
+                    displayed, expression = spectrum_display(spectrum, "log_amplitude")
                     settings = display_options({"max_size": request.get("max_size", 1024)}, [displayed])
+                    settings["representation"] = "log_amplitude"
                     image = render(displayed, settings, (settings["max_size"], settings["max_size"]))
                     metadata.update(dtype="complex128", shape_yx=list(spectrum.shape), axes=["fy", "fx"],
                                     algorithm="NumPy fft2 + fftshift; forward negative exponent, unnormalized",
@@ -454,10 +524,10 @@ class Workspace:
                                     frequency_axes=[{"axis": axis, "numpy_axis": dim, "size": n, "step": 1.0 / n,
                                                      "dc_index": n // 2, "value_at_index_zero": -(n // 2) / n}
                                                     for dim, (axis, n) in enumerate(zip(("fy", "fx"), spectrum.shape))],
-                                    display_representation="log1p(abs(complex128 spectrum))", display=settings)
+                                    display_representation=expression, display=settings, array_domain="frequency")
                 else:
                     save_array(directory, "data.npy", roi)
-                    settings = display_options(request, [roi])
+                    settings = display_options(request, [roi], parent.get("display"))
                     image = render(roi, settings, (settings["max_size"], settings["max_size"]))
                     metadata.update(dtype=str(roi.dtype), shape_yx=list(roi.shape), axes=["y", "x"], display=settings,
                                     array_domain=parent.get("array_domain", "spatial"),
@@ -501,7 +571,7 @@ class Workspace:
                             comparison_scope="same half-open pixel ROI and shared display mapping; no registration or physical alignment inferred")
         elif action == "annotate":
             parent, _, context = self.resolved(request.get("object_id"))
-            need(parent["kind"] in ("view", "compare", "fft", "annotate"), "annotate requires a rendered view/compare/FFT object")
+            need(parent["kind"] in ("view", "compare", "fft", "fft_view", "annotate"), "annotate requires a rendered view/compare/FFT object")
             base_id = parent.get("render_base_object_id", parent["object_id"])
             render_base, base_directory = self.object(base_id)
             annotations = request.get("annotations")
@@ -525,7 +595,7 @@ class Workspace:
             save_png(directory / "preview.png", image)
             metadata.update(parent_object_id=request["object_id"], render_base_object_id=base_id,
                             panels=render_base.get("panels", []), annotations=validated,
-                            user_context=context or parent.get("user_context"),
+                            user_context=context,
                             revision_semantics="annotations replace the previous revision; empty list restores the original unannotated render",
                             scientific_data_changed=False)
         elif action == "context":
@@ -559,7 +629,8 @@ class Workspace:
             scientific = parent
             if parent["kind"] == "annotate":
                 scientific, _ = self.object(parent["render_base_object_id"])
-            context = context or image_object.get("user_context") or scientific.get("user_context")
+            if context is None:
+                context = scientific.get("user_context")
             source_directory = self.root / "objects" / scientific["object_id"]
             names = [name for name in scientific["files_sha256"] if name.endswith(".npy")]
             need(names, "Export requires actual scientific arrays; a TIFF metadata handle/context-only record is not pixel data")
