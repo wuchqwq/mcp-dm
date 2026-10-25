@@ -1,0 +1,45 @@
+name: PR16 isolated external-image review
+on:
+  push:
+    branches: [validation/pr16-review-20261026]
+permissions:
+  contents: read
+jobs:
+  source-and-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e1ab9cd788dba9f637b7edf6a8a20738a583e184
+          persist-credentials: false
+      - name: Archive exact reviewed source
+        run: |
+          git rev-parse HEAD
+          git archive --format=zip HEAD -o "$RUNNER_TEMP/pr16-source-e1ab9cd.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr16-source-e1ab9cd
+          path: ${{ runner.temp }}/pr16-source-e1ab9cd.zip
+          retention-days: 7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install only external image dependencies
+        run: python -m pip install -r requirements-images.txt
+      - name: External image baseline, no DM
+        env:
+          DM_IMAGE_PYTHON: python
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p 'test_image_workspace*.py' -v 2>&1 | tee "$RUNNER_TEMP/pr16-python-baseline.log"
+          node --test tests/image-workspace-mcp.test.mjs tests/image-worker-lifecycle.test.mjs 2>&1 | tee "$RUNNER_TEMP/pr16-node-baseline.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr16-external-baseline-evidence
+          path: ${{ runner.temp }}/pr16-*-baseline.log
+          retention-days: 7
