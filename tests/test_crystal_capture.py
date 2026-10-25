@@ -32,8 +32,10 @@ class CrystalCapture(unittest.TestCase):
         fixture = (ROOT / "tests/fixtures/native-operations.mjs").as_uri()
         snapshot = (ROOT / "tools/native_snapshot_handoff.mjs").as_uri()
         region = (ROOT / "tools/native_region_handoff.mjs").as_uri()
+        frame_module = (ROOT / "tests/fixtures/native-frame-handoff.mjs").as_uri()
         script = r"""import fs from 'node:fs';import path from 'node:path';
 import {imageMetadata,readFixture,fourierFixture} from FIXTURE;
+import {frameHandoffFixture} from FRAME_FIXTURE;
 import {handoff} from SNAPSHOT;import {handoffRegion} from REGION;
 const dir=process.argv[1],session='a'.repeat(32),pid=1234;
 function receipt(id,args){return {protocol:'NB2',session,id,request_id:id,state:'completed',host_pid:pid,exec_tid:10,worker_tid:20,
@@ -42,6 +44,20 @@ function save(name,read,args){const p=path.join(dir,name+'.json');fs.writeFileSy
 handoff({workspace:dir,output:name,requestId:'encode-'+name,snapshot:p});}
 const rawArgs=[77,1,1,4,3];save('raw',readFixture(rawArgs),rawArgs);
 save('unsigned',readFixture(rawArgs,{source:imageMetadata(77,{unsigned:true})}),rawArgs);
+for(const unknownUnits of [false,true]){
+ const frame=frameHandoffFixture({unknownUnits}),read=readFixture(rawArgs,{source:frame.result.image,provenance:frame.provenance});
+ const bytes=Buffer.alloc(read.raw_bytes);for(let n=0;n<read.sample_count;n++)bytes.writeFloatLE([0,32767,32768,65535][n%4],n*4);read.values_base64=bytes.toString('base64');
+ read.frame_ancestry=frame.ancestry;save(unknownUnits?'frame-unknown-units':'frame',read,rawArgs);
+}
+{
+ const frame=frameHandoffFixture();
+ for(const metadata of [frame.result.source,frame.result.image]){
+  Object.assign(metadata.calibration[0],{usable:false,issue:'invalid_calibration'});metadata.calibration_complete=false;
+ }
+ const read=readFixture(rawArgs,{source:frame.result.image,provenance:frame.provenance});
+ const bytes=Buffer.alloc(read.raw_bytes);for(let n=0;n<read.sample_count;n++)bytes.writeFloatLE(n,n*4);read.values_base64=bytes.toString('base64');
+ read.frame_ancestry=frame.ancestry;save('frame-invalid-calibration',read,rawArgs);
+}
 for(const shape of [[512,1024],[1024,1024]]){
  const producer=fourierFixture('VENDOR_NORM',77,{shape}),source=structuredClone(producer.image);
  const args=[source.id,shape[1]/2-3,shape[0]/2-2,shape[1]/2+3,shape[0]/2+2];
@@ -70,7 +86,7 @@ timings_us:{queue:0,execute:1},original_operation:op,normalized_args:args,result
 result:op==='STATUS'?{backend:'digitalmicrograph-native',host_pid:pid,ready:true,binary_gate:true,compatibility:{state:'SUPPORTED'}}:readFixture(args,{source})};saved.set(requestId,reply);return reply;},
 async query(id){return saved.get(id);},close(){}};
 await handoffRegion({workspace:dir,output:'chunked',requestId:'synthetic-region',imageId:77,rect:[1,1,8,6],session,hostPid:pid,blockSamples:8},()=>bridge);
-""".replace("FIXTURE", json.dumps(fixture)).replace("SNAPSHOT", json.dumps(snapshot)).replace("REGION", json.dumps(region))
+""".replace("FRAME_FIXTURE", json.dumps(frame_module)).replace("FIXTURE", json.dumps(fixture)).replace("SNAPSHOT", json.dumps(snapshot)).replace("REGION", json.dumps(region))
         result = subprocess.run(["node", "--input-type=module", "-e", script, str(cls.fixtures)],
                                 cwd=str(ROOT), capture_output=True, text=True, timeout=30)
         if result.returncode:
@@ -126,6 +142,61 @@ await handoffRegion({workspace:dir,output:'chunked',requestId:'synthetic-region'
         capture = load_capture(self.capture("unsigned"), "diffraction")
         self.assertEqual(capture.array.dtype, np.dtype("<u4"))
         self.assertEqual(capture.array.tolist(), [[0, 16777215, 16777217], [2147483648, 4294967295, 1]])
+
+    def test_frame_capture_preserves_original_stack_identity_as_separate_from_current_2d_input(self):
+        capture = load_capture(self.capture('frame'), 'diffraction')
+        frame = capture.provenance['frame_ancestry']
+        self.assertEqual(capture.array.dtype, np.dtype('<f4'))
+        self.assertEqual(capture.provenance['source_image_id'], 77)
+        self.assertEqual(frame['normalized_args'], [31, 1])
+        self.assertEqual(frame['result']['source']['dtype'], 'uint16')
+        self.assertEqual(frame['result']['source']['shape'], [3, 7, 9])
+        self.assertEqual(frame['result']['frame_axis']['role'], 'unspecified_sequence')
+        self.assertEqual(frame['result']['frame_axis']['calibrated_value'], .75)
+        self.assertIsNone(frame['result']['frame_axis']['unit'])
+        capture.assert_unchanged()
+
+    def test_frame_missing_spatial_units_remains_unknown_without_inventing_nm(self):
+        capture = load_capture(self.capture('frame-unknown-units'), 'diffraction')
+        self.assertFalse(capture.metadata['calibration_complete'])
+        self.assertTrue(all(axis['unit'] is None for axis in capture.coordinate_axes))
+        self.assertTrue(all(axis['issue'] == 'unknown_units' for axis in capture.coordinate_axes))
+        self.assertFalse(capture.provenance['frame_ancestry']['result']['frame_axis']['usable'])
+
+    def test_frame_recognized_invalid_spatial_calibration_keeps_raw_fields_and_no_physical_zero(self):
+        capture = load_capture(self.capture('frame-invalid-calibration'), 'diffraction')
+        self.assertFalse(capture.metadata['calibration_complete'])
+        self.assertEqual(capture.metadata['source_metadata']['calibration'][0]['origin'], 2)
+        self.assertEqual(capture.metadata['source_metadata']['calibration'][0]['scale'], -.25)
+        self.assertIsNone(capture.coordinate_axes[0]['calibrated_value_at_pixel_zero'])
+        self.assertEqual(capture.coordinate_axes[0]['issue'], 'invalid_calibration')
+
+    def test_frame_companion_rejects_rehashed_wrong_original_identity_conversion_and_unknown_lineage(self):
+        for fault in ('frame-index', 'dtype', 'conversion', 'axis-role', 'manifest', 'unresolved', 'missing'):
+            with self.subTest(fault=fault):
+                path = self.capture('frame')
+                def mutate(info, manifest):
+                    frame = info['frame_ancestry']
+                    if fault == 'frame-index':
+                        frame['normalized_args'][1] = 2
+                    elif fault == 'dtype':
+                        frame['result']['source']['data_type_code'] = 11
+                    elif fault == 'conversion':
+                        frame['result']['dtype_conversion']['lossless_values'] = False
+                    elif fault == 'axis-role':
+                        frame['result']['frame_axis']['role'] = 'time'
+                    elif fault == 'unresolved':
+                        info['frame_ancestry'] = {'schema_version': 1, 'status': 'unresolved_lineage'}
+                    elif fault == 'missing':
+                        del info['frame_ancestry']
+                    if fault != 'manifest':
+                        manifest['frame_ancestry'] = info.get('frame_ancestry')
+                    else:
+                        manifest['frame_ancestry'] = None
+                self.edit(path, mutate)
+                with self.assertRaises(CaptureError):
+                    load_capture(path, 'diffraction')
+                shutil.rmtree(path)
 
     def test_fft_crop_plus_read_offsets_and_outside_dc_use_math_grid_not_halfbin(self):
         capture = load_capture(self.capture("fft-real"), "fft")
@@ -356,6 +427,24 @@ await handoffRegion({workspace:dir,output:'chunked',requestId:'synthetic-region'
             self.edit(path, mutation)
             with self.subTest(name=name), self.assertRaises(CaptureError):
                 load_capture(path, mode)
+
+    def test_direct_frame_finite_invalid_pixels_fail_even_with_self_consistent_npy_and_metadata_hashes(self):
+        for replacement in (-1, -32768, .5, 65536):
+            path = self.capture('frame')
+            values = np.load(path / 'input.npy', allow_pickle=False)
+            values[0, 0] = replacement
+            stream = io.BytesIO()
+            np.save(stream, values, allow_pickle=False)
+            raw = stream.getvalue()
+            (path / 'input.npy').write_bytes(raw)
+            def mutate(info, manifest):
+                info['input_sha256'] = manifest['input_sha256'] = sha(raw)
+                info['pixel_sha256'] = manifest['pixel_sha256'] = sha(values.tobytes())
+                info['input_file_bytes'] = len(raw)
+            self.edit(path, mutate)
+            with self.subTest(replacement=replacement), self.assertRaises(CaptureError):
+                load_capture(path, 'diffraction')
+            shutil.rmtree(path)
 
     def test_preallocation_file_budget_duplicate_json_and_nonfinite_json_refuse(self):
         path = self.capture()

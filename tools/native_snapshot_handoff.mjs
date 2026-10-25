@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {validateNativeDataSnapshot, validateNativeLineProfile, validateNativeHistogram, nativeScientificSemantics, validRequestId} from '../lib/native_bridge.mjs';
+import {validateNativeDataSnapshot, validateNativeLineProfile, validateNativeHistogram, nativeScientificSemantics, nativeFrameAncestry, validRequestId} from '../lib/native_bridge.mjs';
 
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -131,12 +131,19 @@ export function validateSavedSnapshot(raw) {
   else {
     validateNativeDataSnapshot(result, receipt.normalized_args);
     nativeScientificSemantics(result, {requireFourierContext: true});
+    captureFrameAncestry(result);
   }
   const values = Buffer.from(result.values_base64, 'base64');
   requireThat(values.length <= 65536, 'Native snapshot byte budget exceeded');
   const nativeValues = receipt.original_operation === 'HISTOGRAM' ? histogramCountBytes(result.shape, values) : values;
   return {result, receipt, values, ...(receipt.original_operation === 'HISTOGRAM' ? {nativeValues, wireHash:sha(values)} : {}),
     receiptHash: sha(canonical(receipt)), snapshotHash: sha(raw), pixelHash: sha(nativeValues)};
+}
+
+export function captureFrameAncestry(result) {
+  const ancestry = nativeFrameAncestry(result);
+  requireThat(ancestry === null || ancestry?.status === 'tracked_frame', 'Unresolved frame ancestry cannot be a scientific capture');
+  return ancestry;
 }
 
 // This is an exact transport conversion, not a histogram computation. The DM
@@ -258,6 +265,7 @@ export function packageInfo(snapshot, captureId, npy) {
       'pixel centers at integer x,y; use scientific_semantics.coordinate_axes for Fourier bins; working_calibration_xy is unmodified native DM metadata' :
       'pixel centers at integer x,y; physical value = calibrated_value_at_pixel_zero + index*scale',
     scientific_context: result.scientific_context ?? null, scientific_semantics: scientific,
+    ...(Object.hasOwn(result, 'frame_ancestry') ? {frame_ancestry: captureFrameAncestry(result)} : {}),
     native_calibration_semantics: 'native DM calibration; not necessarily mathematical Fourier bin coordinates',
     calibration_complete: result.calibration_complete, source_metadata: result.source,
     intensity_calibration: {origin: null, scale: null, unit: null, status: 'NOT_READ'}, intensity_calibration_applied: false,
@@ -338,7 +346,8 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
       capture_consistency: 'independent saved response bytes; live source was not reobserved by this encoder; native READ is not atomic',
       created_utc: created, native_session: snapshot.receipt.session, native_request_id: snapshot.receipt.id,
       handoff_request_id: requestId, native_receipt_sha256: snapshot.receiptHash, saved_snapshot_sha256: snapshot.snapshotHash,
-      dm_file_save: false, live_source_reobserved: false};
+      dm_file_save: false, live_source_reobserved: false,
+      ...(Object.hasOwn(info, 'frame_ancestry') ? {frame_ancestry: info.frame_ancestry} : {})};
     if (profile) {
       delete manifest.source_rect_xyxy; delete manifest.source_rect_convention;
       Object.assign(manifest,{capture_mode:'native_profile',shape:info.shape,axes:info.axes,source_line_xyxy:info.source_line_xyxy,

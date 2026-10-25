@@ -17,7 +17,7 @@ manifest 清理也已通过。当前五组 profile 资格不依赖 preparation �
 manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 并得到同一均值，
 原 capture 未变；这些是最终二进制自己的证据。
 
-## 十九个原生工具目录项
+## 二十个原生工具目录项
 
 使用显式 `DM_MCP_BACKEND=native` 和用户启动宿主时记录的 session。
 默认 v0.6 后端是另一条路径，不会作为原生失败的回退。
@@ -38,10 +38,33 @@ manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 
 | `dm_native_filter` | `smooth`、`sobel`、`laplace`、`sharpen` |
 | `dm_native_preview` | 最大 128×128 的显示用灰度 PNG |
 | `dm_native_read` | 明确 ROI 的 float32 / uint32 原始数值与标定快照 |
+| `dm_native_frame` | 明确三维 uint16 序列及零基帧号，DM 原生复制并转换为独立 float32 二维工作副本；单独能力门禁 |
 | `dm_native_result_info` | 明确 image_id + retention.token 的插件引用状态快照；刷新时用新 ID |
 | `dm_native_release` | 按同一身份只释放插件引用；预先保存 request_id，不关闭文档 |
 | `dm_native_rois` | 只读枚举明确图像的文档/显示对象/选区；新 ROIS v2 保留矩形和线，检查实际资格和诊断 |
 | `dm_native_profile` | 按完整 GUI 线身份及预存端点/请求 ID 做有限原生剖面；真一维 float64 图像和冻结数值快照 |
+| `dm_native_histogram` | DM 原生直方图及真一维 uint32 计数；明确分箱边界和标定状态，单独能力门禁 |
+
+### uint16 序列按帧接续
+
+先从 `dm_datasets` 确认明确的三维 uint16 源 ID、`shape:[sequence,Y,X]` 和
+`dm_dimensions:[X,Y,sequence]`，保存新的 request_id，再用 `dm_native_frame`
+指定零基 frame_index。它只取 DM dimension2 / NumPy axis0 的完整 XY 平面，
+不认领当前显示帧或求和图，也不推断序列轴是时间、空间 Z 或其它实验参数。
+DM 原生切片复制后显式转换为 float32；0..65535 的 uint16 数值全部精确保留。
+
+完整平面最多 1,048,576 像素，完整源存储最多 UINT32_MAX 字节；分配前同时
+预算 uint16 临时副本和 float32 结果。保留原序列、帧号、三轴原始标定及复制的
+强度标定；缺少单位不阻止复制，也不生成 nm、相位或物理解释。强度标定不应用。
+后续 preview、raw mean、READ、SHOW 及处理仍按各自类型、尺寸和标定门禁执行。
+READ/NPY 保存实际 float32 数据及原 uint16 帧来源，不能把转换后的 dtype 写回
+原源图声明。`frame_ancestry` 只说明原始帧身份，不证明当前像素未被编辑。
+
+FRAME 最终产物为 **LIMITED_SYNTHETIC_REAL_HOST_PASS**，调用仍须确认 `native_frame`
+实际可用。取消或超时后，在原 session 查询预存 ID；不重新提帧猜测是否完成。
+见[完整按帧契约](NATIVE_FRAME.md)。
+
+### GUI 矩形选区接续
 
 GUI 选区接续采用 `(image_id,document_id,display_id,roi_id)` 组合身份，不认领前台或
 最新窗口。`slice_ids` 是切片编号，不能当作轴编号。仅精确的直接 Simple 图像源

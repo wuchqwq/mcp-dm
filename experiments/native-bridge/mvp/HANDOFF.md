@@ -1,5 +1,40 @@
 # Native MVP continuation handoff
 
+## Current explicit sequence-frame continuation
+
+The native catalog has twenty entries. `dm_native_frame` selects an explicit
+rank-three ordinary uint16 source and zero-based DM dimension2 / NumPy axis0
+frame, makes an independent native slice, and explicitly converts it through
+DM to float32 without losing uint16 values. The output is a working image with
+its own ID/token, not the original uint16 object, a summed image or an inferred
+GUI current frame. Unknown units do not block this data copy or become physical
+units. Full XY output is bounded to 1,048,576 pixels, complete source storage
+to UINT32_MAX bytes, and the two-image peak uses the existing shared budget.
+
+The final artifact has limited synthetic actual-host/native-MCP qualification:
+independent complete values and source/calibration protection, original-ID
+recovery, READ/NPY with frozen frame ancestry, temporary-registry cleanup,
+precise SHOW/RELEASE and independent idle document-reference closure. Its own
+original STOP, remaining hidden-result release, normal exit/owned-plugin
+cleanup and post-exit numerical reopening were separately checked. Preserve
+the earlier exceptional cleanup attempt as failed/incomplete evidence; do not
+replace it with the passing new-session result.
+
+Save request IDs before FRAME and later side effects. `frame_ancestry` identifies
+the original frame only; each derived operation still owns its current values,
+coordinates and scientific meaning. Mixed/changed lineage is unresolved.
+Whole-sequence operations, arbitrary FFT dimensions, larger filters, missing-unit
+physical interpretation and model-client qualification do not follow from
+FRAME. Ordinary model-client status remains NOT_TESTED. Exact build/module gates,
+default v0.6 and the independent external-analysis boundary are unchanged.
+The small converted-frame crop/arithmetic/filter/Fourier continuation and its
+saved ancestry passed separately using existing numerical references. Authorized
+read-only TIFF pages also passed full-plane chunked handoff, independent page
+comparison and unchanged full source/file checks. Missing units remain unknown;
+these checks do not admit arbitrary whole-frame FFT sizes or larger filters.
+See [FRAME](NATIVE_FRAME.md), [workflow](NATIVE_WORKFLOW.md) and the private
+current-run verdict for concrete evidence without publishing source data.
+
 ## Current bounded Fourier continuation
 
 The explicit native backend admits larger v2 Fourier records through separate
@@ -80,7 +115,7 @@ qualification of later display/histogram changes.
 
 ## Current continuation: GUI line to native one-dimensional profile
 
-The native catalog now has nineteen entries, adding `dm_native_profile` and
+The earlier nineteen-entry stage added `dm_native_profile` and
 ROIS version 2 line geometry. `native_line_profile` has limited synthetic
 prepared-host qualification and profile admission is enabled. The final
 qualified artifact also passed its own fresh-host confirmation, with loaded

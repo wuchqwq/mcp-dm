@@ -14,6 +14,7 @@ constexpr OperationContract kContracts[] = {
     {"STATUS", 0, "status"}, {"DATASETS", 0, "datasets"}, {"INFO", 1, "image_info"},
     {"MEAN", 1, "native_mean"}, {"SUMMARY", 1, "native_summary"},
     {"CROP", 5, "image_crop"}, {"SHOW", 1, "image_delivery"}, {"STOP", 0, "ipc_stop"},
+    {"FRAME", 2, "native_frame_copy"},
     {"UNARY", 2, "native_image_operation"}, {"BINARY", 3, "native_image_operation"},
     {"FILTER", 2, "native_image_operation"},
     {"PREVIEW", 3, "native_preview"},

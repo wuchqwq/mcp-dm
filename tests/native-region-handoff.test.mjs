@@ -12,6 +12,7 @@ import {handoffRegion,planRegion,hashFile} from '../tools/native_region_handoff.
 import {canonical} from '../tools/native_snapshot_handoff.mjs';
 import {createHash} from 'node:crypto';
 import {readFixture,imageMetadata,fourierFixture} from './fixtures/native-operations.mjs';
+import {frameHandoffFixture} from './fixtures/native-frame-handoff.mjs';
 
 const session='b'.repeat(32),pid=123;
 const opts=workspace=>({workspace,output:'capture',requestId:'region-test',imageId:77,rect:[1,1,8,6],session,hostPid:pid,blockSamples:8});
@@ -200,6 +201,79 @@ test('copied completed journal cannot claim a capture from another directory',as
   const dir=temp(t),f=fixture(),options=opts(dir);await handoffRegion(options,()=>f.bridge);
   const copied=temp(t);fs.cpSync(dir,copied,{recursive:true});
   await assert.rejects(()=>handoffRegion({...options,workspace:copied},()=>{throw Error('no native calls');}),/another output directory/);
+});
+
+function frameRegionFixture({index=1,mutate=()=>{}}={}) {
+  const frame=frameHandoffFixture({index}),f=fixture({source:frame.result.image,mutate:r=>{
+    if(r.original_operation==='READ'){
+      r.result.source_provenance=structuredClone(frame.provenance);r.result.frame_ancestry=structuredClone(frame.ancestry);
+      const bytes=Buffer.alloc(r.result.raw_bytes);for(let n=0;n<r.result.sample_count;n++)bytes.writeFloatLE([0,32767,32768,65535][n%4],n*4);
+      r.result.values_base64=bytes.toString('base64');
+    }
+    mutate(r);
+  }});
+  f.saved.set('original-frame',{protocol:'NB2',session,id:'original-frame',state:'completed',host_pid:pid,exec_tid:10,worker_tid:20,
+    timings_us:{queue:0,execute:1},original_operation:'FRAME',normalized_args:[31,index],result_type:'native_frame_copy',result_version:1,
+    result:{...structuredClone(frame.result),retention:{token:1,creation_request_id:'original-frame',state_at_creation:'plugin_retained',
+      identity_scope:'bridge token in this native session, not a host image ID'}}});
+  return {...f,frame};
+}
+
+test('FRAME region preserves frozen stack/frame identity and independently validates the original creation QUERY',async t=>{
+  const dir=temp(t),f=frameRegionFixture(),options=opts(dir),receipt=await handoffRegion(options,()=>f.bridge);
+  const target=path.join(dir,'capture'),info=readJson(path.join(target,'input.json'));
+  assert.deepEqual(info.frame_ancestry,f.frame.ancestry);assert.equal(info.dtype,'float32');
+  assert.deepEqual(info.native_source_creation_record.normalized_args,[31,1]);
+  assert.equal(f.calls.filter(([op])=>op==='FRAME').length,0,'handoff queries the original frame; never extracts again');
+  const verified=JSON.parse(execFileSync(process.env.DM_TEST_PYTHON||'python',['tools/verify_native_region.py','--capture',target,'--host-pid','123','--session',session],{encoding:'utf8'}));
+  assert.deepEqual(verified.frame_ancestry,f.frame.ancestry);
+  assert.deepEqual(await handoffRegion(options,()=>{throw Error('offline reuse only');}),receipt);
+  for(const fault of ['source-code','conversion','selected-coordinate','creator-index','frame-identity']) {
+    const bad=path.join(dir,'bad-frame-'+fault);fs.cpSync(target,bad,{recursive:true});
+    const metadata=readJson(path.join(bad,'input.json')),manifest=readJson(path.join(bad,'capture.json'));
+    if(fault==='source-code')metadata.frame_ancestry.result.source.data_type_code=11;
+    if(fault==='conversion')metadata.frame_ancestry.result.dtype_conversion.lossless_values=false;
+    if(fault==='selected-coordinate')metadata.frame_ancestry.result.frame_axis.calibrated_value=0;
+    if(fault==='frame-identity')metadata.frame_ancestry.result.frame_axis.role='time';
+    if(fault==='creator-index'){
+      const creation=readJson(path.join(bad,'source-creation.json'));creation.result.frame_index=2;
+      fs.writeFileSync(path.join(bad,'source-creation.json'),JSON.stringify(creation));
+      metadata.native_source_creation_record.sha256=hashFile(path.join(bad,'source-creation.json'));
+    }
+    manifest.frame_ancestry=structuredClone(metadata.frame_ancestry);
+    fs.writeFileSync(path.join(bad,'input.json'),JSON.stringify(metadata));
+    manifest.input_metadata_sha256=createHash('sha256').update(canonical(metadata)).digest('hex');
+    fs.writeFileSync(path.join(bad,'capture.json'),JSON.stringify(manifest));
+    assert.throws(()=>execFileSync(process.env.DM_TEST_PYTHON||'python',['tools/verify_native_region.py','--capture',bad],{encoding:'utf8',stdio:'pipe'}),fault);
+  }
+  // Deliberately rewrite all local hashes for a valid but different second
+  // frame. Equal pixel bytes and XY metadata must not hide a frame boundary.
+  const mixed=path.join(dir,'mixed-frame-block');fs.cpSync(target,mixed,{recursive:true});
+  const metadata=readJson(path.join(mixed,'input.json')),manifest=readJson(path.join(mixed,'capture.json'));
+  const block=readJson(path.join(mixed,'read-1.json')),other=frameHandoffFixture({index:2});
+  block.frame_ancestry=other.ancestry;block.frame_ancestry.request_id='second-frame';block.source_provenance.request_id='second-frame';
+  fs.writeFileSync(path.join(mixed,'read-1.json'),JSON.stringify(block));
+  const snapshotHash=hashFile(path.join(mixed,'read-1.json'));
+  manifest.blocks[1].snapshot_sha256=snapshotHash;metadata.native_receipts[1].snapshot_sha256=snapshotHash;
+  fs.writeFileSync(path.join(mixed,'input.json'),JSON.stringify(metadata));
+  manifest.input_metadata_sha256=createHash('sha256').update(canonical(metadata)).digest('hex');
+  fs.writeFileSync(path.join(mixed,'capture.json'),JSON.stringify(manifest));
+  assert.throws(()=>execFileSync(process.env.DM_TEST_PYTHON||'python',['tools/verify_native_region.py','--capture',mixed],{encoding:'utf8',stdio:'pipe'}),
+    'independent verifier must reject a different valid original frame even after hashes are recomputed');
+});
+
+test('equal pixels, shape and calibration cannot join different original frames into one region',async t=>{
+  let seen=0;
+  const dir=temp(t),f=frameRegionFixture({mutate:r=>{
+    if(r.original_operation==='READ'&&++seen===2) {
+      const other=frameHandoffFixture({index:2});r.result.frame_ancestry=other.ancestry;
+      // Same creation ID would be an argument conflict; use a different valid original creation.
+      r.result.frame_ancestry.request_id='second-frame';r.result.source_provenance.request_id='second-frame';
+    }
+  }});
+  await assert.rejects(()=>handoffRegion(opts(dir),()=>f.bridge),/Source\/calibration\/lineage changed/);
+  assert.equal(fs.existsSync(path.join(dir,'capture','input.npy')),false);
+  assert.equal(readJson(path.join(dir,'capture','capture.json')).state,'partial');
 });
 test('real NativeBridge Windows pipe transports each planned READ once; output remains schema-1',async t=>{
   const dir=temp(t),s=randomUUID().replaceAll('-',''),f=fixture(),sockets=new Set();

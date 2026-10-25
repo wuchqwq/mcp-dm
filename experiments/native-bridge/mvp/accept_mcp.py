@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[3]
 RESULT_CONTRACTS = {
     "STATUS": (0, "status"), "DATASETS": (0, "datasets"), "INFO": (1, "image_info"),
     "MEAN": (1, "native_mean"), "SUMMARY": (1, "native_summary"), "CROP": (5, "image_crop"),
+    "FRAME": (2, "native_frame_copy"),
     "SHOW": (1, "image_delivery"), "STOP": (0, "ipc_stop"),
     "RELEASE": (2, "native_result_release"), "RESULT_INFO": (2, "native_result_availability"),
     "ROIS": (1, "native_gui_rois"), "PROFILE": (9, "native_line_profile"), "HISTOGRAM": (4, "native_histogram"),
@@ -49,6 +50,7 @@ def validate_operation_identity(receipt, operation=None, arguments=None):
     count, result_type = RESULT_CONTRACTS[original]
     args = receipt.get("normalized_args")
     require(isinstance(args, list) and len(args) == count and all(integer(value, 0, 0xffffffff) for value in args)
+            and (original != "FRAME" or args[0] > 0)
             and receipt.get("result_type") == result_type and type(receipt.get("result_version")) is int
             and receipt["result_version"] in ((1, 2) if result_type in ("native_fourier_operation", "native_gui_rois") else (1,))
             and receipt.get("state") != "unknown", "NB2 operation/result schema identity mismatch")
@@ -69,6 +71,27 @@ def integer(value, minimum=0, maximum=MAX_SAFE_INTEGER):
 
 def finite(value):
     return type(value) in (int, float) and math.isfinite(value)
+
+
+def validate_frame_schema(schema):
+    """A frame creates a new object: its explicit selection and recovery ID are mandatory."""
+    require(isinstance(schema, dict) and schema.get("type") == "object" and schema.get("additionalProperties") is False,
+            "Native frame schema must reject unspecified inputs")
+    properties, required = schema.get("properties"), schema.get("required")
+    require(isinstance(properties, dict) and set(properties) == {"image_id", "frame_index", "request_id"} and
+            isinstance(required, list) and len(required) == 3 and set(required) == set(properties),
+            "Native frame must require explicit image_id, zero-based frame_index and caller-saved request_id")
+    for name, minimum in (("image_id", 1), ("frame_index", 0)):
+        item = properties[name]
+        require(isinstance(item, dict) and item.get("type") == "integer" and
+                integer(item.get("minimum"), minimum, minimum) and
+                integer(item.get("maximum"), 0xffffffff, 0xffffffff),
+                "Native frame image/index must have explicit uint32 bounds")
+    request = properties["request_id"]
+    require(isinstance(request, dict) and request.get("type") == "string" and
+            integer(request.get("minLength"), 1, 1) and integer(request.get("maxLength"), 64, 64) and
+            request.get("pattern") == "^[A-Za-z0-9_-]{1,64}$",
+            "Native frame must require a valid caller-saved recovery ID")
 
 
 def native_float32_bits(value):
@@ -174,6 +197,7 @@ class StdioClient:
                     operations = {"dm_status": ("STATUS", []), "dm_datasets": ("DATASETS", []),
                         "dm_native_mean": ("MEAN", [args.get("image_id")]), "dm_native_summary": ("SUMMARY", [args.get("image_id")]),
                         "dm_crop": ("CROP", [args.get("image_id")] + args.get("rect", [])),
+                        "dm_native_frame": ("FRAME", [args.get("image_id"), args.get("frame_index")]),
                         "dm_native_show": ("SHOW", [args.get("image_id")]),
                         "dm_native_rois": ("ROIS", [args.get("image_id")]),
                         "dm_native_profile": ("PROFILE", [args.get("image_id"),args.get("document_id"),args.get("display_id"),args.get("roi_id")] + args.get("expected_line", []) + [args.get("width")]),
@@ -313,7 +337,9 @@ def run_acceptance(client, fixture, backend, build, expected_pid=None, repeats=1
     names = {tool["name"] for tool in catalog}
     require(len(catalog) == len(names) and core_names <= names <= core_names | {
         "dm_crop", "dm_native_show", "dm_native_summary", "dm_native_unary", "dm_native_binary",
-        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info", "dm_native_rois", "dm_native_profile", "dm_native_histogram"}, "Unexpected native tool catalog")
+        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info", "dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_frame"}, "Unexpected native tool catalog")
+    if "dm_native_frame" in names:
+        validate_frame_schema(next(tool.get("inputSchema") for tool in catalog if tool["name"] == "dm_native_frame"))
     if "dm_native_summary" in names:
         summary_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_summary")
         require(set(summary_schema.get("required", [])) == {"image_id"}

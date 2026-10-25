@@ -33,7 +33,8 @@ int main() {
             {{"test", "READ", {17, 0, 0, 1, 1}}, "native_read"},
             {{"test", "ROIS", {17}}, "native_gui_rois"},
             {{"test", "PROFILE", {17,31,9,7,2,1,7,1,1}}, "native_line_profile"},
-            {{"test", "HISTOGRAM", {17,4,0,1098907648}}, "native_histogram"}
+            {{"test", "HISTOGRAM", {17,4,0,1098907648}}, "native_histogram"},
+            {{"test", "FRAME", {17,0}}, "native_frame"}
         };
         // A former preparation variable cannot bypass version or group gates.
         SetEnvironmentVariableA("DM_NATIVE_QUALIFY_OPERATIONS", "1");
@@ -58,7 +59,7 @@ int main() {
         selected_adapter.capabilities.clear();
         for (const auto& operation : operations)
             must_reject(operation.first, std::string("native_capability_unavailable:") + operation.second);
-        for (const auto* group : {"native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_gui_rois", "native_line_profile", "native_histogram"}) {
+        for (const auto* group : {"native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_gui_rois", "native_line_profile", "native_histogram", "native_frame"}) {
             selected_adapter.capabilities.clear();
             for (const auto& spec : nb::gms353::profile().capabilities)
                 selected_adapter.capabilities.push_back({spec.name, spec.scope, "synthetic observation",

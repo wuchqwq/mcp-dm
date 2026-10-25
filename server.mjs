@@ -49,8 +49,8 @@ const INSTRUCTIONS = [
 ].join("\n");
 const NATIVE_INSTRUCTIONS = [
   "实验性 DigitalMicrograph C++ NB2 bridge，仅用于明确启动的指定构建；只在宿主空闲且不编辑源图时调用。源图保持只读，不控制硬件。",
-  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_result_info、dm_native_release、dm_native_rois、dm_native_profile、dm_native_histogram；rois 仅在对应能力已合格时只读枚举明确图像的显示对象和选区，不自动挑选或裁剪；GUI 选区是非原子执行时快照，旧 ID 的 QUERY 不会刷新当前选区，不把小数或越界选区舍入为分析区域；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
-  "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。crop、show、unary、binary、fft、complex、filter、profile、histogram 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
+  "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_frame、dm_native_result_info、dm_native_release、dm_native_rois、dm_native_profile、dm_native_histogram；rois 仅在对应能力已合格时只读枚举明确图像的显示对象和选区，不自动挑选或裁剪；GUI 选区是非原子执行时快照，旧 ID 的 QUERY 不会刷新当前选区，不把小数或越界选区舍入为分析区域；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
+  "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。frame、crop、show、unary、binary、fft、complex、filter、profile、histogram 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
 ].join("\n");
 
@@ -462,6 +462,11 @@ const nativeTools = [
   tool("dm_native_read", "DM 原生读取显式二维 float32/uint32 图像的半开 ROI，最多 16384 样本/65536 原始字节；返回保留源 dtype 的 little-endian 4 字节标量 base64、行优先 shape/轴序和 ROI 标定。源图只读，源图最多 4194304 像素；不裁夹、不生成图片、不保存文件，不是 DM SaveAs。只在宿主空闲且不编辑源图时调用，snapshot_atomic:false；用于调用方显式数值交接，不回退 Python。", {
     image_id: NATIVE_IMAGE_ID, rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}}, request_id: NATIVE_REQUEST_ID,
   }, ["image_id", "rect"]),
+  tool('dm_native_frame', '按明确三维 uint16 序列 image_id 和零基 frame_index 提取独立二维工作副本：DM 原生切片后显式转换为 float32，uint16 数值精确保留，原序列及文件不改。仅 DM dimension2/NumPy axis0 的明确帧，最多1048576输出像素；保留原序列、帧号、三轴标定和转换来源，不猜当前显示帧或求和图。缺少空间单位不阻止复制，也不产生nm或相位解释。使用 dm_native_preview/read/mean 等已支持的二维工具继续；FFT仍有尺寸和标定限制。必须提前保存 request_id，超时或取消查询原ID，不重发、不回退Python。仅能力已合格时开放调用。', {
+    image_id: {...NATIVE_IMAGE_ID, minimum: 1},
+    frame_index: {type: 'integer', minimum: 0, maximum: 4294967295, description: '零基序列帧索引；DM dimension2 / NumPy axis0，不代表空间Z或时间'},
+    request_id: NATIVE_SAVED_REQUEST_ID,
+  }, ['image_id','frame_index','request_id']),
   tool('dm_native_result_info', '查询明确结果的当前插件引用状态。必须同时提供创建回执中的 image_id 和 retention.token；这是该次查询执行时的快照；刷新状态用新查询 ID，旧 ID 的 QUERY 保持历史。已释放结果可能仍由用户文档持有，但不能继续作为插件处理输入。', {
     image_id: {...NATIVE_IMAGE_ID, minimum: 1}, retention_token: {type: 'integer', minimum: 1, maximum: 4294967295}, request_id: NATIVE_REQUEST_ID,
   }, ['image_id', 'retention_token']),
@@ -496,6 +501,7 @@ function nativeFloatBits(value) {
 }
 
 function nativeInvocation(name, args) {
+  if (name === 'dm_native_frame') return ['FRAME', [args.image_id, args.frame_index]];
   if (name === 'dm_native_profile') return ['PROFILE', [args.image_id, args.document_id, args.display_id, args.roi_id, ...args.expected_line, args.width]];
   if (name === 'dm_native_histogram') return ['HISTOGRAM', [args.image_id, args.bins, nativeFloatBits(args.min), nativeFloatBits(args.max)]];
   if (name === 'dm_native_rois') return ['ROIS', [args.image_id]];

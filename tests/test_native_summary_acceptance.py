@@ -4,10 +4,13 @@ Every case executes the actual client/StdioClient against an owned, explicitly
 synthetic Python stdio peer. No real DM, named pipe, GUI or vendor DLL is used.
 """
 import hashlib
+import importlib.util
 import json
 import os
+import io
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -113,7 +116,7 @@ for line in sys.stdin:
         result = {"protocolVersion": "2024-11-05", "serverInfo": {"name": "digitalmicrograph", "version": "0.6.0"}}
     elif method == "tools/list":
         names = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
-                 "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile"]
+                 "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_frame"]
         schema = {"type": "object", "additionalProperties": False, "required": ["image_id"],
             "properties": {"image_id": {"type": "integer", "minimum": 0, "maximum": 4294967295}, "request_id": {"type": "string"}}}
         if mode == "bad_schema": schema["required"] = []
@@ -181,6 +184,30 @@ class NativeSummaryAcceptanceTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.fake = self.root / "synthetic_stdio.py"
         self.fake.write_text(FAKE_MCP, encoding="utf-8")
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for an actual offline catalog comparison")
+    def test_current_catalog_matches_actual_node_instead_of_only_the_synthetic_peer(self):
+        sys.path.insert(0, str(ACCEPT.parent))
+        try:
+            spec = importlib.util.spec_from_file_location("summary_catalog_offline", str(ACCEPT))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        finally:
+            sys.path.pop(0)
+        env = dict(os.environ, DM_MCP_BACKEND="native", DM_NATIVE_SESSION=uuid.uuid4().hex)
+        client = module.StdioClient([shutil.which("node"), str(ROOT / "server.mjs")], env, io.StringIO())
+        self.addCleanup(client.close)
+        client.rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "offline-summary-catalog-test", "version": "1"}})
+        catalog = client.rpc("tools/list", {})["result"]["tools"]
+        module.validate_catalog(catalog)
+        self.assertEqual(len(catalog), 20)
+        self.assertTrue({"dm_native_histogram", "dm_native_frame"} <= {tool["name"] for tool in catalog})
+        for bad in ([tool for tool in catalog if tool["name"] != "dm_native_frame"],
+                    [tool for tool in catalog if tool["name"] != "dm_native_histogram"],
+                    [tool for tool in catalog if tool["name"] not in ("dm_native_frame", "dm_native_histogram")],
+                    catalog + [{"name": "dm_native_frame"}], catalog[:-1] + [{"name": "dm_unknown"}]):
+            with self.assertRaisesRegex(ValueError, "Unexpected SUMMARY native tool catalog"):
+                module.validate_catalog(bad)
 
     def fixture(self):
         directory = self.root / uuid.uuid4().hex

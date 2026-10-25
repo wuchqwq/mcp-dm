@@ -65,10 +65,24 @@ docs/CRYSTALLOGRAPHY_WORKFLOW.md before changing this companion.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has nineteen entries: dm_status,
+The separate experimental native catalog has twenty entries: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
-dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile and dm_native_histogram.
+dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_frame, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile and dm_native_histogram.
+`dm_native_frame` is a separate `native_frame` capability for explicit rank-three
+ordinary uint16 sources: DM dimension2 / NumPy axis0, never the GUI current frame
+or a summed image. DM makes an independent slice and explicitly converts it to
+float32; every uint16 value remains exact. The complete XY plane is bounded to
+1,048,576 pixels and source storage to UINT32_MAX bytes. Preserve source/selected
+frame identity, all three source axes, raw copied calibration and unapplied
+intensity calibration; unknown units do not block this data copy. Do not enable
+uint16 globally for old 2D tools or infer time, spatial Z, phase or physical units.
+FRAME requires a pre-saved request ID and inherits the existing QUERY/release
+contract. Frozen `frame_ancestry` identifies the original frame only; current
+values/coordinates follow their own operation metadata. Mixed or changed lineage
+is unresolved, never a guessed frame. See experiments/native-bridge/mvp/NATIVE_FRAME.md;
+its exact-build final artifact has limited synthetic real-host qualification.
+Unknown numerical-calibration cases retain their separately recorded test scope.
 The corrected ROIS direct-source-layout/mapping has limited synthetic real-host
 qualification and its profile admission is enabled. The final qualified artifact
 also passed its separate actual-host source/ROI and final-reference checks. A catalog entry is not capability

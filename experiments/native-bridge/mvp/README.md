@@ -48,7 +48,7 @@ catalog; it never starts or falls back to the resident Python bridge.
 Future processing extensions call DM's own operators; the bridge handles
 parameters, ownership and result delivery. It does not implement a parallel
 analysis engine. Arithmetic, [FFT and components](FFT_READINESS.md), filters,
-preview and bounded numeric READ are explicit tools in the nineteen-entry native
+preview and bounded numeric READ are explicit tools in the twenty-entry native
 catalog. Each still requires the selected adapter's qualified capability.
 Follow [the researcher workflow](NATIVE_WORKFLOW.md) for scientific handoff;
 the saved-response encoder and external example never run as hidden fallbacks.
@@ -77,11 +77,21 @@ ABI, scientific, source-protection and lifecycle qualification before admission.
 | `dm_native_filter` | Small qualified float32/uint32 smooth, Sobel, Laplace and sharpen with explicit output dtype and vendor borders |
 | `dm_native_preview` | Ordinary float32/uint32 source at most 4,194,304 pixels, at most 128x128 display samples; PNG and source-coordinate mapping, not numeric export |
 | `dm_native_read` | Ordinary float32/uint32 source at most 4,194,304 pixels, explicit half-open ROI at most 16,384 samples/64 KiB; raw little-endian bytes and calibration, no file write |
+| `dm_native_frame` | Saved-ID explicit rank-three uint16 sequence frame to an independent float32 XY working copy through DM native slice/conversion; full plane at most 1,048,576 pixels; separate `native_frame` qualification |
 | `dm_native_result_info` | Fresh availability snapshot for exact output ID and creation retention token; old QUERY stays historical |
 | `dm_native_release` | Saved-request-ID release of only the exact plugin result reference; no document closure or mutation of old records |
 | `dm_native_rois` | Explicit image → document/display/ROI identity; new v2 replies preserve rectangle and line geometry with eligibility diagnostics |
 | `dm_native_profile` | Saved-ID native extraction from an explicitly identified width-one integer horizontal/vertical GUI line; true 1D float64 image and frozen numeric snapshot |
 | `dm_native_histogram` | Saved-ID DM-native histogram of an explicit bounded float32 2D source; 2..4096 bins including sparse bins, full caller range, uint32 counts, exact binary64 snapshot and explicit validated axis mode |
+
+The [FRAME contract](NATIVE_FRAME.md) preserves all uint16 values exactly in a
+float32 working copy and records the explicit source ID, zero-based sequence
+index, three source axes and copied calibration. It does not infer the GUI
+current frame, a summed projection, time, spatial Z or physical units. Missing
+units do not prevent this data copy; existing 2D/FFT/filter gates do not widen.
+FRAME real-host qualification is **LIMITED_SYNTHETIC_REAL_HOST_PASS**; inspect the
+selected adapter capability before calling it. READ/NPY records actual float32
+storage plus the original uint16 frame provenance, not a native SaveAs claim.
 
 The profile path has limited synthetic-host qualification, including separate
 fresh-host confirmation of the final qualified artifact and its exact loaded

@@ -32,10 +32,10 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 | Backend | Scope in this checkout | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Nineteen catalog entries in this feature checkout; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
+| Opt-in native | Twenty catalog entries in this feature checkout; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope; FRAME has its own qualification. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
-This feature checkout's native catalog has nineteen
+This feature checkout's native catalog has twenty
 tools, including qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect
@@ -44,6 +44,17 @@ is selected before ABI calls; other builds remain unsupported. Inspect
 native crop/processing → numeric READ → explicit NPY handoff → external example.
 The new [lifecycle/chunked handoff guide](docs/NATIVE_LIFECYCLE_HANDOFF.md) covers exact retention tokens, `dm_native_result_info`/`dm_native_release`, pre-saved IDs, a fixed complete-region export command, original source-creation parameters, and the independent file verifier. Its multi-READ mode is separate from the older optional single-READ mean example.
 The integration remains experimental and is not a stable native release.
+
+For a rank-three ordinary uint16 sequence, the explicit
+[`dm_native_frame`](experiments/native-bridge/mvp/NATIVE_FRAME.md) contract selects
+zero-based `frame_index` on DM dimension2 / NumPy axis0. It creates a separate
+float32 XY working copy through DM native slice/cast operations; values 0..65535
+remain exact. Save `request_id` before submission. Do not select a summed image
+or infer the currently displayed frame, time, spatial Z or physical units.
+Unknown units may remain unknown. READ/NPY preserves the converted dtype and
+original frame ancestry; SHOW and later processing retain their own gates.
+FRAME has **LIMITED_SYNTHETIC_REAL_HOST_PASS** within its recorded scope; tool discovery alone
+does not authorize a call when `native_frame` is unavailable.
 
 The new read-only `dm_native_rois` links an explicit image ID to document/display
 and rectangle ROI identities; inspect `native_gui_rois` before using it. Its
@@ -204,7 +215,7 @@ Cancellation stops waiting; it does not prove DM stopped. Never automatically re
 
 For native crop, save and supply `request_id` before dispatch, together with the session and parameters. Query `dm_native_result` with that original ID in the same live session. Preserve `queued`, `running`, `failed` and `unknown` as distinct outcomes. There is no promised recovery after native STOP, host exit or a different session.
 
-The same requirement applies to native show, unary, binary, FFT, complex and
+The same requirement applies to native frame, show, unary, binary, FFT, complex and
 filter calls, and the separate file encoder's handoff ID. NB2 QUERY retains the
 original operation, normalized arguments and result schema. Save the original
 records; do not infer operation identity from a few result fields. Use the

@@ -10,6 +10,171 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
+import struct
+
+
+_REQUEST_ID = re.compile(r'[A-Za-z0-9_-]{1,64}\Z')
+
+
+def _uint(value, minimum=0):
+    return type(value) is int and minimum <= value <= 0xffffffff
+
+
+def _number(value):
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _frame_metadata(image, source):
+    rank = 3 if source else 2
+    require(type(image) is dict and _uint(image.get('id'), 1) and type(image.get('name')) is str and
+            type(image.get('ndim')) is int and image['ndim'] == rank and image.get('dtype') == ('uint16' if source else 'float32') and
+            type(image.get('data_type_code')) is int and image['data_type_code'] == (10 if source else 2) and
+            type(image.get('packing_style')) is int and image['packing_style'] == 1,
+            'FRAME typed source/output descriptor mismatch')
+    shape = image.get('shape')
+    require(type(shape) is list and len(shape) == rank and all(_uint(n, 1) for n in shape) and
+            type(image.get('dm_dimensions')) is list and all(_uint(n, 1) for n in image['dm_dimensions']) and
+            image['dm_dimensions'] == list(reversed(shape)) and _uint(image.get('pixels'), 1) and image['pixels'] == math.prod(shape) and
+            image.get('shape_order') == 'numpy (last axis is X)' and
+            image.get('coordinate_rule') == 'physical(i)=calibrated_value_at_pixel_zero+i*scale' and
+            (not source or image.get('is_integer') is True and image.get('is_unsigned') is True) and
+            type(image.get('native_mean_supported')) is bool and type(image.get('native_summary_supported')) is bool and
+            (not source or image['native_mean_supported'] is image['native_summary_supported'] is False) and
+            image['pixels'] * (2 if source else 4) <= 0xffffffff and
+            math.prod(shape[-2:]) <= 1048576,
+            'FRAME bounded canonical shape/packing mismatch')
+    axes = image.get('calibration')
+    require(type(axes) is list and len(axes) == rank, 'FRAME source/output axes missing')
+    for dim, axis in enumerate(axes):
+        require(type(axis) is dict and _uint(axis.get('dm_dimension')) and axis['dm_dimension'] == dim and
+                _uint(axis.get('numpy_axis')) and axis['numpy_axis'] == rank-1-dim and
+                _uint(axis.get('size'), 1) and axis['size'] == shape[rank-1-dim] and
+                all(axis.get(key) is None or _number(axis[key]) for key in
+                    ('origin', 'scale', 'calibrated_value_at_pixel_zero')) and
+                (axis.get('unit') is None or type(axis['unit']) is str and bool(axis['unit'])) and
+                type(axis.get('usable')) is bool, 'FRAME axis descriptor mismatch')
+        numbers = all(_number(axis.get(key)) for key in ('origin', 'scale', 'calibrated_value_at_pixel_zero')) and axis['scale'] != 0
+        unit = axis['unit'] is not None
+        if axis['usable']:
+            require(numbers and unit and axis.get('issue') is None, 'FRAME usable calibration mismatch')
+        elif axis.get('issue') == 'unknown_units':
+            require(numbers and not unit, 'FRAME missing-unit calibration mismatch')
+        elif axis.get('issue') == 'invalid_calibration':
+            require(unit, 'FRAME invalid calibration issue mismatch')
+        else:
+            require(axis.get('issue') == 'invalid_calibration_and_unknown_units' and not unit,
+                    'FRAME unknown calibration issue')
+    require(image.get('calibration_complete') is all(axis['usable'] for axis in axes),
+            'FRAME calibration completeness mismatch')
+
+
+def validate_frame_payload(result, args):
+    """Independent metadata/identity validation; never calls DM or computes pixels."""
+    require(type(args) is list and len(args) == 2 and _uint(args[0], 1) and _uint(args[1]) and
+            type(result) is dict and result.get('backend') == 'digitalmicrograph-native' and
+            result.get('operation') == 'FRAME' and result.get('source_image_id') == args[0] and
+            _uint(result.get('frame_index')) and result['frame_index'] == args[1] and _uint(result.get('image_id'), 1) and
+            result['image_id'] != args[0], 'FRAME original image/index/output identity mismatch')
+    source, image = result.get('source'), result.get('image')
+    _frame_metadata(source, True)
+    _frame_metadata(image, False)
+    require(source['id'] == args[0] and image['id'] == result['image_id'] and
+            args[1] < source['shape'][0] and image['shape'] == source['shape'][1:] and
+            image['pixels'] == math.prod(source['shape'][1:]), 'FRAME source/frame/output shape mismatch')
+    for dim in range(2):
+        original, output = source['calibration'][dim], image['calibration'][dim]
+        require(all(output.get(key) == original.get(key) for key in
+                    ('dm_dimension', 'size', 'origin', 'scale', 'unit', 'calibrated_value_at_pixel_zero', 'usable', 'issue')),
+                'FRAME native XY calibration changed')
+    axis, selected = source['calibration'][2], result.get('frame_axis')
+    numbers = all(_number(axis.get(key)) for key in ('origin', 'scale', 'calibrated_value_at_pixel_zero')) and axis['scale'] != 0
+    numbers = numbers and axis.get('issue') not in ('invalid_calibration', 'invalid_calibration_and_unknown_units')
+    # Vendor/C++/JSON coordinates are binary64, including integer-looking JSON
+    # tokens. Preserve those arithmetic semantics rather than Python big ints.
+    coordinate = float(axis['calibrated_value_at_pixel_zero']) + args[1] * float(axis['scale']) if numbers else None
+    require(coordinate is None or _number(coordinate), 'FRAME selected sequence coordinate is not finite')
+    require(type(selected) is dict and all(_uint(selected.get(key)) for key in ('dm_dimension', 'numpy_axis', 'index_base', 'count')) and
+            type(selected.get('usable')) is bool and selected == {'dm_dimension': 2, 'numpy_axis': 0, 'index_base': 0,
+            'role': 'unspecified_sequence', 'count': source['shape'][0], 'calibrated_value': coordinate,
+            'unit': axis['unit'], 'usable': axis['usable']}, 'FRAME sequence axis/index/coordinate mismatch')
+    conversion = result.get('dtype_conversion')
+    require(type(conversion) is dict and conversion.get('lossless_values') is True and
+            all(_uint(conversion.get(key)) for key in ('input_data_type_code', 'output_data_type_code')) and
+            conversion == {'input_dtype': 'uint16', 'input_data_type_code': 10,
+            'output_dtype': 'float32', 'output_data_type_code': 2, 'lossless_values': True,
+            'operator': 'GMSImageProcessing::ImageConvert'} and
+            _uint(result.get('output_bytes'), 1) and result['output_bytes'] == image['pixels'] * 4 and
+            _uint(result.get('validation_peak_new_image_bytes'), 1) and result['validation_peak_new_image_bytes'] == image['pixels'] * 6 and
+            result.get('operator') == 'GMS::Image::GetSubSliceAsImage + GMSImageProcessing::ImageConvert' and
+            result.get('computation') == 'DM native frame copy and explicit uint16-to-float32 conversion' and
+            result.get('intensity_calibration_applied') is False and result.get('intensity_semantics') == 'raw pixel intensity' and
+            result.get('source_write_requested') is False and result.get('snapshot_atomic') is False and
+            result.get('visible_dm_document') is False and result.get('ownership') ==
+            'plugin retained strong reference until normal native STOP/cleanup',
+            'FRAME native conversion/budget/ownership/raw semantics mismatch')
+    intensity = result.get('intensity_calibration_source')
+    require(type(intensity) is dict and set(intensity) == {'origin', 'scale', 'unit'} and
+            all(intensity.get(key) is None or _number(intensity[key]) for key in ('origin', 'scale')) and
+            (intensity.get('unit') is None or type(intensity['unit']) is str) and
+            result.get('intensity_calibration_output') == intensity, 'FRAME intensity calibration was not copied')
+    return result
+
+
+def verify_frame_ancestry(value):
+    """Unknown old records remain unknown; reject ambiguous ancestry for scientific use."""
+    ancestry = value.get('frame_ancestry')
+    provenance = value.get('source_provenance', value.get('native_source_provenance'))
+    if ancestry is None:
+        require(not provenance or provenance.get('operation') != 'FRAME', 'FRAME source is missing its original frame ancestry')
+        return None
+    require(type(ancestry) is dict and set(ancestry) == {'schema_version', 'status', 'request_id', 'normalized_args', 'result', 'scope'} and
+            type(ancestry.get('schema_version')) is int and ancestry['schema_version'] == 1 and ancestry.get('status') == 'tracked_frame' and
+            type(ancestry.get('request_id')) is str and _REQUEST_ID.fullmatch(ancestry['request_id']) and
+            ancestry.get('scope') == 'original frame identity only; current values and coordinates follow current operation metadata',
+            'Unresolved or malformed frame ancestry cannot be a scientific capture')
+    producer = validate_frame_payload(ancestry.get('result'), ancestry.get('normalized_args'))
+    require('retention' not in producer and 'native_receipt' not in producer and 'frame_ancestry' not in producer,
+            'Frame ancestry must freeze the original payload before transport decoration')
+    require(type(provenance) is dict and set(provenance) == {'operation', 'request_id', 'source_image_ids', 'semantics'} and
+            type(provenance.get('request_id')) is str and _REQUEST_ID.fullmatch(provenance['request_id']) and
+            type(provenance.get('semantics')) is str and bool(provenance['semantics']) and
+            type(provenance.get('source_image_ids')) is list and len(provenance['source_image_ids']) == 1 and
+            _uint(provenance['source_image_ids'][0], 1), 'Frame ancestry requires a single-parent creation provenance')
+    current = value.get('source', value.get('source_metadata'))
+    require(type(current) is dict, 'Frame ancestry current source missing')
+    if provenance['operation'] == 'FRAME':
+        require(current == producer['image'] and value.get('source_image_id') == producer['image_id'] and
+                provenance['request_id'] == ancestry['request_id'] and
+                provenance['source_image_ids'] == ancestry['normalized_args'][:1],
+                'Direct FRAME source differs from original frame creation')
+    else:
+        require(provenance['operation'] in ('CROP', 'UNARY', 'FILTER', 'FFT', 'IFFT', 'REAL', 'IMAG', 'VENDOR_ARG', 'VENDOR_NORM') and
+                current.get('id') == value.get('source_image_id') and current['id'] != producer['image_id'],
+                'Frame ancestry is not a distinct single-parent derived image')
+    return ancestry
+
+
+def verify_frame_samples(raw, value):
+    """A direct lossless uint16 frame copy can only contain those exact values.
+
+    Derived float operations keep their own value semantics. This check does
+    not claim that a mutable frame has stayed unchanged since its creation.
+    """
+    provenance = value.get('source_provenance', value.get('native_source_provenance'))
+    if not provenance or provenance.get('operation') != 'FRAME':
+        return
+    data = memoryview(raw).cast('B')
+    require(value.get('dtype') == 'float32' and 0 < len(data) <= 1048576 * 4 and len(data) % 4 == 0,
+            'Direct FRAME pixels must use bounded float32 storage')
+    for (number,) in struct.iter_unpack('<f', data):
+        require(math.isfinite(number) and 0 <= number <= 65535 and number.is_integer(),
+                'Direct FRAME pixels are not exact uint16 values in float32 storage')
 
 
 def require(value, message):
@@ -105,6 +270,8 @@ def verify(capture, expected_pid=None, expected_session=None):
     require(expected_pid is None or manifest.get('host_pid') == expected_pid, 'Expected host PID mismatch')
     require(expected_session is None or manifest.get('native_session') == expected_session, 'Expected session mismatch')
     require(hashlib.sha256(canonical(info)).hexdigest() == manifest.get('input_metadata_sha256'), 'Metadata digest mismatch')
+    frame = verify_frame_ancestry(info)
+    require(manifest.get('frame_ancestry') == frame, 'Manifest frame ancestry differs from capture metadata')
     filename = capture / 'input.npy'
     require(filename.is_file() and not filename.is_symlink() and filename.stat().st_size <= 17 * 1024 * 1024,
             'Bounded ordinary NPY required')
@@ -171,8 +338,11 @@ def verify(capture, expected_pid=None, expected_session=None):
             raw = base64.b64decode(value['values_base64'], validate=True)
             require(base64.b64encode(raw).decode('ascii') == value['values_base64'] and len(raw) == count * 4 and
                     hashlib.sha256(raw).hexdigest() == block.get('pixel_sha256'), 'Block encoding/bytes mismatch')
+            verify_frame_samples(raw, value)
             source = value.get('source', {})
             current = {key: value.get(key) for key in ('source', 'scientific_context', 'source_provenance', 'source_provenance_scope', 'coordinate_mapping_policy')}
+            current['frame_ancestry'] = verify_frame_ancestry(value)
+            require(current['frame_ancestry'] == frame, 'READ block belongs to a different original frame')
             require(anchor is None or current == anchor, 'Source/calibration/lineage changed between blocks')
             if anchor is None:
                 anchor = current
@@ -200,7 +370,7 @@ def verify(capture, expected_pid=None, expected_session=None):
         provenance = info.get('native_source_provenance')
         if creation is not None:
             source_record = load(capture / 'source-creation.json', 128 * 1024)
-            contracts = {'CROP': (5, 'image_crop', 1), 'UNARY': (2, 'native_image_operation', 1),
+            contracts = {'FRAME': (2, 'native_frame_copy', 1), 'CROP': (5, 'image_crop', 1), 'UNARY': (2, 'native_image_operation', 1),
                          'BINARY': (3, 'native_image_operation', 1), 'FILTER': (2, 'native_image_operation', 1),
                          **{op: (1, 'native_fourier_operation', 2) for op in
                             ('FFT', 'IFFT', 'REAL', 'IMAG', 'VENDOR_ARG', 'VENDOR_NORM')}}
@@ -225,6 +395,12 @@ def verify(capture, expected_pid=None, expected_session=None):
                     source_record.get('result', {}).get('image_id') == info['source_image_id'] and
                     source_record['result'].get('image') == info['source_metadata'] and
                     info.get('source_creation_parameters_status') == 'ORIGINAL_QUERY_SAVED', 'Original source processing parameters mismatch')
+            if operation == 'FRAME':
+                validate_frame_payload(source_record['result'], args)
+                payload = {key: item for key, item in source_record['result'].items() if key not in ('retention', 'native_receipt')}
+                require(frame is not None and frame['request_id'] == source_record['id'] and
+                        frame['normalized_args'] == args and frame['result'] == payload,
+                        'Original FRAME creation record differs from frozen ancestry')
         elif 'native_source_creation_record' in info:
             require(provenance is None and info.get('source_creation_parameters_status') == 'NOT_PLUGIN_CREATED',
                     'Plugin source is missing its original creation parameters')
@@ -239,6 +415,7 @@ def verify(capture, expected_pid=None, expected_session=None):
         verify_science(info)
         return {'status': 'PASS_INDEPENDENT_CHUNKED_FILES', 'shape_yx': shape, 'dtype': info['dtype'],
                 'blocks': len(blocks), 'host_pid': manifest['host_pid'], 'native_session': manifest['native_session'],
+                'frame_ancestry': frame,
                 'pixel_capture_atomic': False, 'scope': 'saved original READ bytes, placement, descriptor/calibration and reopened NPY; no live-source or operator qualification'}
     finally:
         array._mmap.close()

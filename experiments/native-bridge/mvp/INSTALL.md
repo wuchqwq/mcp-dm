@@ -75,7 +75,7 @@ receipts and session before numerical work. `mock-native` is synthetic evidence
 only. Also inspect compatibility: `SUPPORTED` admits the matching profile;
 `UNSUPPORTED_BUILD`, `ABI_MISMATCH` and `NOT_READY` reject image operations.
 `native_statistics` is the complete four-reduction SUMMARY group, with
-`native_mean` reported separately. The nineteen-tool catalog additionally exposes
+`native_mean` reported separately. The twenty-tool catalog additionally exposes
 limited arithmetic, Fourier, filters, preview and numeric READ; see the
 [tool table](README.md#public-native-tools) and [data handoff workflow](NATIVE_WORKFLOW.md).
 Explicit-ID half-open `dm_crop` creates a separate
@@ -85,6 +85,14 @@ full statistics tool. The strict core acceptance client does not call crop.
 An unavailable adapter capability rejects before image lookup. Do not infer
 support from tool discovery or symbol presence alone. Preview is display-only;
 READ plus the explicit external encoder is NPY data handoff, not native SaveAs.
+
+`dm_native_frame` additionally requires its separate `native_frame` capability.
+It copies an explicitly indexed rank-three uint16 XY plane and converts it
+through DM to an independent float32 working image; it does not enable uint16
+for the existing 2D tools. See [FRAME limits and provenance](NATIVE_FRAME.md).
+Qualification is **LIMITED_SYNTHETIC_REAL_HOST_PASS** in the recorded final-artifact scope; a rebuilt DLL or available
+export is not real-host acceptance. Installation/session selection, the five
+fingerprint gates and the default v0.6 configuration stay unchanged.
 
 For ordinary 2D uint32, follow the separate [uint32 acceptance](UINT32_ACCEPTANCE.md)
 and check its dtype capabilities and current prepared/production qualification.
@@ -112,7 +120,7 @@ comparison of non-ASCII names between legacy GMS Python bindings and native
 names or overwrite the original failed truth to make acceptance pass; the
 native UTF-16/UTF-8 path has no heuristic encoding repair.
 
-Crop requires an explicit `request_id` saved before submitting; newly added
+Crop and FRAME require an explicit `request_id` saved before submitting; newly added
 side-effect tools follow the same rule. Save its session, tool and arguments
 too. Read-only status/datasets/mean/SUMMARY calls permit generated-ID
 compatibility, but the operator trial supplies IDs for all calls.

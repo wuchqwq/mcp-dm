@@ -60,6 +60,29 @@ int main() {
         check(selected.safe() && selected.profile == &nb::gms353::profile());
         check(selected.available("native_statistics") && selected.available("native_crop"));
         check(selected.available("native_display") && selected.available("native_datasets"));
+        check(selected.available("native_frame"));
+        {
+            auto frame_profile = nb::gms353::profile();
+            for (auto& capability : frame_profile.capabilities)
+                if (std::string(capability.name) == "native_frame") capability.qualified = true;
+            check(nb::select_adapter(good,{&frame_profile}).available("native_frame"));
+            auto unqualified_frame_profile = frame_profile;
+            for (auto& capability : unqualified_frame_profile.capabilities)
+                if (std::string(capability.name) == "native_frame") capability.qualified = false;
+            const auto unqualified_frame = nb::select_adapter(good,{&unqualified_frame_profile});
+            check(unqualified_frame.safe() && !unqualified_frame.available("native_frame"));
+            attempt(unqualified_frame,"native_frame"); check(vendor_calls == 0);
+            for (const auto& capability : frame_profile.capabilities) if (std::string(capability.name) == "native_frame") {
+                for (const auto& dependency : capability.symbols) {
+                    auto missing = good;
+                    for (auto& module : missing.modules)
+                        if (module.name == dependency.module) module.symbols.erase(dependency.name);
+                    const auto blocked = nb::select_adapter(missing,{&frame_profile});
+                    check(blocked.safe() && !blocked.available("native_frame"));
+                    attempt(blocked,"native_frame"); check(vendor_calls == 0);
+                }
+            }
+        }
         for (const auto* name : {"native_mean", "native_statistics", "native_crop", "native_display", "native_datasets",
                                  "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_line_profile",
                                  "native_profile_display", "native_histogram", "native_histogram_display",

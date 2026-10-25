@@ -1,5 +1,41 @@
 # Native bridge validation matrix
 
+## Explicit uint16 sequence-frame working copies
+
+`dm_native_frame` adds a separately gated exact-build path: explicit rank-three
+ordinary uint16 source ID and zero-based DM dimension2 frame index, native
+independent slice copying, then native conversion to float32. Every uint16
+value is representable exactly. Full XY planes stop at 1,048,576 pixels;
+complete source storage is bounded to UINT32_MAX bytes. The temporary and final
+images share the unchanged retained-result budgets. Missing units remain
+unknown, copied intensity calibration is not applied, and the original source
+is unchanged. Existing processing gates do not widen.
+
+| Scope | Result |
+|---|---|
+| Actual Node MCP FRAME, same-ID QUERY/duplicate/conflict, raw mean/preview/READ | PASS within limited synthetic scope |
+| Independent same-host full output values, signed/unknown-unit calibration and unchanged source pixels/calibration | PASS within that scope |
+| Explicit NPY reopening and preserved uint16-to-float32/frame provenance | PASS within that scope |
+| Native registry difference contains only final float32 results, with no leaked uint16 temporary | PASS within that scope |
+| Exact SHOW identity, plugin RELEASE, document holding and independent post-close idle invalidity | PASS within that scope |
+| Original saved STOP identity, remaining hidden-result release, normal exit and owned-plugin cleanup | PASS in the separately completed final-artifact session |
+| Saved numerical outputs remain usable after normal host exit | PASS in that final-artifact scope |
+| Converted synthetic frame → crop/negate/smooth and 4×4 native FFT → real/imaginary READ/NPY | PASS; existing exact Fourier and filter rounding references unchanged; original frame ancestry retained |
+| Separately authorized uint16 TIFF pages → native working copies, raw mean/preview and complete chunked NPY | PASS in the read-only scope; full same-host source hash and original file unchanged |
+| Offline C++ programs / Node tests / Python tests | 14/14 / 228/228 / 731/731 PASS; default-backend selftest PASS; no skips or relaxed deadlines |
+| Ordinary model client, other GMS builds or arbitrary whole-sequence processing | NOT_TESTED / unsupported as applicable |
+
+The public `native_frame` group is backed by this final artifact's own limited
+synthetic evidence. A prior cleanup exception and incomplete final-reference
+claim remain preserved; the clean session does not revise those records.
+Offline regressions and known invalid-calibration controls keep their separate
+scope. Detailed experimental inputs, identities and receipts remain private.
+Earlier catalog and synthetic historical-fixture regression failures remain
+preserved separately from the corrected complete runs. Cancellation/reconnect
+tests use a synthetic host; real-host recovery here checks the original saved
+IDs without claiming an ordinary client's cancellation trial.
+See [FRAME contract](mvp/NATIVE_FRAME.md).
+
 ## Bounded larger Fourier operations
 
 | Scope | Result |
@@ -33,7 +69,7 @@ host. Detailed numerical, failed and interrupted evidence stays private. See
 
 ## Current continuation: GUI line and true native 1D profile
 
-The native catalog has nineteen entries. `dm_native_profile` and ROIS v2 line
+The native catalog now has twenty entries. `dm_native_profile` and ROIS v2 line
 geometry have their own limited synthetic-host qualification;
 `native_line_profile` profile admission is enabled. The final qualified
 artifact independently passed a fresh session with exact loaded module identity

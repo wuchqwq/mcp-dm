@@ -1,5 +1,19 @@
 # Fixed-build native adapter ABI notes
 
+## Explicit sequence-frame copy
+
+The version-specific `native_frame` group reuses the independent slice-copy
+interface with an explicit rank-three uint16 source and complete XY descriptor.
+Its optional exported `GMSImageProcessing::ImageConvert` binding creates an
+independent float32 result. Both returned strong references are checked; the
+uint16 temporary is released before committing the retained float32 result.
+No opaque pixel-lock layout, bridge cast or new memory search is involved.
+Binding availability alone does not qualify the group. Its exact-build value,
+calibration and ownership acceptance is recorded separately in
+[the FRAME contract](mvp/NATIVE_FRAME.md) and [RESULTS](RESULTS.md).
+
+## Original static adapter evidence
+
 These notes describe a narrow x64 adapter for GMS 3.53.4137.0. The findings
 below were checked against local export tables and machine code. They are
 **static evidence**, not a claim that the new adapter has executed successfully

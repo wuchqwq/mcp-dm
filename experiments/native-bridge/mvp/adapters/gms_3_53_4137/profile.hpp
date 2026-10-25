@@ -65,6 +65,11 @@ inline const AdapterProfile& profile() {
             {"mfc140.dll", "#1487"},
         },
         {
+            {"native_frame", true, "limited synthetic real-host qualification; explicit rank3 ordinary uint16 sequence frame; independent lossless-value float32 working copy; <=1048576 XY pixels; copied raw calibration; no GUI current-frame inference", {
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
+                {"GMSImage.dll", "?GetSubSliceAsImage@Image@GMS@@QEBA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSlice@Imaging@4@@Z"},
+                {"GMSImage.dll", "?GetIntensityCalibration@Image@GMS@@QEAAXAEAM0AEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z"},
+                {"GMSImageProcessing.dll", "?ImageConvert@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@K@Z"}}, {}},
             {"native_line_profile", true, "limited synthetic real-host qualification; float32/uint32 ordinary 2D direct-source; width1 integer axis-aligned GUI line; equal signed spatial scales and units; true 1D float64 snapshot <=4096 samples", {
                 {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
                 {"GMSImage.dll", "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"},

@@ -17,7 +17,7 @@ import re
 import numpy as np
 
 from tools.verify_native_region import verify as verify_region
-from tools.verify_native_region import verify_science
+from tools.verify_native_region import verify_science, verify_frame_ancestry, verify_frame_samples
 
 
 MAX_NPY_BYTES = 16 * 1024 * 1024
@@ -150,7 +150,8 @@ def _axes(info):
                  axis.get("scale") == base.get("scale") and axis.get("unit") == base.get("unit") and
                  type(axis.get("usable")) is bool and type(base.get("usable")) is bool,
                  "Axis order/source offset/signed calibration identity mismatch")
-        numbers = all(_finite(base.get(key)) for key in ("origin", "scale", "calibrated_value_at_pixel_zero")) and base["scale"] != 0
+        numbers = base.get("issue") not in ("invalid_calibration", "invalid_calibration_and_unknown_units") and all(
+            _finite(base.get(key)) for key in ("origin", "scale", "calibrated_value_at_pixel_zero")) and base["scale"] != 0
         known = type(base.get("unit")) is str and bool(base["unit"])
         _require(base["usable"] == axis["usable"] == (numbers and known), "Calibration usable flag is inconsistent")
         if numbers:
@@ -403,6 +404,9 @@ def load_capture(path, source_mode, expected_capture_id=None, expected_session=N
                  manifest.get("source_rect_xyxy") == rect,
                  "Source image/ROI/dtype/shape identity mismatch")
         _axes(info)
+        frame = verify_frame_ancestry(info)
+        _require(manifest.get('frame_ancestry') == frame, "Manifest original frame identity mismatch")
+        verify_frame_samples(array, info)
         hashes = {name: _sha(value) for name, value in raw.items()}
         mode = info.get("capture_mode")
         if mode == "native_chunked_read":
@@ -455,6 +459,7 @@ def load_capture(path, source_mode, expected_capture_id=None, expected_session=N
                       "source_rect_xyxy": rect, "native_session": session, "native_host_pid": pid,
                       "native_read_request_ids": requests, "source_mode_declared": source_mode,
                       "scientific_context": info.get("scientific_context"), "scientific_semantics": info.get("scientific_semantics"),
+                      "frame_ancestry": frame,
                       "source_intensity_calibration_applied": False, "pixel_capture_atomic": False,
                       "synthetic": False, "actual_dm": None,
                       "live_source_reobserved": False, "dm_called_by_companion": False,
