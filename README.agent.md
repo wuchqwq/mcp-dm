@@ -227,3 +227,14 @@ For the explicit GUI selection → native 1D measurement → document/NPY handof
 follow [the short workflow](docs/NATIVE_GUI_MEASUREMENTS.md). Preserve every
 side-effect request ID before submission; histogram raw bins, native uint32
 counts and binary64 transport are distinct.
+
+For diffraction/lattice tasks, use the optional [crystallography companion](docs/CRYSTALLOGRAPHY_WORKFLOW.md)
+after a bounded native numerical handoff. Run ASE/NumPy/SciPy in a separate
+environment through the documented checkout CLI; this is external computation,
+not an added MCP/native tool or a fallback. Prefer automatic spots and a
+qualified Friedel-pair centre; use mathematical grid DC for native FFT exports.
+Only ask for missing calibration, unresolved centre/identity or additional
+scientific evidence. Compare FCC/BCC/HCP jointly, retain P ambiguity, unknown
+uncertainties, measured vectors and alternatives. A complete run is not a unique
+chemical phase identification. Preserve request IDs and use verify for existing
+files; do not overwrite or automatically resubmit an unknown DM operation.

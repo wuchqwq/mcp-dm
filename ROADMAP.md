@@ -16,6 +16,15 @@ Separately and explicitly, a small optional external crystallographic companion 
 
 ## Three next deliverables
 
+An initial external companion now implements bounded automatic selected-point
+measurement and joint FCC/BCC/HCP candidates with ASE CIF/reciprocal-cell support;
+see [the runnable workflow](docs/CRYSTALLOGRAPHY_WORKFLOW.md). Automatic centres
+stop on ambiguity, absolute spacing requires calibration, and source/model
+provenance stays explicit. Synthetic checks do not qualify experimental inputs
+or an ordinary MCP client. The next scientific priorities are representative
+diffraction/fringe comparisons, localization uncertainty and calibrated reference
+validation, rather than more isolated image tools.
+
 1. **Measured diffraction geometry.** Confirm image/ROI, calibration, centre and selected spots. Return reciprocal vectors, d spacings when calibrated, distance ratios and angles, with a position overlay and traceable units. Manual source-coordinate inputs are sufficient initially; no new generic ROI-creation ABI is required.
 2. **Bounded cubic indexing candidates.** Jointly compare multiple reflections against FCC/BCC candidates, a shared lattice parameter and zone-axis constraints. Return alternatives, residuals and unmatched observations; geometry alone may remain ambiguous. A Bravais lattice candidate is not a chemical phase identification.
 3. **Local high-resolution workflow and actual Agent trial.** Use supported DM FFT on explicit HRTEM/ADF regions, preserve the mathematical frequency grid and compare selected frequencies against specified candidates. Test the complete task with an ordinary Agent rather than using isolated profiles/histograms as the final acceptance objective.

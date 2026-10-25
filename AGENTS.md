@@ -34,6 +34,17 @@ before per-operator ABI, scientific and ownership qualification.
 
 ## Architecture and ownership
 
+The explicit external `crystallography/` companion is authorized separately by
+the crystallographic workflow in ROADMAP.md and docs/DIFFRACTION_NEXT_STAGE.md.
+It consumes fixed schema-1 numerical captures, performs external NumPy/SciPy/ASE
+measurement and bounded FCC/BCC/HCP comparison, and never imports Gatan APIs or
+falls back for a missing native operator. Its independent Python >=3.10
+dependencies must not enter GMS-managed Python. Preserve automatic-centre HOLDs,
+shared uncertainty, cycles versus radians, mathematical FFT axes, fixed CIF
+parameters, source hashes and explicit candidate ambiguity. HCP is a hexagonal
+metric with a basis hypothesis, not cubic P or a chemical phase proof. See
+docs/CRYSTALLOGRAPHY_WORKFLOW.md before changing this companion.
+
 - `server.mjs`: zero-dependency Node >=18 stdio MCP facade, strict tool schemas, serialized loopback requests, timeouts/cancellation. Stdout is MCP JSON only; diagnostics belong on stderr.
 - `bridge/dm_bridge.py`: Python 3.7-compatible host integration, a genuine DM backend and an explicit synthetic mock backend. `DigitalMicrograph` imports successfully only inside its host; do not fake a successful real backend.
 - `bridge/spectroscopy.py`: explicit-axis energy calibration and bounded ROI arithmetic. Real EDS/EELS/spectral SI remain NOT_TESTED until actual representative data are accepted.
