@@ -2,3 +2,4 @@
 # Do not install this file into DigitalMicrograph's managed Python runtime.
 -r requirements-analysis.txt
 tifffile>=2023.7.10
+-r requirements-images.txt

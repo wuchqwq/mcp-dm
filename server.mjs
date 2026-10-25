@@ -22,9 +22,12 @@ import { readFileSync } from "node:fs";
 import process from "node:process";
 import { NativeBridge, NativeBridgeError, validRequestId } from "./lib/native_bridge.mjs";
 import { nativePreviewImage } from "./lib/native_preview.mjs";
+import {ImageWorkspace, imageTools, IMAGE_INSTRUCTIONS} from './lib/image_workspace.mjs';
 
 const BACKEND = process.env.DM_MCP_BACKEND === undefined ? "python" : process.env.DM_MCP_BACKEND;
-if (!["python", "native"].includes(BACKEND)) throw new Error("DM_MCP_BACKEND must be python or native; no implicit backend fallback");
+if (!["python", "native", "images"].includes(BACKEND)) throw new Error("DM_MCP_BACKEND must be python, native or images; no implicit backend fallback");
+const imageWorkspace = process.env.DM_IMAGE_WORKSPACE || BACKEND === 'images'
+  ? new ImageWorkspace({workspace:process.env.DM_IMAGE_WORKSPACE}) : null;
 const BRIDGE_HOST = process.env.DM_BRIDGE_HOST || "127.0.0.1";
 const BRIDGE_PORT = Number(process.env.DM_BRIDGE_PORT || 8765);
 const TIMEOUT_MS = Number(process.env.DM_MCP_TIMEOUT_MS || 30000);
@@ -408,6 +411,7 @@ const tools = [
 ];
 
 const NATIVE_REQUEST_ID = {type: "string", minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "可选客户端请求 ID；省略时生成 UUID。取消前预先保存此 ID，之后只用 dm_native_result 查询，不自动重发"};
+const NATIVE_COORDINATE_MODE = {type:'string',enum:['physical','pixel'],description:'默认 physical 保持原契约。显式 pixel 使用独立 *_PIXEL 请求身份；仅当前宿主单独资格通过时可用。像素网格不是物理标尺，不改变 dtype/尺寸/ABI 门禁。'};
 const NATIVE_IMAGE_ID = {type: "integer", minimum: 0, maximum: 4294967295, description: "dm_datasets 返回的显式 uint32 图像 ID；不接受 front 或数字字符串"};
 // Read-only tools may generate an ID; side-effect tools require a saved ID.
 const NATIVE_OPTIONAL_REQUEST_ID_TOOLS = new Set(["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_preview", "dm_native_read", "dm_native_rois"]);
@@ -433,6 +437,7 @@ const nativeTools = [
   }, ["request_id"]),
   tool("dm_crop", "实验性指定构建的原生二维独立副本裁剪；显式数字 image_id、非空半开 rect=[x0,y0,x1,y1] 和提交前已保存的 request_id 必填，不舍入/裁夹。插件持有新图像至正常 native STOP/cleanup 释放，不创建可见 DM 文档。只在 DM 空闲且不编辑源图时调用，源图不改；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
     image_id: NATIVE_IMAGE_ID,
+    coordinate_mode:NATIVE_COORDINATE_MODE,
     rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "rect", "request_id"]),
@@ -447,13 +452,13 @@ const nativeTools = [
     left_image_id: NATIVE_IMAGE_ID, right_image_id: NATIVE_IMAGE_ID, operation: {type: "string", enum: Object.keys(NATIVE_BINARY)}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["left_image_id", "right_image_id", "operation", "request_id"]),
   tool("dm_native_fft", "有限 DM 原生二维 Fourier：forward 接受 float32 或经宿主 dtype 能力获准的 uint32，原生 complex64 输出不是无损整数表示；按 dtype_semantics 报告单精度限制。forward 为正指数、未归一化并 fftshift 的 full complex；inverse 为负指数且除以像素数。仅显式 ID；经宿主对应操作和 dtype 的大尺寸能力获准时，二次幂轴 4..1024、最多1048576像素；未获准尺寸拒绝。当前大尺寸 uint32 谱系的 inverse 未资格；1024×1024 inverse 的已知驻留及校验图超过16MiB预算，也会拒绝。16MiB插件结果池还约束已有结果与校验临时图，不保证最大尺寸的整条链同时驻留；不是旧 dm_fft。数学频率使用 frequency_grid，勿将 DM 半 bin 标定偏移当作 DC。产生独立结果，源图不改。", {
-    image_id: NATIVE_IMAGE_ID, direction: {type: "string", enum: ["forward", "inverse"]}, request_id: NATIVE_SAVED_REQUEST_ID,
+    image_id: NATIVE_IMAGE_ID, direction: {type: "string", enum: ["forward", "inverse"]}, coordinate_mode:NATIVE_COORDINATE_MODE, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["image_id", "direction", "request_id"]),
   tool("dm_native_complex", "DM 原生 full complex 分量：real、imaginary、phase（弧度）、power（平方模，不是幅值）；产生独立实数结果，源图不改；经宿主对应分量的大尺寸能力获准时，二次幂轴4..1024、最多1048576像素；未获准或结果池容量不足则拒绝。", {
-    image_id: NATIVE_IMAGE_ID, component: {type: "string", enum: Object.keys(NATIVE_COMPLEX)}, request_id: NATIVE_SAVED_REQUEST_ID,
+    image_id: NATIVE_IMAGE_ID, component: {type: "string", enum: Object.keys(NATIVE_COMPLEX)}, coordinate_mode:NATIVE_COORDINATE_MODE, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["image_id", "component", "request_id"]),
   tool("dm_native_filter", "DM 原生二维 float32 或经宿主逐项获准的 uint32 smooth/sobel/laplace/sharpen，处理明确 image_id 的完整输入图像；当前资格仅覆盖每轴5..256，更大整图尚未资格。uint32 的 smooth/sharpen 原生输出 uint32，sobel/laplace 原生输出 float32；实际存储和精度限制由 dtype_semantics 明示，桥端不做像素 cast。产生独立结果且保留空间标定，源图不改；算法及边缘语义以回执为准。宿主空闲时串行调用，不回退或重发。", {
-    image_id: NATIVE_IMAGE_ID, operation: {type: "string", enum: Object.keys(NATIVE_FILTER)}, request_id: NATIVE_SAVED_REQUEST_ID,
+    image_id: NATIVE_IMAGE_ID, operation: {type: "string", enum: Object.keys(NATIVE_FILTER)}, coordinate_mode:NATIVE_COORDINATE_MODE, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ["image_id", "operation", "request_id"]),
   tool("dm_native_preview", "显式二维 float32/uint32 图像的有界灰度 PNG 显示：原生点读取、最近邻采样，最大 128×128，不放大。仅显示适配，不是定量分析或科研文件导出，不修改源图；不代表模型已经看见。", {
     image_id: NATIVE_IMAGE_ID, max_width: {type: "integer", minimum: 1, maximum: 128, default: 128},
@@ -501,6 +506,12 @@ function nativeFloatBits(value) {
 }
 
 function nativeInvocation(name, args) {
+  if (args.coordinate_mode === 'pixel') {
+    if(name==='dm_crop')return ['CROP_PIXEL',[args.image_id,...args.rect]];
+    if(name==='dm_native_filter')return ['FILTER_PIXEL',[args.image_id,NATIVE_FILTER[args.operation]]];
+    if(name==='dm_native_fft')return [args.direction==='forward'?'FFT_PIXEL':'IFFT_PIXEL',[args.image_id]];
+    if(name==='dm_native_complex')return [NATIVE_COMPLEX[args.component]+'_PIXEL',[args.image_id]];
+  }
   if (name === 'dm_native_frame') return ['FRAME', [args.image_id, args.frame_index]];
   if (name === 'dm_native_profile') return ['PROFILE', [args.image_id, args.document_id, args.display_id, args.roi_id, ...args.expected_line, args.width]];
   if (name === 'dm_native_histogram') return ['HISTOGRAM', [args.image_id, args.bins, nativeFloatBits(args.min), nativeFloatBits(args.max)]];
@@ -716,20 +727,23 @@ class RpcError extends Error {
 
 function validate(value, schema, label = "arguments") {
   const types = Array.isArray(schema.type) ? schema.type : [schema.type];
-  const matches = types.some(t => t === "object" ? value !== null && typeof value === "object" && !Array.isArray(value)
+  const matches = types.some(t => t === 'null' ? value === null : t === "object" ? value !== null && typeof value === "object" && !Array.isArray(value)
     : t === "array" ? Array.isArray(value)
     : t === "integer" ? Number.isSafeInteger(value)
     : t === "number" ? typeof value === "number" && Number.isFinite(value)
     : typeof value === t);
   if (!matches) throw new RpcError(-32602, `${label}: 类型应为 ${types.join("/")}`);
   if (schema.enum && !schema.enum.includes(value)) throw new RpcError(-32602, `${label}: 不是允许的取值`);
+  if (typeof value === 'string' && (value.length < (schema.minLength ?? 0) || value.length > (schema.maxLength ?? Infinity) || (schema.pattern && !new RegExp(schema.pattern).test(value)))) {
+    throw new RpcError(-32602, `${label}: 字符串长度或格式错误`);
+  }
   if (typeof value === "number" && ((schema.minimum !== undefined && value < schema.minimum) || (schema.maximum !== undefined && value > schema.maximum))) {
     throw new RpcError(-32602, `${label}: 超出允许范围`);
   }
   if (Array.isArray(value)) {
     if (value.length < (schema.minItems ?? 0) || value.length > (schema.maxItems ?? Infinity)) throw new RpcError(-32602, `${label}: 元素数量错误`);
     value.forEach((v, i) => validate(v, schema.items, `${label}[${i}]`));
-  } else if (types.includes("object")) {
+  } else if (value !== null && types.includes("object")) {
     for (const key of schema.required || []) if (!Object.hasOwn(value, key)) throw new RpcError(-32602, `${label}.${key}: 缺少必填参数`);
     for (const key of Object.keys(value)) {
       if (!Object.hasOwn(schema.properties, key)) throw new RpcError(-32602, `${label}.${key}: 未知参数`);
@@ -739,6 +753,12 @@ function validate(value, schema, label = "arguments") {
 }
 
 async function callTool(name, args, signal) {
+  if (imageWorkspace && imageTools.some(t=>t.name===name)) {
+    const entry=imageTools.find(t=>t.name===name);
+    args=args===undefined?{}:args;validate(args,entry.inputSchema);
+    return imageWorkspace.call(name,args,signal);
+  }
+  if (BACKEND === 'images') throw new RpcError(-32602, `独立图像模式不提供 ${name}；不连接或回退 DM`);
   if (BACKEND === "native") return callNativeTool(name, args, signal);
   const entry = OPS[name];
   if (!Object.hasOwn(OPS, name) && !Object.hasOwn(LOCAL_ACTIONS, name)) throw new RpcError(-32602, `未知工具: ${name}`);
@@ -811,11 +831,11 @@ async function handle(msg) {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-      instructions: BACKEND === "native" ? NATIVE_INSTRUCTIONS : INSTRUCTIONS,
+      instructions: (BACKEND === 'images' ? '' : BACKEND === "native" ? NATIVE_INSTRUCTIONS : INSTRUCTIONS) + (imageWorkspace ? '\n'+IMAGE_INSTRUCTIONS : ''),
     });
   }
   if (method === "ping") return ok(id, {});
-  if (method === "tools/list") return ok(id, { tools: BACKEND === "native" ? nativeTools : tools });
+  if (method === "tools/list") return ok(id, { tools: [...(BACKEND === 'images' ? [] : BACKEND === "native" ? nativeTools : tools), ...(imageWorkspace ? imageTools : [])] });
   if (method === "tools/call") {
     if (!params || typeof params.name !== "string") return fail(id, -32602, "需要工具名称");
     if (running.has(id)) return fail(id, -32600, "Duplicate in-flight request id");

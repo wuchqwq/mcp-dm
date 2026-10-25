@@ -101,13 +101,20 @@ std::string execute_native(const NativeRequest& request) {
     }
     nb::require_selected_adapter(selected_adapter);
     if (!active_implementation) throw std::runtime_error("native_adapter_NOT_READY:no_implementation");
+    const char* pixel_group = request.op == "CROP_PIXEL" ? "native_pixel_crop" :
+        request.op == "FILTER_PIXEL" ? "native_pixel_filters" :
+        request.op == "FFT_PIXEL" || request.op == "IFFT_PIXEL" || request.op == "REAL_PIXEL" ||
+        request.op == "IMAG_PIXEL" || request.op == "VENDOR_ARG_PIXEL" || request.op == "VENDOR_NORM_PIXEL" ? "native_pixel_fft" : nullptr;
+    if (pixel_group && !selected_adapter.available(pixel_group))
+        throw std::runtime_error(std::string("native_capability_unavailable:") + pixel_group);
+    const auto base = nb::base_operation353(request.op);
     const char* required = request.op == "DATASETS" || request.op == "INFO" ? "native_datasets" :
         request.op == "MEAN" ? "native_mean" : request.op == "SUMMARY" ? "native_statistics" :
-        request.op == "CROP" ? "native_crop" : request.op == "SHOW" ? "native_display" :
+        base == "CROP" ? "native_crop" : request.op == "SHOW" ? "native_display" :
         request.op == "UNARY" || request.op == "BINARY" ? "native_image_arithmetic" :
-        request.op == "FFT" || request.op == "IFFT" || request.op == "REAL" || request.op == "IMAG" ||
-            request.op == "VENDOR_ARG" || request.op == "VENDOR_NORM" ? "native_fft" :
-        request.op == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
+        base == "FFT" || base == "IFFT" || base == "REAL" || base == "IMAG" ||
+            base == "VENDOR_ARG" || base == "VENDOR_NORM" ? "native_fft" :
+        base == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
         request.op == "READ" ? "native_read" :
         request.op == "ROIS" ? "native_gui_rois" :
         request.op == "PROFILE" ? "native_line_profile" :

@@ -12,6 +12,7 @@ const check=(yes,message)=>{if(!yes)throw new Error(message);};
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const equal=(a,b)=>canonical(a)===canonical(b);
 const uint=n=>Number.isInteger(n)&&n>=0&&n<=0xffffffff;
+const PIXEL_OPERATIONS=new Map(['CROP','FILTER','FFT','IFFT','REAL','IMAG','VENDOR_ARG','VENDOR_NORM'].map(base=>[base+'_PIXEL',base]));
 const LIMIT=Object.freeze({samplesPerBlock:16384,sourcePixels:4194304,blocks:512,savedResponseBytes:128*1024,
   diskBytes:96*1024*1024,ioBufferBytes:65536});
 export const REGION_LIMITS=LIMIT;
@@ -87,6 +88,7 @@ function creationRecord(reply,snapshot,parameters) {
   const provenance=snapshot.result.source_provenance;
   const schemas={FRAME:[2,'native_frame_copy'],CROP:[5,'image_crop'],UNARY:[2,'native_image_operation'],BINARY:[3,'native_image_operation'],FILTER:[2,'native_image_operation'],
     FFT:[1,'native_fourier_operation'],IFFT:[1,'native_fourier_operation'],REAL:[1,'native_fourier_operation'],IMAG:[1,'native_fourier_operation'],VENDOR_ARG:[1,'native_fourier_operation'],VENDOR_NORM:[1,'native_fourier_operation']};
+  for(const [name,base] of PIXEL_OPERATIONS)schemas[name]=schemas[base];
   const contract=schemas[provenance?.operation];
   check(contract&&reply?.protocol==='NB2'&&reply.session===parameters.session&&reply.host_pid===parameters.hostPid&&reply.id===provenance.request_id&&
     reply.state==='completed'&&reply.original_operation===provenance.operation&&reply.result_type===contract[1]&&
@@ -95,6 +97,9 @@ function creationRecord(reply,snapshot,parameters) {
     reply.result?.backend==='digitalmicrograph-native'&&reply.result.image_id===snapshot.result.source_image_id&&equal(reply.result.image,snapshot.result.source)&&
     equal(provenance.source_image_ids,reply.normalized_args.slice(0,reply.original_operation==='BINARY'?2:1)),
   'Original source creation record mismatch; no reconstructed processing parameters');
+  if(PIXEL_OPERATIONS.has(provenance.operation))check(reply.result.coordinate_mode==='pixel'&&
+    (PIXEL_OPERATIONS.get(provenance.operation)==='CROP'||reply.result.operation===provenance.operation),
+    'Original pixel source creation mode/operation mismatch');
   if(provenance.operation==='FRAME') {
     validateNativeFrame(reply.result,reply.normalized_args);
     const ancestry=captureFrameAncestry(snapshot.result),{retention,native_receipt,...payload}=reply.result;void retention;void native_receipt;

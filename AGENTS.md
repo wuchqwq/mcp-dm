@@ -4,6 +4,17 @@ This is a Windows DigitalMicrograph MCP bridge for post-acquisition scientific a
 
 ## Product boundary
 
+The explicitly selected `image_*` tools are a separate lightweight external
+image route, including independent uint16 multi-page TIFF input without DM.
+See docs/PIXEL_IMAGE_WORKFLOW.md. They may use mature external libraries for
+pixel-domain display/FFT/measurement, with immutable source/frame/ROI and
+software provenance. They are never a fallback for a failed `dm_*` call.
+Missing physical calibration does not block pixel exploration; do not invent
+physical spacings, phase units, frame depth or square physical pixels. Keep
+user-supplied interpretation/calibration separate and revisable. Preserve
+native qualification gates; new pixel capabilities remain disabled until
+their own real-host qualification, regardless of tool-schema availability.
+
 The core product is a reliable DM tool interface: inspect data, view images,
 execute explicit post-acquisition operations and return calibrated results.
 Do not require every task to capture, compute every operator or produce a report.

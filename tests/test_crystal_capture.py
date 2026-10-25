@@ -50,6 +50,11 @@ for(const unknownUnits of [false,true]){
  read.frame_ancestry=frame.ancestry;save(unknownUnits?'frame-unknown-units':'frame',read,rawArgs);
 }
 {
+ const frame=frameHandoffFixture(),source=structuredClone(frame.result.image);source.id=88;
+ const args=[88,1,1,4,3],read=readFixture(args,{source,provenance:{operation:'UNARY',request_id:'separate-native-operation',source_image_ids:[77],semantics:'synthetic single-parent operation'}});
+ read.frame_ancestry=frame.ancestry;save('frame-derived',read,args);
+}
+{
  const frame=frameHandoffFixture();
  for(const metadata of [frame.result.source,frame.result.image]){
   Object.assign(metadata.calibration[0],{usable:false,issue:'invalid_calibration'});metadata.calibration_complete=false;
@@ -163,6 +168,55 @@ await handoffRegion({workspace:dir,output:'chunked',requestId:'synthetic-region'
         self.assertTrue(all(axis['issue'] == 'unknown_units' for axis in capture.coordinate_axes))
         self.assertFalse(capture.provenance['frame_ancestry']['result']['frame_axis']['usable'])
 
+    def test_image_mode_accepts_raw_uncalibrated_and_native_fourier_without_declaring_diffraction(self):
+        for name in ('raw', 'frame', 'frame-unknown-units', 'frame-invalid-calibration', 'chunked', 'fft-real', 'fft-power'):
+            with self.subTest(name=name):
+                capture = load_capture(self.capture(name), 'image', expected_session='a'*32, expected_host_pid=1234)
+                self.assertEqual(capture.source_mode, 'image')
+                self.assertEqual(capture.provenance['source_mode_declared'], 'image')
+                self.assertFalse(capture.array.flags.writeable)
+                with self.assertRaises(CaptureError):
+                    capture.frequency_axes_cycles_per_nm()
+                capture.assert_unchanged()
+        capture = load_capture(self.directory / 'frame-unknown-units', 'image')
+        self.assertTrue(all(axis['unit'] is None for axis in capture.coordinate_axes))
+        self.assertFalse(capture.metadata['calibration_complete'])
+
+    def test_image_mode_keeps_unknown_calibration_identity_and_receipt_safety_checks(self):
+        faults = {
+            'frame-id': lambda i, m: i['frame_ancestry']['normalized_args'].__setitem__(1, 2),
+            'candidate': lambda i, m: i['frame_ancestry']['result'].update(candidate_probe=True),
+            'unit': lambda i, m: i['working_calibration_xy'][0].update(unit='nm', usable=True),
+            'offset': lambda i, m: i['working_calibration_xy'][0].update(source_offset=0),
+            'host': lambda i, m: i['native_receipt'].update(host_pid=9999),
+            'session': lambda i, m: i['native_receipt'].update(session='b'*32),
+            'request': lambda i, m: i['native_receipt'].update(id='another-read'),
+            'roi': lambda i, m: i['source_rect_xyxy'].__setitem__(0, 0),
+        }
+        for name, mutate in faults.items():
+            with self.subTest(name=name):
+                path = self.capture('frame-unknown-units')
+                self.edit(path, mutate)
+                with self.assertRaises(CaptureError):
+                    load_capture(path, 'image', expected_session='a'*32, expected_host_pid=1234)
+                shutil.rmtree(path)
+
+    def test_image_mode_rejects_rehashed_fourier_native_calibration_or_creation_identity_mismatch(self):
+        faults = {
+            'producer-source': lambda i, m: i['scientific_context']['result'].update(source_image_id=9999),
+            'producer-request-alias': lambda i, m: i['native_source_provenance'].update(request_id=i['scientific_context']['request_id']),
+            'offset-outside': lambda i, m: i['scientific_context'].update(source_offset_xy=[99, 99]),
+            'grid-half-bin': lambda i, m: i['scientific_context']['result']['frequency_grid']['axes'][0].update(frequency_at_index_zero=2.25),
+            'candidate': lambda i, m: i['scientific_context']['result'].update(candidate_probe=True),
+        }
+        for name, mutate in faults.items():
+            with self.subTest(name=name):
+                path = self.capture('fft-real')
+                self.edit(path, mutate)
+                with self.assertRaises(CaptureError):
+                    load_capture(path, 'image')
+                shutil.rmtree(path)
+
     def test_frame_recognized_invalid_spatial_calibration_keeps_raw_fields_and_no_physical_zero(self):
         capture = load_capture(self.capture('frame-invalid-calibration'), 'diffraction')
         self.assertFalse(capture.metadata['calibration_complete'])
@@ -172,7 +226,7 @@ await handoffRegion({workspace:dir,output:'chunked',requestId:'synthetic-region'
         self.assertEqual(capture.coordinate_axes[0]['issue'], 'invalid_calibration')
 
     def test_frame_companion_rejects_rehashed_wrong_original_identity_conversion_and_unknown_lineage(self):
-        for fault in ('frame-index', 'dtype', 'conversion', 'axis-role', 'manifest', 'unresolved', 'missing'):
+        for fault in ('frame-index', 'dtype', 'conversion', 'axis-role', 'manifest', 'unresolved', 'missing', 'candidate', 'unqualified'):
             with self.subTest(fault=fault):
                 path = self.capture('frame')
                 def mutate(info, manifest):
@@ -189,6 +243,10 @@ await handoffRegion({workspace:dir,output:'chunked',requestId:'synthetic-region'
                         info['frame_ancestry'] = {'schema_version': 1, 'status': 'unresolved_lineage'}
                     elif fault == 'missing':
                         del info['frame_ancestry']
+                    elif fault == 'candidate':
+                        frame['result']['candidate_probe'] = True
+                    elif fault == 'unqualified':
+                        frame['result']['qualification'] = 'NOT_QUALIFIED'
                     if fault != 'manifest':
                         manifest['frame_ancestry'] = info.get('frame_ancestry')
                     else:
@@ -197,6 +255,15 @@ await handoffRegion({workspace:dir,output:'chunked',requestId:'synthetic-region'
                 with self.assertRaises(CaptureError):
                     load_capture(path, 'diffraction')
                 shutil.rmtree(path)
+
+    def test_frame_derived_capture_rejects_rehashed_reuse_of_original_creation_request_id(self):
+        path = self.capture('frame-derived')
+        capture = load_capture(path, 'diffraction')
+        self.assertEqual(capture.provenance['frame_ancestry']['request_id'], 'original-frame')
+        self.edit(path, lambda info, manifest: info['native_source_provenance'].update(
+            request_id=info['frame_ancestry']['request_id']))
+        with self.assertRaises(CaptureError):
+            load_capture(path, 'diffraction')
 
     def test_fft_crop_plus_read_offsets_and_outside_dc_use_math_grid_not_halfbin(self):
         capture = load_capture(self.capture("fft-real"), "fft")

@@ -20,6 +20,7 @@ Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot 
 Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "line_profile_adapter_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "line_profile_adapter_tests.exe"))
 Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "histogram_adapter_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "histogram_adapter_tests.exe"))
 Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "frame_adapter_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "frame_adapter_tests.exe"))
+Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "pixel_adapter_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "pixel_adapter_tests.exe"))
 Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "uint32_adapter_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "uint32_adapter_tests.exe"))
 Invoke-Compile @((Join-Path $PSScriptRoot "core.cpp"), (Join-Path $PSScriptRoot "uint32_operations_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "uint32_operations_tests.exe"))
 Invoke-Compile @((Join-Path $PSScriptRoot "adapter_profile_tests.cpp"), "-lversion", "-lbcrypt", "-o", (Join-Path $OutputDirectory "adapter_profile_tests.exe"))

@@ -1,5 +1,23 @@
 # Native MVP continuation handoff
 
+## Explicit pixel-mode continuation
+
+The `feature/pixel-image-workflow` branch preserves FRAME and the existing
+physical operation contracts. New CROP_PIXEL/FILTER_PIXEL/Fourier *_PIXEL
+requests have separate immutable identities, cycles-per-pixel scientific
+coordinates and optional profile groups. All three public pixel groups remain
+disabled; their own real-host trial is HOLD. Offline callbacks and client
+fixtures do not supply that qualification. Do not replace a loaded DLL or
+promote the private candidate without its separate source/value/calibration,
+request recovery and reference-lifecycle checks for each supported dtype.
+
+Meanwhile [opt-in external image tools](../../../docs/PIXEL_IMAGE_WORKFLOW.md)
+provide a usable uint16 TIFF frame/ROI/view/comparison/FFT/annotation/export
+continuation without DM or a physical ruler. This is explicitly external
+processing, not a native fallback. Saved native numerical captures can enter
+the same tool interface through independent image-mode validation. PR #15's
+Python unqualified-producer and reused-FRAME-request gaps are corrected.
+
 ## Current explicit sequence-frame continuation
 
 The native catalog has twenty entries. `dm_native_frame` selects an explicit

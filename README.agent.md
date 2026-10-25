@@ -17,6 +17,14 @@ large uint32 IFFT remains unqualified). FILTER stays 5..256 and READ stays
 
 ## 1. User goal and division of work
 
+For independent uint16 multi-frame TIFF or pixel-only exploration, the opt-in
+`image_*` tools provide explicit frame/ROI, fixed-range comparison, MCP image
+return, external FFT, revisable annotations/context and numerical export.
+See [pixel image tools](docs/PIXEL_IMAGE_WORKFLOW.md). These do not require DM,
+physical units or a crystallographic classification. Select external tools
+explicitly; never present them as an automatic native fallback. The default
+catalog/configuration is unchanged. Other TIFF dtypes are not yet supported.
+
 The researcher may normally work through DM's GUI and use external Python for specialized analysis. Do not require them to learn DM scripting or force every request through a capture/report pipeline.
 
 - Use the connected backend's actual tools for supported DM operations.

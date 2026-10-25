@@ -37,11 +37,22 @@ inline const char* fft_large_capability353(FftOperation353 operation, bool uint3
     throw std::runtime_error("native_fft_unknown_operation");
 }
 
+inline bool pixel_mode353(std::string_view operation) noexcept {
+    return operation.size() > 6 && operation.substr(operation.size()-6) == "_PIXEL";
+}
+inline std::string_view base_operation353(std::string_view operation) noexcept {
+    if (pixel_mode353(operation)) operation.remove_suffix(6);
+    return operation;
+}
 inline bool is_fft_operation353(std::string_view operation) noexcept {
+    if (operation.size() > 6 && operation.substr(operation.size()-6) == "_PIXEL")
+        operation.remove_suffix(6);
     return operation == "FFT" || operation == "IFFT" || operation == "REAL" ||
            operation == "IMAG" || operation == "VENDOR_ARG" || operation == "VENDOR_NORM";
 }
 inline FftOperation353 fft_operation353(std::string_view operation) {
+    if (operation.size() > 6 && operation.substr(operation.size()-6) == "_PIXEL")
+        operation.remove_suffix(6);
     if (operation == "FFT") return FftOperation353::RealForward;
     if (operation == "IFFT") return FftOperation353::ComplexInverse;
     if (operation == "REAL") return FftOperation353::Real;

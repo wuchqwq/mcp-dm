@@ -63,6 +63,10 @@ class NativeFrameHandoff(unittest.TestCase):
         frame = verify_frame_ancestry(value)
         self.assertEqual(frame['result']['image']['id'], 77)
         self.assertNotIn('source_offset_xy', frame)
+        value['source_provenance']['request_id'] = frame['request_id']
+        with self.assertRaisesRegex(ValueError, 'distinct single-parent'):
+            verify_frame_ancestry(value)
+        value['source_provenance']['request_id'] = 'later-crop'
         value['source_provenance']['operation'] = 'BINARY'
         value['source_provenance']['source_image_ids'] = [77, 99]
         with self.assertRaises(ValueError):
@@ -88,6 +92,7 @@ class NativeFrameHandoff(unittest.TestCase):
                      changed(['frame_axis', 'calibrated_value'], 1.5), changed(['frame_axis', 'unit'], 'nm'),
                      changed(['dtype_conversion', 'lossless_values'], False), changed(['output_bytes'], 126),
                      changed(['validation_peak_new_image_bytes'], 1), changed(['source_write_requested'], True),
+                     changed(['candidate_probe'], True), changed(['qualification'], 'NOT_QUALIFIED'),
                      changed(['intensity_calibration_applied'], True), changed(['intensity_calibration_output', 'scale'], 2)]
         for index, mutate in enumerate(mutations):
             with self.subTest(index=index):

@@ -17,7 +17,7 @@ import re
 import numpy as np
 
 from tools.verify_native_region import verify as verify_region
-from tools.verify_native_region import verify_science, verify_frame_ancestry, verify_frame_samples
+from tools.verify_native_region import verify_science, verify_frame_ancestry, verify_frame_samples, PIXEL_OPERATIONS
 
 
 MAX_NPY_BYTES = 16 * 1024 * 1024
@@ -164,59 +164,96 @@ def _axes(info):
     _require(info.get("calibration_complete") is all(axis["usable"] for axis in work), "Calibration completeness mismatch")
 
 
-def _fourier(info):
+def _fourier(info, analysis=True):
     """Validate mathematical bins against immutable creation fields, not labels."""
     context, semantics = info.get("scientific_context"), info.get("scientific_semantics", {})
     _require(type(context) is dict and context.get("schema_version") == 1 and
              context.get("status") == "tracked_fourier" and context.get("result_version") == 2 and
-             context.get("original_operation") in ("REAL", "IMAG", "VENDOR_NORM") and
+             set(context) == {'schema_version', 'status', 'original_operation', 'request_id', 'normalized_args',
+                              'result_version', 'result', 'source_offset_xy', 'postprocessing'} and
+             PIXEL_OPERATIONS.get(context.get("original_operation"), context.get("original_operation")) in
+             ("REAL", "IMAG", "VENDOR_ARG", "VENDOR_NORM") and
              type(context.get("request_id")) is str and _ID.fullmatch(context["request_id"]) and
              type(context.get("normalized_args")) is list and len(context["normalized_args"]) == 1 and
              all(_uint(value) for value in context["normalized_args"]) and
              type(context.get("source_offset_xy")) is list and len(context["source_offset_xy"]) == 2 and
-             all(_uint(value) for value in context["source_offset_xy"]) and context.get("postprocessing") == [] and
-             semantics.get("domain") == "frequency" and
-             semantics.get("representation") in ("real_component", "imaginary_component", "squared_magnitude") and
+             all(_uint(value) for value in context["source_offset_xy"]) and
+             type(context.get('postprocessing')) is list and len(context['postprocessing']) <= 32 and
+             all(value in ('GMSImageProcessing::Negate', 'GMSImageProcessing::Abs', 'GMSImageProcessing::Square',
+                           'GMSImageProcessing::SmoothFilter', 'GMSImageProcessing::SobelFilter',
+                           'GMSImageProcessing::LaplaceFilter', 'GMSImageProcessing::SharpenFilter')
+                 for value in context['postprocessing']) and
              info["dtype"] == "float32", "FFT requires tracked, unprocessed native Fourier scalar creation; no unit-label inference")
     producer, provenance = context.get("result", {}), info.get("native_source_provenance")
     image, grid = producer.get("image", {}), producer.get("frequency_grid", {})
-    representations = {"REAL": "real_component", "IMAG": "imaginary_component", "VENDOR_NORM": "squared_magnitude"}
+    representations = {"REAL": "real_component", "IMAG": "imaginary_component", "VENDOR_ARG": "phase_radians",
+                       "VENDOR_NORM": "squared_magnitude"}
     operation = context["original_operation"]
+    base_operation = PIXEL_OPERATIONS.get(operation, operation)
+    pixel = operation in PIXEL_OPERATIONS
+    frequency = grid is not None
+    if analysis:
+        _require(frequency and context['postprocessing'] == [] and base_operation != 'VENDOR_ARG',
+                 "FFT analysis requires an unprocessed native frequency scalar; image mode is the generic pixel entry")
     _require(producer.get("backend") == "digitalmicrograph-native" and producer.get("operation") == operation and
              producer.get("source_image_id") == context["normalized_args"][0] and
              _uint(producer.get("image_id"), 1) and image.get("id") == producer["image_id"] and
-             image.get("dtype") == "float32" and producer.get("representation") == representations[operation] and
-             producer.get("centering") == "fftshift_data" and producer.get("normalization") == "inherited_parent_transform" and
+             image.get("dtype") == "float32" and producer.get("representation") == representations[base_operation] and
+             producer.get('candidate_probe') is not True and producer.get('qualification') != 'NOT_QUALIFIED' and
+             (producer.get('coordinate_mode') == 'pixel' if pixel else producer.get('coordinate_mode') in (None, 'physical')) and
+             producer.get("centering") == ('fftshift_data' if frequency else 'spatial_origin_zero') and
+             producer.get("normalization") == "inherited_parent_transform" and
              producer.get("transform_signs") == {"forward": "+", "inverse": "-"} and
              producer.get("source_spatial_origin_used") is False and producer.get("intensity_calibration_applied") is False and
              producer.get("inverse_restores_source_origin") is False and producer.get("source_write_requested") is False and
              producer.get("snapshot_atomic") is False and type(provenance) is dict and
-             type(grid) is dict and grid.get("native_calibration_has_half_bin_offset") is True and
-             type(grid.get("axes")) is list and len(grid["axes"]) == 2 and
+             ((type(grid) is dict and grid.get("native_calibration_has_half_bin_offset") is True and
+               type(grid.get("axes")) is list and len(grid["axes"]) == 2) if frequency else grid is None) and
              type(image.get("dm_dimensions")) is list and len(image["dm_dimensions"]) == 2 and
              type(image.get("calibration")) is list and len(image["calibration"]) == 2,
              "Invalid native Fourier producer/grid identity")
     if info["source_image_id"] == producer["image_id"]:
         _require(context["source_offset_xy"] == [0, 0] and provenance.get("request_id") == context["request_id"] and
-                 provenance.get("operation") == operation, "Direct Fourier source/creation mismatch")
+                 provenance.get("operation") == operation and provenance.get('source_image_ids') == context['normalized_args'] and
+                 context['postprocessing'] == [], "Direct Fourier source/creation mismatch")
     else:
-        _require(provenance.get("operation") == "CROP", "Unprocessed FFT descendant must be an explicit crop")
-    for dim, axis in enumerate(grid["axes"]):
+        current_op = PIXEL_OPERATIONS.get(provenance.get('operation'), provenance.get('operation'))
+        scalar_steps = {'UNARY': ('GMSImageProcessing::Negate', 'GMSImageProcessing::Abs', 'GMSImageProcessing::Square'),
+                        'FILTER': ('GMSImageProcessing::SmoothFilter', 'GMSImageProcessing::SobelFilter',
+                                   'GMSImageProcessing::LaplaceFilter', 'GMSImageProcessing::SharpenFilter')}
+        final_step = context['postprocessing'][-1] if context['postprocessing'] else None
+        _require(provenance.get('request_id') != context['request_id'] and
+                 (current_op == 'CROP' or final_step in scalar_steps.get(current_op, ())),
+                 'Fourier descendant must retain a distinct matching crop or scalar-processing identity')
+    for dim in range(2):
+        axis = grid['axes'][dim] if frequency else None
         native, size = image["calibration"][dim], image["dm_dimensions"][dim]
         # Only explicit v2 Fourier records reach here. Historical v1 records
         # remain ineligible; an enlarged mathematical grid never proves a live
         # operator or host qualification by itself.
         _require(type(size) is int and 4 <= size <= 1024 and size & (size - 1) == 0 and
+                 all(_finite(native.get(key)) for key in ('origin', 'scale', 'calibrated_value_at_pixel_zero')) and
+                 native['scale'] != 0 and native.get('issue') not in ('invalid_calibration', 'invalid_calibration_and_unknown_units'),
+                 'Invalid original native Fourier numeric calibration')
+        if frequency:
+            _require(
                  axis.get("size") == native.get("size") == size and axis.get("dm_dimension") == dim and
                  axis.get("dc_index") == size // 2 and axis.get("cycles_per_pixel_step") == 1 / size and
-                 _finite(axis.get("physical_frequency_step")) and axis["physical_frequency_step"] != 0 and
-                 axis["physical_frequency_step"] == native.get("scale") and axis.get("unit") == native.get("unit") and
-                 axis.get("frequency_at_index_zero") == -size / 2 * native["scale"] and
+                 ((grid.get('coordinate_mode') == 'pixel' and axis.get('physical_frequency_step') is None and
+                   axis.get('unit') == 'cycles_per_pixel' and axis.get('native_calibration_scale') == native.get('scale') and
+                   axis.get('native_calibration_unit') == native.get('unit')) if pixel else
+                  (_finite(axis.get("physical_frequency_step")) and axis["physical_frequency_step"] != 0 and
+                   axis["physical_frequency_step"] == native.get("scale") and axis.get("unit") == native.get("unit"))) and
+                 axis.get("frequency_at_index_zero") == -size / 2 * (1 / size if pixel else native["scale"]) and
                  native.get("origin") == (size + 1) / 2 and
                  axis.get("native_calibrated_value_at_pixel_zero") == native.get("calibrated_value_at_pixel_zero") and
                  axis.get("native_calibration_dc_value") == native["calibrated_value_at_pixel_zero"] + size / 2 * native["scale"] and
-                 axis.get("coordinate_rule") == "f(i)=(i-dc_index)*physical_frequency_step",
+                 axis.get("coordinate_rule") == ("f(i)=(i-dc_index)*cycles_per_pixel_step" if pixel else "f(i)=(i-dc_index)*physical_frequency_step"),
                  "Native Fourier mathematical frequency grid mismatch")
+        else:
+            _require(native.get('size') == size and native.get('dm_dimension') == dim and
+                     native['origin'] == 0 and native['calibrated_value_at_pixel_zero'] == 0,
+                     'Native inverse spatial component origin mismatch')
         source = info["source_metadata"]["calibration"][dim]
         offset = context["source_offset_xy"][dim]
         # Same binary32 native offset tolerance as the existing strict Node
@@ -239,7 +276,8 @@ class Capture:
         self.provenance = provenance
         self.source_roi = list(metadata["source_rect_xyxy"])
         self.source_mode = source_mode
-        self.coordinate_axes = copy.deepcopy(metadata["scientific_semantics"]["coordinate_axes"] if source_mode == "fft"
+        self.coordinate_axes = copy.deepcopy(metadata["scientific_semantics"]["coordinate_axes"] if source_mode == "fft" or
+                                             source_mode == 'image' and metadata.get('scientific_semantics', {}).get('status') == 'tracked_fourier'
                                              else metadata["working_calibration_xy"])
         self._hashes = hashes
 
@@ -258,6 +296,8 @@ class Capture:
 
     def frequency_axes_cycles_per_nm(self):
         _require(self.source_mode == "fft", "Only tracked native FFT supplies mathematical frequency axes")
+        _require(self.metadata['scientific_semantics'].get('coordinate_mode') != 'pixel',
+                 'Pixel FFT has no physical calibration; its axes remain cycles_per_pixel')
         # This closed table is a unit conversion, never an encoding or lineage
         # guess. A caller's radians/length calibration belongs to measurement.
         factors = {"1/nm": 1.0, "1/angstrom": 10.0, "1/Angstrom": 10.0,
@@ -351,12 +391,13 @@ def load_capture(path, source_mode, expected_capture_id=None, expected_session=N
     """Validate an existing native READ capture, bounded to a 16 MiB NPY.
 
     Accepts the existing single-READ and complete native_chunked_read layouts.
-    Explicit source_mode is 'diffraction' or 'fft'; no live software is called.
+    source_mode='image' validates a generic saved pixel input without declaring
+    diffraction or admitting it to a physical analysis. No live software is called.
     expected_* values bind independently saved identities when available.
     """
     try:
-        _require(source_mode in ("diffraction", "fft", "synthetic_diffraction"),
-                 "Explicit source_mode must be diffraction, fft or synthetic_diffraction")
+        _require(source_mode in ("image", "diffraction", "fft", "synthetic_diffraction"),
+                 "Explicit source_mode must be image, diffraction, fft or synthetic_diffraction")
         capture = Path(path)
         _require(capture.is_dir() and not capture.is_symlink(), "Existing ordinary capture directory required")
         capture = capture.resolve(strict=True)
@@ -448,10 +489,21 @@ def load_capture(path, source_mode, expected_capture_id=None, expected_session=N
             _fourier(info)
             _require(info["scientific_semantics"]["representation"] != "squared_magnitude" or bool(np.all(array >= 0)),
                      "Native squared magnitude cannot contain negative values")
+        elif source_mode == 'image':
+            if (info.get('scientific_context') or {}).get('status') == 'tracked_fourier':
+                _fourier(info, analysis=False)
+                _require(info['scientific_semantics']['representation'] != 'squared_magnitude' or bool(np.all(array >= 0)),
+                         'Native squared magnitude cannot contain negative values')
+            elif info.get('scientific_context') is None:
+                source_operation = (info.get('native_source_provenance') or {}).get('operation')
+                _require(PIXEL_OPERATIONS.get(source_operation, source_operation) not in
+                         ('FFT', 'IFFT', 'REAL', 'IMAG', 'VENDOR_ARG', 'VENDOR_NORM'),
+                         'Recorded Fourier source requires its saved coordinate/representation context')
         else:
             _require(info.get("scientific_context") is None and
                      info.get("scientific_semantics", {}).get("status") == "not_recorded" and
-                     (info.get("native_source_provenance") or {}).get("operation") not in
+                     PIXEL_OPERATIONS.get((info.get("native_source_provenance") or {}).get("operation"),
+                                          (info.get("native_source_provenance") or {}).get("operation")) not in
                      ("FFT", "IFFT", "REAL", "IMAG", "VENDOR_ARG", "VENDOR_NORM"),
                      "Diffraction declaration conflicts with recorded Fourier/unresolved lineage")
         provenance = {"capture_id": info["capture_id"], "capture_files_sha256": dict(hashes),

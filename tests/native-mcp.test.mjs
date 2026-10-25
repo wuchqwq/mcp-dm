@@ -12,6 +12,7 @@ import {operationFixture, readFixture, imageMetadata, uint32BinaryFixture, uint3
 import {guiRoisFixture} from './fixtures/native-rois.mjs';
 import {profileFixture,profileArgs} from './fixtures/native-profile.mjs';
 import {frameHandoffFixture} from './fixtures/native-frame-handoff.mjs';
+import {pixelCropFixture,pixelFilterFixture,pixelFourierFixture} from './fixtures/native-pixel.mjs';
 import {histogramFixture,histogramArgs,histogramIntensityFixture,histogramIndexAxisFixture,histogramShowFixture} from './fixtures/native-histogram.mjs';
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
@@ -19,6 +20,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const resultTypes = {FRAME: "native_frame_copy", STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop", RELEASE: "native_result_release", RESULT_INFO: "native_result_availability", ROIS: "native_gui_rois", PROFILE:"native_line_profile"};
 Object.assign(resultTypes, {UNARY: "native_image_operation", BINARY: "native_image_operation", FILTER: "native_image_operation", PREVIEW: "native_preview", READ: "native_data_snapshot",
   FFT: "native_fourier_operation", HISTOGRAM: "native_histogram", IFFT: "native_fourier_operation", REAL: "native_fourier_operation", IMAG: "native_fourier_operation", VENDOR_ARG: "native_fourier_operation", VENDOR_NORM: "native_fourier_operation"});
+for (const base of ['CROP','FILTER','FFT','IFFT','REAL','IMAG','VENDOR_ARG','VENDOR_NORM'])resultTypes[base+'_PIXEL']=resultTypes[base];
 const nativeCatalog = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
   "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_frame", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile", "dm_native_histogram"];
 
@@ -80,6 +82,33 @@ function toolOutput(message, expectedError = false) {
   assert.equal(message.result.content[0].type, "text");
   return JSON.parse(message.result.content[0].text);
 }
+
+test('explicit MCP pixel mode has separate wire identity and original-ID QUERY, never a physical fallback',async()=>{
+  const saved=new Map();
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.operation!=='QUERY'){
+      const output=request.operation==='CROP_PIXEL'?pixelCropFixture():request.operation==='FILTER_PIXEL'?pixelFilterFixture(Number(request.args[1])):pixelFourierFixture(request.operation);
+      saved.set(request.id,output);
+    }
+    socket.end(JSON.stringify(reply('completed',saved.get(request.id)))+'\n');
+  });
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_ANALYSIS_PYTHON:'must-never-run.exe'});
+  try {
+    await client.init();
+    const cases=[['dm_crop',{rect:[1,2,5,6]},'CROP_PIXEL'],['dm_native_filter',{operation:'smooth'},'FILTER_PIXEL'],
+      ['dm_native_fft',{direction:'forward'},'FFT_PIXEL'],['dm_native_fft',{direction:'inverse'},'IFFT_PIXEL'],
+      ...[['real','REAL_PIXEL'],['imaginary','IMAG_PIXEL'],['phase','VENDOR_ARG_PIXEL'],['power','VENDOR_NORM_PIXEL']].map(([component,op])=>['dm_native_complex',{component},op])];
+    for(let index=0;index<cases.length;index++){
+      const [name,args,op]=cases[index],request_id='pixel-mcp-'+index;
+      const response=await client.tool(name,{image_id:77,...args,coordinate_mode:'pixel',request_id});assert.notEqual(response.result?.isError,true,JSON.stringify(response));const output=toolOutput(response);
+      assert.equal(output.coordinate_mode,'pixel');assert.equal(output.native_receipt.original_operation,op);
+      assert.deepEqual((await client.tool('dm_native_result',{request_id})).result.content,response.result.content);
+    }
+    const before=host.requests.length;
+    assert.equal((await client.tool('dm_native_fft',{image_id:77,direction:'forward',coordinate_mode:'guess',request_id:'badmode'})).error.code,-32602);
+    assert.equal(host.requests.length,before);
+  }finally{await client.close();await host.close();}
+});
 
 test("existing native MCP tools carry uint32 statistics/crop/preview/READ without changing either catalog", async () => {
   const source = imageMetadata(77, {unsigned: true}), rect = [1, 1, 4, 3];

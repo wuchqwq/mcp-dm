@@ -1,5 +1,12 @@
 # GMS native adapter compatibility
 
+Explicit `native_pixel_crop`, `native_pixel_filters` and `native_pixel_fft`
+are separate optional groups. Their `*_PIXEL` operations preserve unknown
+units and mathematical pixel coordinates rather than inventing a ruler. The
+current public profile leaves all three **unqualified/disabled** pending their
+own synthetic real-host trial; new C++/Node offline controls do not qualify DM.
+The existing default physical operations and module fingerprints are unchanged.
+
 The common Node MCP, NB2 request records, named pipe, host-thread dispatch and
 retained-result lifecycle are shared. Vendor layouts, typed calls, module
 fingerprints, exports and RVAs belong to a version adapter. Loading the plugin

@@ -16,6 +16,15 @@ Separately and explicitly, a small optional external crystallographic companion 
 
 ## Three next deliverables
 
+The current feature branch implements an opt-in independent uint16 TIFF/pixel
+tool loop: visible frame/ROI comparison, display revision, external FFT,
+annotations/context and numerical export. It also accepts verified saved DM
+captures without requiring diffraction analysis. See
+[pixel image tools](docs/PIXEL_IMAGE_WORKFLOW.md). Native pixel-mode operations
+have separate disabled qualification gates while their real-host trial is on
+HOLD. This is a bounded implementation of the interaction direction, not a
+claim that every client, TIFF dtype or DM operator is qualified.
+
 An initial external companion now implements bounded automatic selected-point
 measurement and joint FCC/BCC/HCP candidates with ASE CIF/reciprocal-cell support;
 see [the runnable workflow](docs/CRYSTALLOGRAPHY_WORKFLOW.md). Automatic centres

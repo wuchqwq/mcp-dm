@@ -61,6 +61,22 @@ int main() {
         check(selected.available("native_statistics") && selected.available("native_crop"));
         check(selected.available("native_display") && selected.available("native_datasets"));
         check(selected.available("native_frame"));
+        for (const auto* group : {"native_pixel_crop","native_pixel_filters","native_pixel_fft"}) {
+            check(!selected.available(group)); attempt(selected,group); check(vendor_calls == 0);
+            auto candidate=nb::gms353::profile();
+            for (auto& capability:candidate.capabilities)
+                if (std::string(capability.name)==group) capability.qualified=true;
+            check(nb::select_adapter(good,{&candidate}).available(group));
+            for (const auto& capability:candidate.capabilities) if (std::string(capability.name)==group) {
+                for (const auto& dependency:capability.symbols) {
+                    auto missing=good;
+                    for (auto& module:missing.modules) if (module.name==dependency.module) module.symbols.erase(dependency.name);
+                    const auto rejected=nb::select_adapter(missing,{&candidate});
+                    check(rejected.safe() && !rejected.available(group));
+                    attempt(rejected,group); check(vendor_calls==0);
+                }
+            }
+        }
         {
             auto frame_profile = nb::gms353::profile();
             for (auto& capability : frame_profile.capabilities)

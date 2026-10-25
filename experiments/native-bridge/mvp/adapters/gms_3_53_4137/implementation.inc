@@ -376,14 +376,14 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
     // this exception; the shared pool and its transactional checks are unchanged.
     if (maximum_output_bytes != nb::kCropOutputBytes &&
         !(maximum_output_bytes == nb::kFftOutputBytes353 &&
-          (request.op == "FFT" || request.op == "IFFT") && api.dtype(output.value.image) == 3 &&
+          (nb::base_operation353(request.op) == "FFT" || nb::base_operation353(request.op) == "IFFT") && api.dtype(output.value.image) == 3 &&
           scientific_result != "null" && nb::valid_json(scientific_result)))
         throw std::runtime_error("native_result_output_limit_invalid");
     if (!bytes || bytes > maximum_output_bytes) throw std::runtime_error("native_result_output_over_budget");
     if (retained_results.size() >= nb::kCropRetainedCount) throw std::runtime_error("native_result_retention_capacity");
     if (retained_result_bytes > nb::kCropRetainedBytes || bytes > nb::kCropRetainedBytes - retained_result_bytes)
         throw std::runtime_error("native_result_retained_bytes_over_budget");
-    const auto kind = request.op == "CROP" ? ResultKind::Crop : request.op == "UNARY" ? ResultKind::Unary :
+    const auto kind = nb::base_operation353(request.op) == "CROP" ? ResultKind::Crop : request.op == "UNARY" ? ResultKind::Unary :
                       request.op == "BINARY" ? ResultKind::Binary : ResultKind::NativeOperation;
     RetainedResult retained{output.value, bytes, kind, api.dtype(output.value.image), request.op, request.id,
                             vendor_operator, source_ids, source_metadata, output_metadata, semantics, uint32_lineage};
@@ -395,7 +395,7 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
             std::to_string(request.args[1]) + "],\"result\":" + frame_result +
             ",\"scope\":\"original frame identity only; current values and coordinates follow current operation metadata\"}";
     } else {
-        const bool single_operation = request.op == "CROP" || request.op == "UNARY" || request.op == "FILTER" ||
+        const bool single_operation = nb::base_operation353(request.op) == "CROP" || request.op == "UNARY" || nb::base_operation353(request.op) == "FILTER" ||
                                       nb::is_fft_operation353(request.op);
         for (std::size_t i = 0; i < source_ids.size(); ++i) {
             const auto parent = retained_results.find(source_ids[i]);
@@ -437,7 +437,7 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
             retained.scientific_args = inherited->scientific_args;
             retained.scientific_offset = inherited->scientific_offset;
             retained.scientific_processing = inherited->scientific_processing;
-            if (request.op == "CROP") {
+            if (nb::base_operation353(request.op) == "CROP") {
                 for (unsigned axis = 0; axis < 2; ++axis) {
                     if (request.args.at(1 + axis) > UINT32_MAX - retained.scientific_offset[axis])
                         throw std::runtime_error("native_result_scientific_offset_overflow");
@@ -597,7 +597,7 @@ struct CropAxisCalibration {
         return zero == other.zero && scale == other.scale && origin == other.origin && unit == other.unit;
     }
 };
-CropAxisCalibration crop_axis_calibration(void* image, std::uint32_t axis) {
+CropAxisCalibration crop_axis_calibration(void* image, std::uint32_t axis, bool require_units = true) {
     CropAxisCalibration result;
     float raw_scale = 0;
     {
@@ -608,12 +608,12 @@ CropAxisCalibration crop_axis_calibration(void* image, std::uint32_t axis) {
     }
     require_ready();
     if (!std::isfinite(result.zero) || !std::isfinite(result.scale) || result.scale == 0 ||
-        !std::isfinite(result.origin) || raw_scale != result.scale || result.unit.empty())
+        !std::isfinite(result.origin) || raw_scale != result.scale || (require_units && result.unit.empty()))
         throw std::runtime_error("native_crop_requires_valid_calibration");
     return result;
 }
-std::array<CropAxisCalibration, 2> crop_calibration(void* image) {
-    return {crop_axis_calibration(image, 0), crop_axis_calibration(image, 1)};
+std::array<CropAxisCalibration, 2> crop_calibration(void* image, bool require_units = true) {
+    return {crop_axis_calibration(image, 0, require_units), crop_axis_calibration(image, 1, require_units)};
 }
 std::array<float, 3> histogram_axis_values353(void* image, std::string& units) {
     float zero = 0, scale = 0, origin = 0, raw_scale = 0; VendorString unit;
@@ -669,7 +669,7 @@ std::string execute_show(const NativeRequest& request) {
     if (uint32 && !one_dimensional) {
         require_uint32_operation353("native_uint32_display", api.get_document && api.show_document &&
             api.destroy_document_holder && api.destroy_window && api.packing);
-        const bool filter = owned->second.operation == "FILTER" && owned->second.uint32_operation_lineage &&
+        const bool filter = nb::base_operation353(owned->second.operation) == "FILTER" && owned->second.uint32_operation_lineage &&
             (owned->second.vendor_operator == "GMSImageProcessing::SmoothFilter" ||
              owned->second.vendor_operator == "GMSImageProcessing::SharpenFilter");
         if (owned->second.kind != ResultKind::Crop && !filter)
@@ -726,7 +726,7 @@ std::string execute_show(const NativeRequest& request) {
           << ",\"retained_operation\":" << nb::quote(owned->second.operation)
           << ",\"one_dimensional_display\":" << one_dimensional_metadata;
     }
-    if (uint32 && !one_dimensional) s << ",\"image\":" << metadata(image.value.image);
+    if (uint32 && !one_dimensional) s << ",\"image\":" << metadata(image.value.image, !nb::pixel_mode353(owned->second.operation));
     s << '}';
     auto result = s.str();
     if (!nb::valid_json(result)) throw std::runtime_error("native_show_result_invalid");
@@ -762,6 +762,7 @@ std::string execute_show(const NativeRequest& request) {
     return result;
 }
 std::string execute_crop(const NativeRequest& request) {
+    const bool pixel = request.op == "CROP_PIXEL";
     if (request.args.size() != 5) throw std::runtime_error("native_crop_requires_id_and_rect");
     ImageRef source(api.find_id, request.args[0]);
     void* source_image = source.value.image;
@@ -775,6 +776,10 @@ std::string execute_crop(const NativeRequest& request) {
         if (packing_style(source_image) != 1) throw std::runtime_error("native_uint32_requires_ordinary_packing");
     }
     const auto width = api.dimension(source_image, 0), height = api.dimension(source_image, 1);
+    if (pixel && (!api.packing || packing_style(source_image) != 1))
+        throw std::runtime_error("native_pixel_crop_requires_ordinary_packing");
+    if (pixel && static_cast<std::uint64_t>(width) * height > 4194304)
+        throw std::runtime_error("native_pixel_crop_source_over_budget");
     if (uint32 && static_cast<std::uint64_t>(width) * height > nb::kUint32SourcePixels353)
         throw std::runtime_error("native_uint32_crop_source_over_budget");
     const auto plan = nb::crop_plan(width, height,
@@ -782,9 +787,9 @@ std::string execute_crop(const NativeRequest& request) {
         retained_crop_bytes, retained_crops.size());
     if (!api.crop) throw std::runtime_error("native_crop_symbol_unavailable");
     // All dimensions, rectangle and retained-output budgets precede allocation.
-    const auto source_info = metadata(source_image);
+    const auto source_info = metadata(source_image, !pixel);
     require_ready();
-    const auto source_calibration = crop_calibration(source_image);
+    const auto source_calibration = crop_calibration(source_image, !pixel);
     ImageRef output;
     if (api.crop(source_image, &output.value, &plan.slice) != &output.value || !output.value.image)
         throw std::runtime_error("native_crop_no_output_reference");
@@ -794,12 +799,12 @@ std::string execute_crop(const NativeRequest& request) {
     if (output_image == source_image || !output_id || output_id == request.args[0] || retained_crops.count(output_id))
         throw std::runtime_error("native_crop_output_identity_invalid");
     if (api.ndim(output_image) != 2 || api.dtype(output_image) != source_code ||
-        (uint32 && packing_style(output_image) != 1) ||
+        ((uint32 || pixel) && packing_style(output_image) != 1) ||
         api.dimension(output_image, 0) != plan.width || api.dimension(output_image, 1) != plan.height)
         throw std::runtime_error("native_crop_output_descriptor_mismatch");
-    const auto output_info = metadata(output_image);
+    const auto output_info = metadata(output_image, !pixel);
     require_ready();
-    const auto output_calibration = crop_calibration(output_image);
+    const auto output_calibration = crop_calibration(output_image, !pixel);
     std::array<nb::CropZeroCheck, 2> zero_checks;
     for (unsigned axis = 0; axis < 2; ++axis) {
         const auto& before = source_calibration[axis];
@@ -816,11 +821,13 @@ std::string execute_crop(const NativeRequest& request) {
     if (api.id(source_image) != request.args[0] || api.ndim(source_image) != 2 || api.dtype(source_image) != source_code ||
         (uint32 && packing_style(source_image) != 1) ||
         api.dimension(source_image, 0) != width || api.dimension(source_image, 1) != height ||
-        crop_calibration(source_image) != source_calibration || metadata(source_image) != source_info)
+        crop_calibration(source_image, !pixel) != source_calibration || metadata(source_image, !pixel) != source_info)
         throw std::runtime_error("native_crop_source_descriptor_changed");
     require_ready();
     auto s = json_stream();
-    s << "{\"backend\":\"digitalmicrograph-native\",\"source_image_id\":" << request.args[0]
+    s << "{\"backend\":\"digitalmicrograph-native\"";
+    if (pixel) s << ",\"coordinate_mode\":\"pixel\"";
+    s << ",\"source_image_id\":" << request.args[0]
       << ",\"image_id\":" << output_id << ",\"requested_rect\":";
     write_rect(s, plan.rect);
     s << ",\"effective_rect\":"; write_rect(s, plan.rect);
@@ -1159,20 +1166,26 @@ static std::string execute_operation(const NativeRequest& request) {
             throw std::runtime_error("native_operation_not_qualified:native_frame");
         return execute_frame353(request);
     }
-    if (request.op == "UNARY" || request.op == "BINARY" || request.op == "FILTER" || request.op == "PREVIEW" || request.op == "READ" || nb::is_fft_operation353(request.op)) {
+    if (nb::pixel_mode353(request.op)) {
+        const auto base = nb::base_operation353(request.op);
+        const char* group = base == "CROP" ? "native_pixel_crop" : base == "FILTER" ? "native_pixel_filters" : "native_pixel_fft";
+        if (!qualified_capability353(group))
+            throw std::runtime_error(std::string("native_operation_not_qualified:") + group);
+    }
+    if (request.op == "UNARY" || request.op == "BINARY" || nb::base_operation353(request.op) == "FILTER" || request.op == "PREVIEW" || request.op == "READ" || nb::is_fft_operation353(request.op)) {
         const char* group = request.op == "UNARY" || request.op == "BINARY" ? "native_image_arithmetic" :
-            request.op == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
+            nb::base_operation353(request.op) == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
             request.op == "READ" ? "native_read" : "native_fft";
         if (!qualified_capability353(group))
             throw std::runtime_error(std::string("native_operation_not_qualified:") + group);
         if (request.op == "UNARY" || request.op == "BINARY") return execute_arithmetic(request);
-        if (request.op == "FILTER") return execute_filter(request);
+        if (nb::base_operation353(request.op) == "FILTER") return execute_filter(request);
         if (request.op == "PREVIEW") return execute_preview(request);
         if (request.op == "READ") return execute_read(request);
         return execute_fft(request);
     }
     if (request.op == "SHOW") return execute_show(request);
-    if (request.op == "CROP") return execute_crop(request);
+    if (nb::base_operation353(request.op) == "CROP") return execute_crop(request);
     if (request.op == "DATASETS") {
         auto count = api.count();
         if (count > 128) throw std::runtime_error("dataset_enumeration_over_budget");

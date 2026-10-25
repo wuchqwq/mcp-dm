@@ -184,6 +184,22 @@ int main() {
             identity(fourier.accept(parse(id + " QUERY")).receipt, op, "[3]", "native_fourier_operation", 2);
             identity(fourier.accept(parse(id + " " + op + " 4")).receipt, op, "[3]", "native_fourier_operation", 2);
         }
+        nb::Core pixel_modes(session,123,321); pixel_modes.mark_ready(321);
+        for (const auto* op:{"CROP","FILTER","FFT","IFFT","REAL","IMAG","VENDOR_ARG","VENDOR_NORM"}) {
+            const std::string base=op,pixel=base+"_PIXEL",id="mode_"+base;
+            const std::string args=base=="CROP" ? "17 1 2 5 6" : base=="FILTER" ? "17 1" : "17";
+            const auto accepted=pixel_modes.accept(parse(id+' '+pixel+' '+args));
+            require(accepted.dispatch_token != 0);
+            require(pixel_modes.accept(parse(id+' '+base+' '+args)).receipt.find("id_conflict") != std::string::npos);
+            const auto active=pixel_modes.begin(accepted.dispatch_token,321); require(active != nullptr);
+            pixel_modes.finish(active,"{}");
+            const auto historical=pixel_modes.accept(parse(id+" QUERY")).receipt;
+            const auto* contract=nb::operation_contract(pixel);require(contract != nullptr);
+            require(historical.find("\"original_operation\":\""+pixel+"\"") != std::string::npos);
+            require(historical.find("\"result_version\":"+std::to_string(contract->result_version)) != std::string::npos);
+            require(pixel_modes.accept(parse(id+' '+pixel+' '+args)).receipt==historical);
+            require(!pixel_modes.begin(accepted.dispatch_token,321));
+        }
         std::cout << "PASS " << checks << " native core assertions (offline synthetic only)\n"; return 0;
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

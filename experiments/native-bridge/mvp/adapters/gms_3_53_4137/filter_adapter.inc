@@ -5,6 +5,7 @@ constexpr std::uint32_t kFilterMaximumDimension353 = 256;
 constexpr std::uint64_t kFilterMaximumPixels353 = 65536;
 std::string execute_filter(const NativeRequest& request) {
     require_ready();
+    const bool pixel = request.op == "FILTER_PIXEL";
     if (request.args.size() != 2) throw std::runtime_error("native_filter_requires_image_id_and_kind");
     auto function = api.smooth_filter;
     const char* name = nullptr;
@@ -48,8 +49,8 @@ std::string execute_filter(const NativeRequest& request) {
     if (retained_result_bytes > nb::kCropRetainedBytes ||
         peak_bytes > nb::kCropRetainedBytes - retained_result_bytes)
         throw std::runtime_error("native_filter_retained_bytes_over_budget");
-    const auto source_info = metadata(source.value.image);
-    const auto calibration = crop_calibration(source.value.image);
+    const auto source_info = metadata(source.value.image, !pixel);
+    const auto calibration = crop_calibration(source.value.image, !pixel);
     validate_native_finite_image(source.value, "native_filter_nonfinite_source");
     require_ready();
     ImageRef output;
@@ -65,15 +66,15 @@ std::string execute_filter(const NativeRequest& request) {
     if (actual.dimensions != 2 || actual.data_type != expected_code || actual.packing != 1 ||
         actual.width != source_descriptor.width || actual.height != source_descriptor.height)
         throw std::runtime_error("native_filter_output_descriptor_mismatch");
-    const auto output_info = metadata(output.value.image);
-    if (crop_calibration(output.value.image) != calibration)
+    const auto output_info = metadata(output.value.image, !pixel);
+    if (crop_calibration(output.value.image, !pixel) != calibration)
         throw std::runtime_error("native_filter_output_calibration_mismatch");
     validate_native_finite_image(output.value, "native_filter_nonfinite_output");
     const auto source_after = fft_image353(source.value.image);
     if (source_after.id != source_descriptor.id || source_after.dimensions != source_descriptor.dimensions ||
         source_after.data_type != source_descriptor.data_type || source_after.packing != source_descriptor.packing ||
         source_after.width != source_descriptor.width || source_after.height != source_descriptor.height ||
-        crop_calibration(source.value.image) != calibration || metadata(source.value.image) != source_info)
+        crop_calibration(source.value.image, !pixel) != calibration || metadata(source.value.image, !pixel) != source_info)
         throw std::runtime_error("native_filter_source_metadata_changed");
     require_ready();
     const std::string semantics = uint32 ? (expected_code == 11 ?
@@ -81,7 +82,9 @@ std::string execute_filter(const NativeRequest& request) {
         "DM native uint32 filter; binary64 convolution then binary32 storage; not lossless for arbitrary uint32 inputs; bridge performs no pixel cast") :
         "DM native filter; kernel and edge behavior vendor-defined pending independent qualification";
     auto stream = json_stream();
-    stream << "{\"backend\":\"digitalmicrograph-native\",\"operation\":\"FILTER\",\"filter_kind\":" << request.args[1]
+    stream << "{\"backend\":\"digitalmicrograph-native\",\"operation\":" << nb::quote(request.op);
+    if (pixel) stream << ",\"coordinate_mode\":\"pixel\"";
+    stream << ",\"filter_kind\":" << request.args[1]
       << ",\"source_image_id\":" << source_descriptor.id << ",\"image_id\":" << actual.id
       << ",\"source\":" << source_info << ",\"image\":" << output_info << ",\"operator\":" << nb::quote(name);
     if (uint32) stream << ",\"dtype_semantics\":" << uint32_dtype_semantics353(1,11,expected_code);
