@@ -8,6 +8,8 @@
 | Actual Node MCP, original-ID QUERY, explicit SHOW/RELEASE and fresh availability | PASS in that synthetic scope |
 | Independent same-host arrays, signed calibration, unchanged synthetic sources, complete scientific NPY reopening and mathematical frequency grid | PASS in that synthetic scope |
 | Precise owned-document closure followed by a separate idle observation | PASS in that synthetic scope |
+| Authorized bounded experimental forward crop/FFT/power, independent numeric/file reopening and source protection | PASS in the separately observed read-only scope; no phase-identification claim |
+| That forward workflow's original STOP identity, document-held results, owned closure, idle invalidity and normal exit | PASS; historical interrupted sessions remain incomplete |
 | Large uint32-lineage inverse | NOT_QUALIFIED; fixed inverse accuracy failures remain preserved |
 | Maximum-square inverse above the shared retained/validation budget | Explicit refusal; no result creation |
 | Larger FILTER windows, other GMS builds and ordinary model clients | NOT_QUALIFIED / NOT_TESTED |

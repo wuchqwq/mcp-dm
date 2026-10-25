@@ -31,6 +31,11 @@ never reconstruct it from a new process. Reopen original files read-only and
 start new operations with fresh caller-known identities when continuing in an
 explicitly prepared new session.
 
+A separate read-only forward workflow now has its own actual-host numerical,
+source-protection, scientific-file reopening, original STOP/document ownership,
+after-idle cleanup and normal-exit checks. Its bounded PASS neither repairs an
+interrupted historical session nor qualifies inverse accuracy or phase identity.
+
 ## Current integration: GUI measurement, display and scientific files
 
 The independent `integration/native-gui-measurements-20261025` branch retains

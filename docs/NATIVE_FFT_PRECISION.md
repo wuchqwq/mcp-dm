@@ -76,6 +76,16 @@ Bitwise path equivalence can pass while numerical accuracy remains
 
 ## Observed scope
 
+The bounded larger-window continuation has separate exact-build synthetic
+numerical and lifecycle qualification. An authorized read-only experimental
+forward workflow also passed exact-ID crop/FFT/power readback, independently
+reopened scientific exports, unchanged original pixels/calibration/file, and
+document ownership after original-request STOP. Exact owned closure, separate
+idle invalidity and normal host exit were checked independently. This is
+limited forward/handoff evidence, not integer inverse qualification or unique
+phase identification; interrupted historical sessions retain their missing
+evidence and are not repaired by a later process.
+
 Fixed synthetic controls include low values, high unsigned values with
 conversion loss, and representable integer values with no input conversion
 loss, each paired with its exact binary32 input. Actual host observations found
