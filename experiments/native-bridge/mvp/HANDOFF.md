@@ -1,8 +1,167 @@
 # Native MVP continuation handoff
 
-## Current continuation: release, complete handoff and workspace findings
+## Current integration: GUI measurement, display and scientific files
 
-The current work is on a feature branch based on the reviewed main integration; it is not merged back to main. The native catalog has sixteen tools, including explicit reference release/current availability. The existing small READ remains unchanged; a thin Node runner now saves a complete bounded region with exact per-block receipts and the original immediate source-creation QUERY parameters. See [the current contract and qualification boundaries](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md).
+The independent `integration/native-gui-measurements-20261025` branch retains
+PR #7's exact owned one-dimensional dtype repair, PR #8's native histogram and
+true-rank-one SHOW, and the reviewed PR #9 axis interface. It does not merge
+main or change the default v0.6 backend.
+
+The integration admits bins greater than source pixels, separates native uint32
+counts from binary64 transport and `<u4` NPY, and makes creation/SHOW/QUERY/file
+axis validation consistent. Non-identity source intensity calibration remains
+bin_index; only identity calibration plus a unit may use the precisely checked
+native axis. SHOW rechecks the live axis against frozen creation context.
+Optional bar styling remains NOT_QUALIFIED after independent ownership/RTTI
+review; document delivery does not depend on it. Historical axis/style claims
+do not qualify this artifact.
+
+See [the short workflow](../../../docs/NATIVE_GUI_MEASUREMENTS.md),
+[histogram semantics](../../../docs/NATIVE_HISTOGRAM.md),
+[axis audit](../../../docs/HISTOGRAM_AXIS_AUDIT.md) and
+[RESULTS](../RESULTS.md) for actual completed scopes. Original failed and
+interrupted evidence remains private and unchanged. Same-session original-ID
+recovery, exact build gates, source protection and after-idle lifetime checks
+remain mandatory. Ordinary model clients are a separate untested scope.
+
+The fresh manual continuation is complete: the user added a horizontal line to
+a new synthetic source that had no prepared lines. A read-only freeze preserved
+the original fixture and established the new GUI baseline before native MCP
+processing. Exact source/document/display/ROI identity, ordered endpoints,
+native samples and calibration, original-ID QUERY, true 1D NPY, and delivery of
+that same output to a DM document passed independent same-host checks. RELEASE
+and the pre-saved STOP left the document-held result alive; after normal document
+close and a separate idle observation it was invalid, while source data and GUI
+remained unchanged. Owned fixture cleanup, normal exit, manifest-only removal
+and post-exit saved-file reopening also completed. The earlier late selection
+after another session's STOP remains observation only, not retroactive acceptance.
+Full Python regression remains FAILED with five original subprocess deadline
+errors; passing unchanged-deadline focused reruns do not replace that result.
+
+The next section records the earlier profile qualification; it is not a blanket
+qualification of later display/histogram changes.
+
+
+## Current continuation: GUI line to native one-dimensional profile
+
+The native catalog now has nineteen entries, adding `dm_native_profile` and
+ROIS version 2 line geometry. `native_line_profile` has limited synthetic
+prepared-host qualification and profile admission is enabled. The final
+qualified artifact also passed its own fresh-host confirmation, with loaded
+module identity matched to this source build and a strict independent baseline
+before any MCP submission. This is separate evidence, not inherited from the
+prepared artifact. Existing rectangle qualification is separate.
+
+The narrow operation binds image/document/display/ROI plus the caller's saved
+ordered endpoints and width. It admits ordinary float32/uint32 2D sources up to
+4,194,304 pixels, width one, nonzero horizontal/vertical integer-centre lines,
+complete matching units and equal nonzero signed spatial scales. Both endpoints
+are included; reversed direction is preserved. Known retained Fourier/unresolved
+scientific lineage is refused. DM performs the extraction, yielding a true 1D
+float64 image and frozen float64 response bytes, at most 4096 samples. Native
+signed output calibration and nontrivial copied intensity calibration remain
+explicit; intensity calibration is not applied. See
+[line/profile contract and handoff](../../../docs/NATIVE_LINE_PROFILE.md).
+
+The successful prepared session independently passed raw values, strict Node
+MCP, original-ID QUERY, exact 1D NPY reopening and unchanged complete synthetic
+sources, names, calibrations, GUI objects and document inventory. Explicit
+RELEASE followed by a separate host-idle observation invalidated the released
+outputs; the pre-saved original STOP and its actual PID/worker identity were
+verified and remaining hidden outputs became invalid. Cleanup returned to idle
+before independently checking fixture destruction; normal exit and manifest
+removal completed. Existing 2D READ and other 2D operators still refuse 1D outputs;
+SHOW now has separate true-1D admission groups described above. Result tokens, original-ID recovery and frozen records remain shared.
+
+The final qualified session independently repeated horizontal, vertical,
+reversed and boundary cases across the fixed float32/nonlinear/high-uint32/
+negative-scale controls. Actual native rank-one float64 values, full source
+pixels/names/calibrations/GUI/document inventory, frozen QUERY and exact 1D NPY
+all matched. Wrong document, changed expected line, anisotropic input and 1D
+SHOW/READ were refused without growing the result pool. Explicit release changed
+fresh availability while leaving original QUERY unchanged; separate idle-host
+checks found released outputs invalid. The original STOP invalidated remaining
+hidden outputs and preserved sources. Fixture cleanup, independent idle checks,
+normal exit and manifest-owned removal passed. All saved profiles reopened
+independently after host exit. GUI test lines were API-created synthetic
+fixtures; this does not prove a model saw or manually selected them.
+
+Preserve both failed attempts: fractional fixture endpoints already differed
+in the first ROIS snapshot, before PROFILE; the exact host update cause remains
+unqualified, and the original inventory oracle correctly failed;
+a new integer-only fixture in a fresh session passed an independent post-idle
+baseline before any MCP submission. Later, the STOP oracle wrongly required
+positive host execution TID for worker-acknowledged STOP. Its FAIL remains;
+the corrected rule requires NB2 `exec_tid:0`, the original worker, original
+request/PID and `ipc_stopped:true`, with independent negative tests. No source,
+geometry, numerical tolerance or NPY check was relaxed. Chinese names, diagonal,
+fractional/wide lines, anisotropic profiles, real experimental inputs and model
+clients are not qualified by this synthetic trial.
+
+Executed engineering regression for this continuation: Node 180 passed with no
+skips; full Python 582 methods passed before the later baseline/STOP oracle
+refinements, whose targeted suite then passed 10 methods. All 12 final C++ test
+executables passed; these are this build's results. A defensive zero-output-ID
+validation gap found in review was closed before the final Node run. Default
+v0.6 and exact ABI gates are unchanged; no native runtime fallback was used.
+
+## Earlier continuation: GUI rectangle identity and Fourier attribution
+
+PR #6's region identity repair is already integrated on main. This continuation
+does not redevelop export isolation, result release or chunked handoff. Its
+catalog has seventeen entries, adding read-only `dm_native_rois`. The corrected
+direct-source-layout/mapping passed limited synthetic actual-host qualification
+and `native_gui_rois` profile admission is enabled. A separately built qualified
+artifact also passed its independent session, same-process oracle and final
+reference checks. Initial discovery confirmed raw identities and
+geometry but failed rectangle eligibility under the earlier identity-mapping
+assumption. A later selected-rectangle observation preserved another eligibility
+FAIL after identifying slice IDs misread as axes. Preserve both failures and
+the older immutable QUERY; synthetic tests are not vendor acceptance.
+
+The new path preserves explicit image/document/display/ROI identities, raw
+rectangle edges and diagnostics. Exact ImageSource_Simple class/typed image
+identity, its direct canonical XY size contract, slice_ids:[0] and exact native
+binary32 reciprocal mapping establish source-pixel alignment. Slice IDs are not
+axes; no axis-reorder getter is used. Other Sliced/Group/Summed source layouts
+remain unsupported. Fractional,
+rotated, unsupported or out-of-bounds selections never become clipped analysis
+rectangles. QUERY remains historical; refresh uses a new ID. See
+[GUI ROI contracts and remaining blockers](../../../docs/NATIVE_GUI_ROI.md).
+Line/LiveProfile candidates and profile/histogram 1D delivery remain unqualified.
+
+The prepared actual host passed native MCP enumeration for float32/uint32,
+multiple documents and empty/hidden images. Fractional, rotated and line ROIs
+remained ineligible. A manually drawn selected rectangle continued through
+native crop, mean, READ and multiblock NPY with independent same-PID complete
+source/selection/calibration/value checks; fresh reads did not grow the pool,
+and the old empty QUERY remained unchanged. Original STOP/source checks passed.
+The immediate same-stack source-invalidity assertion after closing owned docs
+and removing fixture references failed and remains preserved. A subsequent
+independent observation after return to host idle found sources invalid,
+documents restored and the fixture holder absent without extra native calls.
+Lifetime qualification is after host return/idle, not synchronous same-stack
+destruction. The qualified artifact independently repeated source/ROI and
+original-STOP checks; all fixture sources became invalid after return to host
+idle, and test hosts exited normally before manifest-owned DLL removal.
+
+Targeted actual synthetic-host checks passed the existing region repair across
+workspaces and repeated user labels with changed synthetic values; completed
+reuse performed no new READ. Exact files/calibration, source invariance,
+original STOP and normal exit/cleanup passed within that scope.
+
+Separate fixed synthetic direct-DM/MCP Fourier controls agreed bitwise. An
+authorized equivalent work copy of the previously saved experimental ROI input
+also reproduced its historical FFT and inverse bitwise, without reopening the
+original scientific file. Direct DM and MCP/READ agreed; exact input conversion
+did not explain its retained round-trip accuracy FAIL. See
+[precision attribution](../../../docs/NATIVE_FFT_PRECISION.md). No tolerance,
+native algorithm, default backend or ABI fingerprint gate changed. Ordinary
+model-client acceptance remains NOT_TESTED; no merge into main is implied.
+
+## Earlier continuation: release, complete handoff and workspace findings
+
+That earlier continuation's native catalog had sixteen tools, including explicit reference release/current availability. The existing small READ remained unchanged; a thin Node runner saved a complete bounded region with exact per-block receipts and the original immediate source-creation QUERY parameters. Those reviewed features are now integrated on main. See [the contract and qualification boundaries](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md).
 
 Targeted actual synthetic DM checks qualified the P0 Fourier metadata path, reference release/reuse, document-held lifetime and chunked files. A separate authorized read-only ADF ROI trial preserved original data/files and exported values; its inverse round trip did not meet its predeclared accuracy threshold, and remains FAIL. Manual synthetic workspace switching preserved explicit image IDs and source documents; repeated SHOW did not activate an inactive result workspace. Native workspace switching and GUI ROI/profile/histogram/annotations remain NOT_QUALIFIED with concrete missing contracts in that guide.
 

@@ -49,15 +49,87 @@ before per-operator ABI, scientific and ownership qualification.
 - `lib/native_bridge.mjs`: opt-in NB2 transport for `DM_MCP_BACKEND=native`; immutable original-operation/result identities, strict typed receipts, one submission followed by same-ID QUERY, no Python fallback.
 - `lib/native_preview.mjs`: bounded PNG encoding of the validated native gray8 display result; it does not process scientific pixels or save files.
 - `experiments/native-bridge/mvp/`: common protocol, pipe, host-thread dispatch and retained-result lifecycle. Version selection lives in `adapter_profile.hpp`, `adapter_identity_win.hpp` and `adapter_dispatch.inc`; vendor fingerprints, POD layouts and entrypoints live under `adapters/gms_3_53_4137/`. Only the exact Windows x64 GMS 3.53.4137.0 profile is supported. Read ADAPTERS.md, README, INSTALL and the parent RESULTS/ABI_NOTES before native changes. Never build or load the retired `nb_probe.cpp`.
-- `tools/native_snapshot_handoff.mjs`: explicitly invoked external encoder for a saved, validated native READ response. It exclusively creates a new NPY/schema-1 capture after persisting its own request journal; it never calls DM, submits a request or saves a DM document.
+- `tools/native_snapshot_handoff.mjs`: explicitly invoked external encoder for a saved, validated native READ (2D float32/uint32), PROFILE (true 1D float64) or HISTOGRAM (native uint32 counts, binary64 wire) response. It exclusively creates a new NPY/schema-1 capture after persisting its own request journal; it never calls DM, submits a request or saves a DM document. Keep rank/coordinate/count validators separate. Histogram NPY is `<u4`, not the wire `<f8`; preserve both hashes and validated axis mode/raw bin geometry without inventing a physical conversion.
 - `examples/native_handoff_mean.py`: optional user-invoked NumPy example over that saved capture in an independent workspace, with software/script/input provenance. It is absent from the MCP/plugin runtime, never returns data to DM and is never a fallback for a missing DM operator.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has sixteen tools: dm_status,
+The separate experimental native catalog has nineteen entries: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
-dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info and dm_native_release.
+dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile and dm_native_histogram.
+The corrected ROIS direct-source-layout/mapping has limited synthetic real-host
+qualification and its profile admission is enabled. The final qualified artifact
+also passed its separate actual-host source/ROI and final-reference checks. A catalog entry is not capability
+admission. Preserve explicit image/document/display/ROI identity, raw rectangle
+edges and diagnostics. `slice_ids` is not an axis list. Only exact
+ImageSource_Simple class/typed image identity plus its direct canonical-XY size
+contract, slice_ids:[0] and exact native binary32 reciprocal mapping admit
+source-pixel-aligned integer rectangles. Do not infer axes from slice IDs or
+call an axis getter to justify this direct-image layout; Sliced/Group/Summed
+and other source classes remain ineligible.
+Never round, clip, infer the latest window, use a Python/GUI runtime fallback or
+turn getter failure into an empty selection. Same-ID QUERY is historical; a new
+ID refreshes the GUI snapshot. See docs/NATIVE_GUI_ROI.md. New ROIS replies use
+version 2; version 1 remains historical QUERY only. The separate
+native_line_profile group admits width-one integer horizontal/vertical lines,
+explicit full GUI identity/expected geometry, ordinary float32/uint32 2D input,
+equal nonzero signed spatial scales/units and at most 4096 native float64 samples.
+Its actual 1D image and immutable numeric snapshot use native_profile_axis;
+retain native origin/physical zero/signed scale separately from source trajectory
+and derived path distance. Intensity calibration is copied, not applied. Reject
+known Fourier/unresolved scientific lineage until it has its own profile context.
+Old READ/MEAN/crop/FFT/filter contracts do not gain 1D admission. See
+docs/NATIVE_LINE_PROFILE.md. Diagonal/fractional/wide profiles and
+annotations remain unqualified. Tool count alone does not qualify a capability.
+A true rank-one result is delivered to a visible document only through its own
+group: native_profile_display (float64 PROFILE samples) or
+native_histogram_display (uint32 HISTOGRAM counts). Both reuse the already
+qualified document factory/show entrypoints, but neither may enter through the
+2D display group, carry an `image` 2D descriptor, or be presented as a `[1,N]`
+raster. The reply keeps `rank:1`, `display_family:native_1d_image_document`,
+`display_class:host_selected` and a `one_dimensional_display` block with the true
+shape and one native axis; the bridge never asserts a display class name.
+See docs/NATIVE_LINE_PROFILE.md and docs/NATIVE_HISTOGRAM.md.
+
+Histogram bar styling is a separate optional native_line_plot_style candidate,
+currently NOT_QUALIFIED and disabled for shipping. Histogram delivery uses the
+host default and reports display_style "default" with style_not_qualified.
+The candidate checks the complete native display object's pinned RTTI layout
+and balances its acquired image reference before any vendor setter/getter call;
+a decorated type name alone is not sufficient. Presentation does not qualify
+scientific values or block ordinary one-dimensional document delivery.
+
+native_histogram creates its destination with the exported
+`Image::CreateImage(DataSize, type, char_range)` and fills it with the exported
+`GMSImageProcessing::CalcHistogram`; there is no bridge binning kernel. Only
+ordinary float32 2D sources up to 4,194,304 pixels, 2..4096 bins and a caller
+range that covers the complete native source minimum/maximum are admitted, so no
+undocumented under/overflow rule is ever exercised. Each bin must be an exact
+non-negative integer and the counts must total the source pixel count exactly.
+The bin budget is independent of the source pixel count: sparse bins and more
+bins than pixels are valid. Preserve the exact original binary32 range and
+requested bin geometry. The strict client and encoder validate native uint32
+storage separately from exact binary64 transport. Do not retrofit current source
+metadata guards onto historical v1 evidence; the external encoder does not
+reobserve source pixels or descriptors.
+The histogram range remains raw pixel intensity. The count axis stays bin_index
+for missing or non-identity source intensity calibration. Only identity origin/
+scale plus a nonempty source unit may use the separately checked native intensity
+axis setter; require its precise binary32 round-trip and resolution guards.
+Preserve requested/observed axis evidence through creation, SHOW, QUERY and NPY.
+Counts themselves are never intensity-calibrated. Bar styling is optional and
+requires its own qualification; a type name alone is not a safe this-pointer.
+Never widen a caller range or tolerance silently. See docs/HISTOGRAM_AXIS_AUDIT.md.
+
+The prepared ROI host passed explicit-ID GUI rectangle to native crop/mean/READ
+and multiblock handoff with independent source/selection/calibration checks.
+Preserve earlier mapping and slice-ID eligibility FAILs. Immediate same-stack
+fixture destruction after document closure/reference removal also failed; a
+later independent idle-host observation passed without further native calls.
+Reference lifetime qualification is after host return/idle, not synchronous
+destruction inside the same Python stack. Keep that FAIL separate from the
+passing STOP/source-protection and later cleanup observations.
 SUMMARY calls DM's built-in GetMinimum/GetMaximum/GetSum/GetMean directly;
 it is not full dm_stats and does not perform preview or file saving. Its
 scope is float32 2D up to 4,194,304 pixels, or ordinary uint32 2D up to
@@ -72,7 +144,8 @@ Result-reference release requires an exact image ID plus the creation retention 
 
 New operation admission requires its qualified, available profile group before
 entering the version implementation: native_image_arithmetic, native_fft,
-native_filters, native_preview or native_read. There is no qualification
+native_filters, native_preview, native_read, native_line_profile or
+native_histogram. There is no qualification
 environment bypass; setting an old qualification variable cannot enable an
 unavailable group. A missing required symbol disables that group. An available
 symbol or synthetic test alone does not qualify a capability.
@@ -216,13 +289,13 @@ acceptance for offset crop/READ/NPY, processed phase, source protection and
 normal cleanup; it does not qualify experimental data or GUI measurements.
 See docs/SCIENTIFIC_HANDOFF.md.
 
-The single-response encoder accepts only an explicit saved READ. The separate tools/native_region_handoff.mjs runner plans bounded live READs, saves original IDs before dispatch, assembles exact NPY/schema-1 bytes, and uses only QUERY to recover SENT IDs. It is explicit data handoff, not a scientific operator or DM SaveAs. See docs/NATIVE_LIFECYCLE_HANDOFF.md. Preserve original source-creation QUERY arguments when available; do not invent a whole-ROI receipt or recursively claim a complete history.
+The single-response encoder accepts only an explicit saved READ, PROFILE or HISTOGRAM. The separate tools/native_region_handoff.mjs runner remains 2D: it plans bounded live READs, saves original IDs before dispatch, assembles exact NPY/schema-1 bytes, and uses only QUERY to recover SENT IDs. It is explicit data handoff, not a scientific operator or DM SaveAs. See docs/NATIVE_LIFECYCLE_HANDOFF.md. Preserve original source-creation QUERY arguments when available; do not invent a whole-ROI receipt or recursively claim a complete history.
 
-Only explicit saved READ data may feed the single-response handoff CLI. Persist the
+Only explicit saved READ, PROFILE or HISTOGRAM data may feed the single-response handoff CLI. Persist the
 caller handoff ID/parameters and fsync the complete journal before creating a
 new output directory. Same ID/parameters returns the existing verified receipt;
 conflicts, incomplete journals or changed files never trigger automatic retry
-or overwrite. Bind the NPY/metadata hashes and original NB2 READ session/ID/args
+or overwrite. Bind the NPY/metadata hashes and original NB2 READ/PROFILE/HISTOGRAM session/ID/args
 and process/thread receipt. Do not describe this bridge-owned NPY encoding or
 the separate explicit NumPy example as DM SaveAs or native scientific processing.
 
@@ -290,7 +363,7 @@ Use an external development venv with `requirements-dev.txt` for tifffile and `r
 
 Optional worker contracts: profile sampled_coordinates are source coordinates; sampled_coordinates_local and its calibration are capture-relative. Report intensity is raw, not calibrated by a unit label alone. Verification failure/unresolved state must exit nonzero. Preview allocations must be bounded before source scans/display allocation; full-frame floating/RGB intermediates are prohibited. No automatic Skill installation or overwriting user settings.
 
-Manual synthetic workspace switching was separately observed: explicit native image IDs remain stable across tabs; DATASETS is registry-wide. SHOW can reuse a document in an inactive workspace without activating it. A SHOW receipt is not proof of active-tab visibility or model viewing. Native workspace enumeration/activation, GUI ROI, profile/histogram and annotations remain unqualified; do not expose candidates or use UI automation/Python as their runtime fallback. A read-only authorized ADF ROI trial preserved original memory/file data and exact exports, but its inverse round trip failed the predeclared accuracy tolerance. Preserve that FAIL separately from passing operations and cleanup; do not claim lossless integer Fourier round trips or general real-data qualification.
+Manual synthetic workspace switching was separately observed: explicit native image IDs remain stable across tabs; DATASETS is registry-wide. SHOW can reuse a document in an inactive workspace without activating it. A SHOW receipt is not proof of active-tab visibility or model viewing. Native workspace enumeration/activation, general profiles and annotations remain unqualified; the gated rectangle and narrow axis-aligned line/profile continuations are described above. Do not expose remaining candidates or use UI automation/Python as their runtime fallback. A read-only authorized ADF ROI trial preserved original memory/file data and exact exports, but its inverse round trip failed the predeclared accuracy tolerance. A saved-input equivalent copy reproduced the historical transforms with bitwise direct-DM/MCP agreement; that is not a fresh original-file check. Preserve the numerical FAIL separately from conversion/path-equivalence and cleanup PASS; see docs/NATIVE_FFT_PRECISION.md. Do not claim lossless integer Fourier round trips or general real-data qualification.
 
 Complete-region export requests must be isolated by a random, durably recorded
 capture instance, not just the user-facing export name or mutable source ID.

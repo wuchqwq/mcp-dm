@@ -15,6 +15,7 @@ import sys
 import uuid
 
 from accept_mcp import StdioClient, ROOT, require, strict_json, validate_receipt
+from accept_summary_mcp import CATALOG
 
 
 def digest(filename):
@@ -65,7 +66,9 @@ def main(argv=None):
             require("error" not in initialized, "MCP initialize failed")
             client.notify("notifications/initialized")
             catalog = client.rpc("tools/list", {}).get("result", {}).get("tools", [])
-            require(len(catalog) == 16 and any(t.get("name") == "dm_native_read" for t in catalog), "Wrong native catalog")
+            require(isinstance(catalog, list) and len(catalog) == len(CATALOG)
+                    and all(isinstance(tool, dict) and isinstance(tool.get("name"), str) for tool in catalog)
+                    and {tool["name"] for tool in catalog} == CATALOG, "Wrong native catalog")
             report["catalog"] = [tool["name"] for tool in catalog]
             host_thread = worker_tid = None
 

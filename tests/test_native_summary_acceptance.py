@@ -113,7 +113,7 @@ for line in sys.stdin:
         result = {"protocolVersion": "2024-11-05", "serverInfo": {"name": "digitalmicrograph", "version": "0.6.0"}}
     elif method == "tools/list":
         names = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
-                 "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release"]
+                 "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile"]
         schema = {"type": "object", "additionalProperties": False, "required": ["image_id"],
             "properties": {"image_id": {"type": "integer", "minimum": 0, "maximum": 4294967295}, "request_id": {"type": "string"}}}
         if mode == "bad_schema": schema["required"] = []

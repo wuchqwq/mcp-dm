@@ -2,8 +2,12 @@
 
 This feature checkout adds explicit reference release and a thin chunked READ
 runner. It keeps the default v0.6 backend, exact GMS adapter gates, scientific
-operators and size/type limits. Native SaveAs, GUI ROI acquisition, native
-profile/histogram and workspace activation remain unavailable.
+operators and size/type limits. Native SaveAs and workspace activation remain
+unavailable. The separately qualified [1D profile](NATIVE_LINE_PROFILE.md) and
+[histogram](NATIVE_HISTOGRAM.md) paths reuse these ownership rules with their own
+saved-response NPY contracts; the chunked runner below remains 2D READ only.
+The separately qualified [GUI rectangle reader](NATIVE_GUI_ROI.md)
+can now provide an explicit ROI for this existing handoff workflow.
 
 ## Release an intermediate without losing its history
 
@@ -175,18 +179,18 @@ parameter. Do not repeatedly SHOW or change IDs hoping to select a different tab
 
 | Requested capability | Reviewed interface evidence | Missing qualification; current status |
 |---|---|---|
-| Read a GUI rectangle/line | Vendor ImageDisplay/ROI getters and ROI IDs; related ImageUtilities methods | Exact display-to-image binding, `Gatan::DM` wrapper/ScriptObject ownership and getter ABI are not the existing `GMS::Image` ref layout. No arbitrary object cast or “no ROI means whole image”. **NOT_QUALIFIED**. |
+| Read a GUI rectangle/line | Fixed-profile display/ROI getters; separately traced line candidates | Rectangle typed references, reverse image binding and normalization contract now have a separately gated implementation; actual qualification is tracked in [NATIVE_GUI_ROI.md](NATIVE_GUI_ROI.md). Line/profile delivery remains **NOT_QUALIFIED**. No arbitrary object cast or “no ROI means whole image”. |
 | Native profile | ImageUtilities profile extraction/container/length candidates | Typed source/container conversion, endpoint/strip-width sampling and 1D calibration/result ownership. **NOT_QUALIFIED**. |
 | Native histogram | Pinned processing module's `CalcHistogram` export; official ImageCalculateHistogram example | Independently proven 1D destination creation/layout, bin endpoints/nonfinite policy/count dtype and protocol contract. A 2D row must not impersonate a 1D scientific result. **NOT_QUALIFIED**. |
 | Enumerate/activate a workspace | Vendor document workspace getter and workspace/event utility candidates; manual GUI switch observations | No qualified typed enumeration/activation entrypoint in the current profile. Utility/event helpers are not a verified switch API. Need explicit ID/ownership and current/document workspace distinctions, plus saved-ID side-effect recovery. **NOT_QUALIFIED**. |
 | Native annotations | Vendor ImageDisplay component examples | Verified display/component ownership, stable annotation IDs and idempotent add/remove. Scientific pixels must stay unchanged. **NOT_QUALIFIED**. |
 
-The matching SDK ownership definitions were not available in the reviewed
-inputs. Function-name discovery or a Python/DM-Script example does not qualify a
-C++ call. No candidates above were called with guessed layouts/addresses, exposed
-as tools, or replaced by a Python listener/GUI-click runtime. Follow-up should
-close one typed ABI contract at a time, starting with exact workspace/display/ROI
-identity, before claiming native GUI measurements.
+The earlier investigation lacked matching ownership definitions. Subsequent
+rectangle tracing closed a narrow fixed-build contract; see the separate ROI
+guide for its limited same-build real-host qualification, rather than inheriting it for other
+candidates. Function names or Python/DM-Script examples alone do not qualify a
+C++ call. Remaining candidates have no guessed-layout call, Python listener or
+GUI-click runtime fallback. Close and qualify one typed contract at a time.
 
 ## Qualification boundaries
 
@@ -205,7 +209,9 @@ is retained; it does not become PASS because files and cleanup passed. No
 integer-exact or universal Fourier accuracy claim is made. Private source
 identities, measurements and raw receipts are not published here.
 
-Ordinary model-client acceptance, new GMS builds, concurrent editing, GUI ROI,
-profile/histogram, native workspace switching, annotations and SaveAs remain
+The separately gated GUI rectangle reader now has limited same-build synthetic
+qualification, including source protection and reference checks after host idle.
+Ordinary model-client acceptance, new GMS builds, concurrent editing, native
+profile/histogram, workspace switching, annotations and SaveAs remain
 NOT_TESTED or NOT_QUALIFIED as described above. Offline callbacks, pipe peers and
 negative controls are not real-DM qualification.

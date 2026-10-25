@@ -1,110 +1,43 @@
 # mcp-dm scope and roadmap
 
-最新集成后的优先级见 [Gatan 官方功能对照与下一阶段](docs/NATIVE_NEXT_STAGE.md)。
-科学语义交接修复的范围与待补实机验证见 [handoff contract](docs/SCIENTIFIC_HANDOFF.md)。
+## 当前优先级：衍射标定与晶格间距
 
+维护者已明确：日常任务是衍射图标定、晶面间距/夹角测量、FCC/BCC 等候选索引，以及 HRTEM/STEM-ADF 局部晶格与候选物相比较。画线、直方图和显示是基础能力，不是产品终点。
 
-## Goal
+**下一阶段以 [衍射与晶格测量任务](docs/DIFFRACTION_NEXT_STAGE.md) 为准。** 这是一项开发计划，不是已有自动索引或自动判相能力。旧的 [DM 原生功能对照](docs/NATIVE_NEXT_STAGE.md) 保留为接口参考，不再决定当前开发排序。
+
+## Goal and architecture
 
 Let a general-purpose agent inspect DM data, view selected images, invoke common post-acquisition operations correctly and retrieve calibrated results for further work. This repository is a tool interface, not a scientific decision-maker or a new agent application.
 
-Future native processing stays inside DigitalMicrograph. The MCP/plugin layer
-adapts verified built-in operations and handles data identity, parameters,
-calibration, ownership and result delivery. It does not grow a parallel
-Python/C++ analysis engine. Existing v0.6 and optional report paths remain
-compatible; independent numerical oracles are for tests only.
+An operation labelled DM-native must run through its qualified DM interface. The plugin handles identity, calibration, ownership and delivery, not a second analysis engine. A missing native function is not permission for a hidden Python fallback.
 
-## Core acceptance
+Separately and explicitly, a small optional external crystallographic companion may consume exported numerical data, coordinates and calibration for deterministic geometry and candidate matching. Record that computation as external, preserve its inputs and parameters, and do not claim it is DIFPack or DM-native. The companion is not part of GMS's managed Python environment. Existing v0.6 behavior remains compatible.
 
-- A new user can connect to the real DM backend and identify the intended data.
-- Each operation targets explicit data and preserves the documented coordinate, unit, dtype and no-overwrite contracts.
-- A preview corresponds to the referenced input and has an explicit coordinate mapping. Display pixels never replace numerical input.
-- Values, calibration, source references and failure/unknown states can be used by another tool or the user.
+## Three next deliverables
 
-A complete report is an optional integration example, not the definition of a successful MCP. An agent's ability to choose a scientifically appropriate region is evaluated separately from tool correctness.
+1. **Measured diffraction geometry.** Confirm image/ROI, calibration, centre and selected spots. Return reciprocal vectors, d spacings when calibrated, distance ratios and angles, with a position overlay and traceable units. Manual source-coordinate inputs are sufficient initially; no new generic ROI-creation ABI is required.
+2. **Bounded cubic indexing candidates.** Jointly compare multiple reflections against FCC/BCC candidates, a shared lattice parameter and zone-axis constraints. Return alternatives, residuals and unmatched observations; geometry alone may remain ambiguous. A Bravais lattice candidate is not a chemical phase identification.
+3. **Local high-resolution workflow and actual Agent trial.** Use supported DM FFT on explicit HRTEM/ADF regions, preserve the mathematical frequency grid and compare selected frequencies against specified candidates. Test the complete task with an ordinary Agent rather than using isolated profiles/histograms as the final acceptance objective.
+
+The detailed input contracts, uncertainty boundaries, references and acceptance cases are in [DIFFRACTION_NEXT_STAGE.md](docs/DIFFRACTION_NEXT_STAGE.md). Do not silently recalibrate an unknown sample to fit a proposed phase. A user-supplied known standard and candidate fitting are distinct stages.
 
 ## Existing capabilities to retain
 
-Core metadata, ROI, crop, profile, FFT and exports; bounded 2D capture and preview; existing limited spectroscopy/4D tools. Preserve documented limitations and backward-compatible tool names. Capturing fixed input is useful for multi-step tasks but unnecessary for simple queries. A live image ID is not a pixel snapshot.
+The default v0.6 Python backend remains unchanged. The opt-in native integration exposes nineteen tools with per-operation limits: explicit data/GUI identity, summaries, crop, bounded arithmetic/FFT/filters, profile and histogram results, previews, one-dimensional document delivery, result recovery/release and numerical handoff.
 
-The report/replay worker remains optional. Preview needs only NumPy/Pillow in an external environment. Report rendering adds Matplotlib; status/verification do not import plotting libraries. The user-facing Skill is optional and is not installed by MCP registration.
+Only the exact Windows x64 GMS 3.53.4137.0 adapter and pinned modules have limited qualification. Inspect [HANDOFF](experiments/native-bridge/mvp/HANDOFF.md), [RESULTS](experiments/native-bridge/RESULTS.md) and [adapter restrictions](experiments/native-bridge/mvp/ADAPTERS.md) before use. Native SHOW does not prove active-tab visibility or model viewing. NPY handoff is not native SaveAs. Historical FAIL and NOT_TESTED scopes remain intact.
 
-## Next steps
+Keep source data read-only, coordinates explicit, original-ID recovery, calibrated values and no-overwrite exports. Live image IDs do not freeze pixels. Display PNGs are not numerical input. Never force-close DM or replace a loaded DLL. Only one authorized task owns a real test host at a time; code analysis can use separate worktrees.
 
-1. Validate current scope/preview fixes with small synthetic inputs on the target Windows/DM/client combination. Historical host passes do not certify changed code.
-2. Try small independent tasks: identify an image and its calibration; view a selected capture; take a specified profile; export a calibrated crop or FFT summary. Fix concrete usability or correctness failures without expanding the platform.
-3. Gather feedback from a few research users when the core is usable. Add installation polish or another operator only when actual friction justifies it.
+## Validation without expanding the platform
 
-## Build-pinned native experiment
+Independent numerical tests, protocol substitutes, actual DM execution and model-client trials are distinct evidence. Match testing to the changed code and ABI risk, then run full regression on a frozen integration candidate. A passing focused rerun does not erase a failed complete run. A known numerical limitation is not fixed by changing its recorded tolerance.
 
-Current feature status: fourteen native tools now include bounded arithmetic,
-Fourier, filters, sampled preview and numeric READ. An explicit saved-response
-NPY handoff and external example passed a complete synthetic real-host workflow,
-including source protection and persistence after normal cleanup. Adapter
-selection is extensible, but only the exact Windows x64 GMS 3.53.4137.0 profile
-is qualified. See [the current handoff](experiments/native-bridge/mvp/HANDOFF.md)
-and [operation limits](experiments/native-bridge/mvp/OPERATIONS_ACCEPTANCE.md).
-Next priorities are separately qualified dtype/data-handoff extensions and
-ordinary client acceptance; native SaveAs/Open, other builds and native 4D
-remain unsupported. The earlier notes below are historical progression, not
-the latest catalog or an instruction to reopen a closed session.
-
-The default v0.6 backend stays unchanged. The opt-in native backend targets
-Windows x64 GMS 3.53.4137.0 and exposes status, datasets, native mean, retained
-result queries, experimental crop and the SHOW candidate. Earlier limited idle-host acceptance of the core
-metadata/mean/MCP path and source preservation has passed with synthetic inputs
-without a resident Python listener. Historical probe results and offline
-surrogates do not certify changed native code.
-
-Current P0 decouples raw mean from recognized incomplete spatial calibration,
-while crop remains strict. Crop and new side-effect tools require a saved
-request ID/session before dispatch, with same-session QUERY recovery only.
-The current actual-host strict MCP trial passed calibrated/empty-unit raw
-mean metadata, safe errors and immutable crop recovery/conflicts. Other
-invalid spatial-number cases remain offline-only. P1 selects the bounded
-`dm_native_show` native-document route for an existing plugin crop, without a
-data copy or file-save interface; completed receipts and image correlation
-passed. The trial remains HOLD: independent full-pixel/source checks, actual
-display, document count and post-STOP document ownership are NOT_TESTED due
-to pending desktop acceptance. IPC STOP/pipe/window cleanup passed; normal
-host exit and owned DLL removal remain pending with the test host still open.
-Native SaveAs stays deferred for insufficient string ABI and exclusive-write
-evidence. The [synthetic trial](experiments/native-bridge/mvp/TRIAL_ACCEPTANCE.md)
-keeps its independent answers private and separates protocol receipts from
-actual host display and lifetime checks.
-
-While the test desktop is unavailable, continue bounded static interface
-review and independent acceptance design. [FFT readiness](experiments/native-bridge/mvp/FFT_READINESS.md)
-tracks DM's own FFT entrypoints, unresolved complex-data/normalization and
-calibration semantics, and the result-delivery requirements. Finding an export
-does not qualify its ABI or add a public tool. Do not replace the loaded DLL or
-use the pending host for exploratory calls; current SHOW/lifecycle HOLD remains.
-
-The [batch candidate handoff](experiments/native-bridge/mvp/BATCH_CANDIDATES.md)
-prepares typed calls for native arithmetic, complex components, FFT families,
-filters, phase correlation and scalar statistics. Synthetic ownership tests
-cover only this call boundary. The candidates remain outside the real plugin
-and public catalog; per-operator integration and host acceptance are still
-required. Resume by closing the preserved trial before exploring new operators.
-
-Earlier native crop separately passed actual MCP and an independent one-shot GMS
-Python oracle for explicit IDs, half-open bounds, every pixel, separate memory,
-signed calibration, unchanged sources and duplicate-request identity. Its
-output lifetime through STOP was separately accepted: the hidden crop ID
-became invalid, its pipe/window disappeared and ordinary Python remained usable. The
-test host then exited normally and manifest-owned DLL removal restored the
-prior inventory without changing client configuration. The
-qualified name scope is ASCII; the legacy Python/native non-ASCII name
-comparison failed and remains NOT_QUALIFIED without heuristic conversion.
-A plugin-retained result ID is not a displayed DM
-document or model visual acceptance. Real experimental data, other
-builds, concurrent image API use and vendor exception isolation remain
-unverified. Keep the backend opt-in and the original client configuration
-unchanged. See [the matrix](experiments/native-bridge/RESULTS.md) and
-[native handoff](experiments/native-bridge/mvp/HANDOFF.md).
+A new function is justified when it removes a concrete obstacle in the diffraction/lattice workflow. Track correct task completion, manual intervention, result traceability and the actual steps saved. Tool counts and synthetic assertion counts are not the product metric.
 
 ## Deferred, not silently completed
 
-4D-STEM development; automated crystallographic identification, strain, EDS/EELS quantification or reconstruction; complete job scheduling; atomic snapshots; generic object versioning; arbitrary-script enablement; a report platform; new chat UI or multi-agent framework.
+Histogram bar styling, generic window/workspace management, exhaustive profile geometry, automatic compatibility generation, native 4D-STEM expansion, hardware control, strain/EDS/EELS quantification, unrestricted phase identification or phase fractions, and a new report/chat/agent platform are not current milestones. Only revisit a specific dependency when it blocks the active crystallographic task.
 
-Local loopback is not authentication. Existing filesystem permissions and data-sharing limits remain relevant; comprehensive access controls are separate work. Normal operation timeout does not prove that DM execution stopped. See docs/SCOPE_AUDIT.md for the bounded audit and remaining risks.
+Preserve the compatibility-generator [Draft RFC #3](https://github.com/wuchqwq/mcp-dm/pull/3) as a future proposal. Local loopback is not authentication; retain existing data-sharing and filesystem limits. More historical native milestones remain in [RESULTS](experiments/native-bridge/RESULTS.md) and Git history rather than being presented as current pending sessions here.

@@ -27,10 +27,10 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 | Backend | Scope in this checkout | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Sixteen tools, including qualified bounded native operations, preview, READ and visible-document delivery; see the native workflow | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity and matching session. No Python fallback. |
+| Opt-in native | Eighteen catalog entries in this feature checkout; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
-The integrated native catalog has sixteen
+This feature checkout's native catalog has nineteen
 tools, including qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect
@@ -39,6 +39,44 @@ is selected before ABI calls; other builds remain unsupported. Inspect
 native crop/processing → numeric READ → explicit NPY handoff → external example.
 The new [lifecycle/chunked handoff guide](docs/NATIVE_LIFECYCLE_HANDOFF.md) covers exact retention tokens, `dm_native_result_info`/`dm_native_release`, pre-saved IDs, a fixed complete-region export command, original source-creation parameters, and the independent file verifier. Its multi-READ mode is separate from the older optional single-READ mean example.
 The integration remains experimental and is not a stable native release.
+
+The new read-only `dm_native_rois` links an explicit image ID to document/display
+and rectangle ROI identities; inspect `native_gui_rois` before using it. Its
+corrected direct-image source-layout/mapping has limited synthetic real-host
+qualification, including a separate qualified-artifact session and final-reference
+confirmation.
+Never choose the latest window or round an ineligible
+rectangle. `slice_ids` identifies slices, not axes; only the verified direct
+canonical-XY image source and admitted normalized mapping qualify. See
+[GUI ROI identity and coordinates](docs/NATIVE_GUI_ROI.md).
+
+ROIS v2 also preserves raw line endpoints; historical ROIS v1 is QUERY-only.
+For `dm_native_profile`, save the session, request ID, complete image/document/
+display/ROI identity and `expected_line` **before** submission. Width is explicitly
+1; endpoints must be integer source pixel centres on a horizontal/vertical line.
+The source must have equal nonzero signed scales and units on both axes. Geometry
+eligibility alone does not prove that a source meets the profile calibration
+contract. Read the actual capability and any rejection reason.
+The result contains a true 1D float64 image and immutable numeric bytes; QUERY
+recovers the original result without another extraction. Use the existing
+saved-response encoder for real `shape:[N]` NPY and calibrated sidecar, preserving
+native signed axis coordinates separately from ordered source trajectory/path
+distance. This is data handoff, not DM SaveAs. Native READ remains 2D; SHOW admits
+retained PROFILE/HISTOGRAM results through separate qualified 1D groups, preserving
+their actual rank and dtype. See [line/profile use and limits](docs/NATIVE_LINE_PROFILE.md).
+
+`dm_native_histogram` admits bounded ordinary float32 2D sources and 2..4096 bins,
+including more bins than pixels. Save the request ID and binary32 range before
+submission; the range must cover the whole source. DM computes the counts.
+The native image and NPY use uint32; the immutable wire payload uses exact
+binary64 values. Raw bin edges/range are retained separately from the native
+axis. Non-identity source intensity calibration stays unapplied with `bin_index`;
+only identity calibration and an explicit unit may admit the checked native
+intensity axis. Do not claim general physical-intensity conversion or DM SaveAs. See [histogram handoff](docs/NATIVE_HISTOGRAM.md).
+Reference release was verified after the one-shot returned to an idle host;
+the earlier immediate same-stack destruction assertion failed and is preserved.
+Do not turn a completed QUERY or a local wrapper release into a promise that
+all document-held or stack-held objects have already been destroyed.
 
 The initial uint32 subset covers ordinary-packed 2D metadata, raw mean/SUMMARY,
 same-dtype crop, preview and READ. Mean/SUMMARY stop at 2,097,152 pixels; uint32
@@ -60,7 +98,7 @@ Other integer types, native 4D and model-client acceptance remain outside this e
 
 New complete-region exports persist a per-capture request namespace before dispatch. Resume only the original journal in its original workspace; incomplete legacy unscoped journals are refused, never migrated or replayed. Completed old packages remain offline evidence, not newly verified source reads.
 
-Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. MCP SHOW/QUERY adds `display_context` with active-workspace visibility explicitly unknown; this does not probe or activate a workspace. GUI ROI, profile/histogram and native workspace enumeration/activation remain unqualified; see the lifecycle guide for the specific ABI gaps.
+Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. MCP SHOW/QUERY adds `display_context` with active-workspace visibility explicitly unknown; this does not probe or activate a workspace. GUI rectangle ROI and limited line profiles are the separately gated work above; diagonal/wide profiles and native workspace enumeration/activation remain unqualified. [Fourier precision attribution](docs/NATIVE_FFT_PRECISION.md) distinguishes direct DM agreement from a retained numerical accuracy FAIL; it does not promise lossless integer round trips.
 
 Native main targets Windows x64 GMS 3.53.4137.0 with exact binary gates. Do not relax a fingerprint check or reuse an unqualified ABI for another build. A missing optional feature is not an instruction to enable arbitrary scripts.
 
@@ -184,3 +222,8 @@ Conclude a task with the target data/ROI, actual backend and computation origin,
 Use [AGENTS.md](AGENTS.md), [scope decisions](docs/SCOPE_AUDIT.md) and the actual branch's native documentation. Preserve the human-first README: describe user tasks and availability there; put schemas, ABI details, recovery contracts and test logs in dedicated references. Keep both human-language versions aligned.
 
 Prefer finishing an end-to-end researcher task over adding unused operator names. DM-native capabilities stay native; explicitly requested external analysis stays a separate, provenance-preserving workflow. The [compatibility-generator RFC](https://github.com/wuchqwq/mcp-dm/pull/3) is future work and must not interrupt current native feature development.
+
+For the explicit GUI selection → native 1D measurement → document/NPY handoff,
+follow [the short workflow](docs/NATIVE_GUI_MEASUREMENTS.md). Preserve every
+side-effect request ID before submission; histogram raw bins, native uint32
+counts and binary64 transport are distinct.

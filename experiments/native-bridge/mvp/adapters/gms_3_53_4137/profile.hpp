@@ -4,6 +4,10 @@
 // All fingerprints and qualification declarations belong to this adapter.
 // Adding another version never extends this allowlist by approximate matching.
 namespace nb::gms353 {
+// Primary RasterImageDisplay vtable, cross-checked against this binary's RTTI
+// and the exact native count/get implementations used by the SF wrappers.
+inline constexpr std::uint32_t kRasterRoiVtableRva353 = 0xbbd298;
+inline constexpr std::uint32_t kSimpleImageSourceVtableRva353 = 0xbfe468;
 // Optional groups list every native entry they depend on. Losing a group never
 // changes core ABI admission or turns a different group into a fallback.
 inline CapabilityProfile operation_capability(const char* name, bool qualified, const char* scope,
@@ -47,8 +51,51 @@ inline const AdapterProfile& profile() {
             {"mfc140.dll", "#1487"},
         },
         {
-            {"native_datasets", true, "bounded native registry and metadata", {}, {}},
-            {"native_result_release", true, "explicit own image ID plus bridge retention token; plugin reference only; no document closure", {}, {}},
+            {"native_line_profile", true, "limited synthetic real-host qualification; float32/uint32 ordinary 2D direct-source; width1 integer axis-aligned GUI line; equal signed spatial scales and units; true 1D float64 snapshot <=4096 samples", {
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
+                {"GMSImage.dll", "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"},
+                {"GMSImage.dll", "?GetIntensityCalibration@Image@GMS@@QEAAXAEAM0AEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z"}},
+                {"roi_is_line", "roi_line", "line_profile_extract", "roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_display_image",
+                 "roi_raster_count", "roi_raster_at", "roi_id", "roi_is_rectangle", "roi_rectangle", "roi_is_selected", "roi_raster_dimensions", "roi_raster_mapping", "roi_raster_slice_id",
+                 "roi_simple_source_count", "roi_simple_source_slice_id", "roi_simple_source_extents", "roi_destroy_display_holder", "roi_destroy_roi"}},
+            // Rank-one PROFILE delivery is a separate admission group. It reuses
+            // the same document factory/entrypoints already qualified for 2D
+            // results, but a 1D result must never enter through the 2D group or
+            // be presented as a rewritten [1,N] raster.
+            {"native_profile_display", true, "limited synthetic qualification; plugin-owned rank-1 float64 PROFILE result only; no file save; host decides the 1D display", {
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
+            {"native_histogram_display", true, "limited synthetic qualification; plugin-owned rank-1 uint32 HISTOGRAM count image only; no file save; host decides the 1D display", {
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
+            // Histogram bar style is a display-only preference of the host's own line
+            // plot. It is applied only after the object is proven to be a
+            // LinePlotImageDisplay by its own RTTI name, then read back.
+            {"native_line_plot_style", false, "NOT_QUALIFIED after stricter pointer/RTTI/ownership guards; SHOW remains available with the host default style", {},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window",
+                 "roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_display_image", "roi_destroy_display_holder",
+                 "plot_style_get", "plot_style_set"}},
+            // Histogram creation and binning are vendor calls: the destination
+            // is a native 1D uint32 image from Image::CreateImage and the counts
+            // come from GMSImageProcessing::CalcHistogram. No bridge kernel.
+            {"native_histogram_axis", true, "pinned binary32 dimension setter; optional raw intensity axis only for identity source intensity calibration and resolved bin coordinates", {
+                {"GMSImage.dll", "?SetDimensionCalibration@Image@GMS@@QEAAXKMMAEBV?$char_range_t@_WU?$char_traits@_W@std@@@Gatan@@J@Z"}}, {}},
+            {"native_histogram", true, "limited synthetic qualification; float32 ordinary 2D <=4194304 pixels; caller range must cover complete source min/max; 2..4096 bins; uint32 counts; index axis unless optional identity-calibrated raw intensity axis is resolved", {
+                {"GMSImage.dll", "?CreateImage@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSize@Imaging@4@KAEBV?$char_range_t@_WU?$char_traits@_W@std@@@4@@Z"},
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
+                {"GMSImage.dll", "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"},
+                {"GMSImage.dll", "?GetIntensityCalibration@Image@GMS@@QEAAXAEAM0AEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z"},
+                {"GMSImageProcessing.dll", "?GetMinimum@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z"},
+                {"GMSImageProcessing.dll", "?GetMaximum@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z"},
+                {"GMSImageProcessing.dll", "?CalcHistogram@GMSImageProcessing@@YAXAEBV?$ref_ptr@VImage@GMS@@@Gatan@@0NN@Z"}}, {}},
+            {"native_datasets", true, "bounded native registry and metadata", {}, {}},            {"native_result_release", true, "explicit own image ID plus bridge retention token; plugin reference only; no document closure", {}, {}},
+            {"native_gui_rois", true, "readonly explicit ordinary 2D direct ImageSource_Simple raster; bounded rectangle snapshots; limited idle-host synthetic qualification",
+                {{"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}},
+                {"roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_display_image",
+                 "roi_raster_count", "roi_raster_at", "roi_id", "roi_is_rectangle", "roi_rectangle",
+                 "roi_is_selected", "roi_raster_dimensions", "roi_raster_mapping", "roi_raster_slice_id",
+                 "roi_simple_source_count", "roi_simple_source_slice_id", "roi_simple_source_extents",
+                 "roi_destroy_display_holder", "roi_destroy_roi"}},
             {"native_mean", true, "raw float32 2D mean, <=4194304 pixels", {
                 {"GMSImageProcessing.dll", "?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z"}}, {}},
             {"native_statistics", true, "raw float32 2D mean/minimum/maximum/sum, <=4194304 pixels", {
@@ -123,6 +170,32 @@ inline const AdapterProfile& profile() {
             {"image_document_show", "GMS.dll", 0x4b8a20},
             {"destroy_document_holder", "GMS.dll", 0x060e70},
             {"destroy_window", "GMS.dll", 0x57bab0},
+            {"roi_image_display_count", "GMS.dll", 0x2d8370},
+            {"roi_image_display_at", "GMS.dll", 0x4c2d10},
+            {"roi_resolve_display", "GMS.dll", 0x3cbbc0},
+            // One-byte display style flag of a LinePlotImageDisplay. The getter is
+            // two instructions; the setter compares, stores and repaints. Both are
+            // reached through the already qualified display resolution path.
+            {"plot_style_get", "GMS.dll", 0x20b490},
+            {"plot_style_set", "GMS.dll", 0x220cd0},
+            {"roi_display_image", "GMS.dll", 0x3d2d20},
+            {"roi_raster_count", "GMS.dll", 0x1a13a0},
+            {"roi_raster_at", "GMS.dll", 0x1a4470},
+            {"roi_id", "GMS.dll", 0x1bf530},
+            {"roi_is_line", "GMS.dll", 0x1bfc00},
+            {"roi_line", "GMS.dll", 0x1bf540},
+            {"line_profile_extract", "GMS.dll", 0xa07730},
+            {"roi_is_rectangle", "GMS.dll", 0x1bfc50},
+            {"roi_rectangle", "GMS.dll", 0x1bf820},
+            {"roi_is_selected", "GMS.dll", 0x2a9e60},
+            {"roi_raster_dimensions", "GMS.dll", 0x1a3270},
+            {"roi_raster_mapping", "GMS.dll", 0x2a5960},
+            {"roi_raster_slice_id", "GMS.dll", 0x2a4300},
+            {"roi_simple_source_count", "GMS.dll", 0x347b60},
+            {"roi_simple_source_slice_id", "GMS.dll", 0x34cd90},
+            {"roi_simple_source_extents", "GMS.dll", 0x34d4d0},
+            {"roi_destroy_display_holder", "GMS.dll", 0x299800},
+            {"roi_destroy_roi", "GMS.dll", 0x04fdd0},
         }
     };
     return value;

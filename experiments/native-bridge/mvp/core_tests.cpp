@@ -142,6 +142,22 @@ int main() {
         require(snapshots.accept(parse("read_snapshot READ 3 1 0 8 4")).receipt == snapshot_receipt);
         require(snapshots.accept(parse("read_snapshot READ 3 0 0 8 4")).receipt.find("id_conflict") != std::string::npos);
         require(!snapshots.begin(snapshot.dispatch_token, 321));
+        for (const auto& tail : {"p PROFILE 17 31 9 7 2 1 7 1", "p PROFILE 17 31 9 7 2 1 7 1 1 0",
+             "p PROFILE 17 31 9 7 -2 1 7 1 1", "p PROFILE 17 31 9 7 2.5 1 7 1 1", "p PROFILE 17 31 9 7 2 1 7 1 4294967296"})
+            reject("NB2 " + session + " " + tail);
+        nb::Core profiles(session, 123, 321); profiles.set_worker(777); profiles.mark_ready(321);
+        auto profile = profiles.accept(parse("saved_profile PROFILE 0017 31 9 7 2 1 7 1 1"));
+        identity(profile.receipt,"PROFILE","[17,31,9,7,2,1,7,1,1]","native_line_profile");
+        require(profiles.accept(parse("saved_profile PROFILE 17 31 9 7 2 1 7 1 1")).dispatch_token == 0);
+        auto profile_active = profiles.begin(profile.dispatch_token,321);require(profile_active != nullptr);
+        identity(profiles.accept(parse("saved_profile QUERY")).receipt,"PROFILE","[17,31,9,7,2,1,7,1,1]","native_line_profile");
+        profiles.finish(profile_active,"{\"image_id\":37,\"shape\":[6]}");
+        const auto profile_receipt=profiles.accept(parse("saved_profile QUERY")).receipt;
+        require(profile_receipt.find("\"image_id\":37")!=std::string::npos);
+        require(profiles.accept(parse("saved_profile PROFILE 17 31 9 7 2 1 7 1 1")).receipt==profile_receipt);
+        require(profiles.accept(parse("saved_profile PROFILE 17 31 9 7 2 1 8 1 1")).receipt.find("id_conflict")!=std::string::npos);
+        require(profiles.accept(parse("saved_profile READ 17 0 0 1 1")).receipt.find("id_conflict")!=std::string::npos);
+        require(!profiles.begin(profile.dispatch_token,321));
         nb::Core fourier(session, 123, 321); fourier.set_worker(777); fourier.mark_ready(321);
         for (const auto* op : {"FFT", "IFFT", "REAL", "IMAG", "VENDOR_ARG", "VENDOR_NORM"}) {
             const std::string id = std::string("v2_") + op;

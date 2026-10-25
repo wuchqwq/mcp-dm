@@ -412,17 +412,190 @@ sequential with `snapshot_atomic:false`. Generic NB1 QUERY carries no original
 operation; independent acceptance continues semantic checks using its original
 tool/ID/parameter ledger. See [SUMMARY acceptance](mvp/SUMMARY_ACCEPTANCE.md).
 
+
+## Native one-dimensional results, image creation and histogram
+
+A rank-one image needs no new document interface. `ImageGetOrCreateImageDocument`
+receives only an `Image*` and selects the display itself, so the same qualified
+document factory and show entrypoint deliver a PROFILE or histogram result. The
+actual host reports display type code 3 for those rank-one documents while a
+two-dimensional raster reports 1. The bridge keeps that as an observation, not as
+a promised enum: `display_class` is `host_selected` and no class name is claimed.
+Admission is split into `native_profile_display` (float64 samples) and
+`native_histogram_display` (uint32 counts) so neither rides the 2D display group.
+
+`Image::CreateImage(DataSize const&, uint32 type, char_range_t<wchar_t> const&)`
+is an exported static member. The hidden `ref_ptr<Image>` destination is argument
+one, `DataSize` is argument two, the scalar type code is argument three and the
+name range is argument four; the image reference is read from the destination,
+never from the returned pointer. Two PODs were closed statically:
+
+```cpp
+struct DataSize353 { std::uint32_t dimensions, padding; std::int64_t size[5]; }; // 48 bytes
+struct CharRange353 { const wchar_t* begin, *end; };                            // 16 bytes
+```
+
+`Check_ImageDataSize` reads the rank dword at offset 0 and non-zero `int64`
+extents from offset 8, which fixes the first layout; `SetUnicodeName` computes
+`(end - begin) / 2` and compares elements, which fixes the second.
+
+`GMSImageProcessing::CalcHistogram(ref_ptr<Image> const&, ref_ptr<Image> const&,
+double, double)` is exported and is the operator behind the script
+`ImageCalculateHistogram`. The destination is a caller-created one-dimensional
+image; the bridge creates it with type code 11, reads every bin back through the
+already qualified rank-one `GetRealValue` path and requires the counts to be
+exact integers whose total equals the source pixel count.
+
+`Image::SetDimensionCalibration(uint32, float, float, char_range_t const&, int32)`
+is exported and now bound. Disassembly of the pinned build shows XMM2 carrying the
+origin **in the requested format** and XMM3 the scale; the trailing int32 (stack
+argument 6) is the format. `format = 0` branches to a divide: the stored index
+origin becomes `-(origin / scale)`, while `format = 1` stores the given index
+origin unchanged. A format-0 read therefore multiplies the stored index origin by
+the scale again, which is why a physical read-back is not bit-exact: a DM-Python
+oracle that writes `origin = -15.5`, `scale = 2.796875` reads back
+`-15.499999046325684`, and the native read agrees to the same last bit.
+
+For the histogram axis, the integration guard models the actual binary32
+quotient and product, checks both stored origin and reconstructed physical zero,
+and bounds local rounding/whole-axis drift relative to a bin. The previous
+`epsilon * max(abs(origin),abs(scale),1)` floor is not a local ULP bound and is
+rejected. Only identity source intensity calibration plus an explicit unit may
+label raw bin positions with that unit; other sources retain bin_index. See
+[the axis audit](../../docs/HISTOGRAM_AXIS_AUDIT.md).
+
+`LinePlotImageDisplaySetHistogramStyle` is a script-registered function whose
+argument goes through a script-object unwrap followed by
+`__RTDynamicCast(..., &Annotation::RTTI_Type_Descriptor,
+&LinePlotImageDisplay::RTTI_Type_Descriptor, 0)` before the internal setter runs.
+The internal setter only compares, stores and repaints one byte of the display
+object, and a dedicated two-instruction getter returns that byte; a scan of the
+module shows no other reader or writer of the field. The bridge therefore skips
+the script layer entirely: it resolves the display through the already qualified
+ROI display path, proves the dynamic type by reading the decorated name in the
+object's own complete object locator, calls the setter, and reads the byte back
+through the getter. Anything that is not proven to be that class is left alone.
+
 ## Minimum runtime verification order
 
-### Current GUI and workspace boundary
+### GUI line extraction and true one-dimensional handoff
+
+The exact-build `native_line_profile` group has limited synthetic actual-host
+qualification and profile admission is enabled. The final qualified artifact
+also passed independent fresh-host confirmation with loaded module identity
+matched to the source build and a strict pre-MCP baseline. All existing module
+fingerprint gates remain unchanged; the additional typed entrypoints and PODs
+live only in the version adapter's line/profile implementation and contract.
+No optional module, guessed address, generic memory search or Python fallback
+is used to expand another host version's admission.
+
+The source is an owned explicit GMS image reference. ROIS v2 binds the complete
+document/display/ROI identity and ordered raw line to the same qualified direct
+source/mapping as the rectangle path. A one-shot typed
+`LiveProfile_ExtractLineProfile` call receives that source and verified line
+parameters and returns a new owned image pointer, immediately guarded by the
+existing image-reference RAII. The name does not expose a live evaluator or a
+background listener. Identity and metadata checks occur around extraction;
+they are not an atomic pixel/GUI lock.
+
+The source must be ordinary 2D float32/uint32 within its existing source budget.
+Only width one, nonzero axis-aligned integer centres and complete equal signed
+spatial scales/units qualify, at most 4096 endpoint-inclusive samples. Known
+Fourier/unresolved retained scientific lineage is refused. Output must be native
+rank one, ordinary packing and float64 type code 12. A separately described
+rank-one native index reads double values without a float32 cast or fabricated
+second dimension. Output raw origin/physical zero remain zero, signed scale and
+unit are read back, and the typed intensity-calibration getter verifies the
+native copy while `intensity_calibration_applied:false` remains explicit.
+
+The immutable PROFILE receipt includes frozen little-endian float64 values and
+retention identity. The external saved-response encoder writes actual `[N]`
+NPY/schema-1 metadata with that original receipt, source GUI line, both
+calibrations and sample trajectory. It is data handoff, not DM SaveAs. RELEASE
+and STOP share the existing owned-reference path. Existing 2D READ and 2D display admission still
+reject rank-one images; no new general 1D scientific API is implied.
+
+Independent prepared-host checks matched nonlinear and high-unsigned controls,
+reverse order, signed calibration and complete unchanged sources/GUI/documents.
+Released and stopped hidden outputs were independently invalid after return to
+host idle, followed by normal exit and manifest cleanup. The final qualified
+artifact repeated direction and boundary controls, raw rank-one float64 values,
+full source/GUI/calibration invariance, original QUERY, fresh availability and
+release/STOP checks. Invalid GUI identity/expected endpoints, anisotropic input
+and old 2D SHOW/READ on 1D results were refused without result-pool growth. Saved
+NPY files reopened independently after host exit. The GUI lines were created
+by a synthetic fixture API; no model-viewing or real-experiment claim follows.
+A prior fixture's
+fractional GUI coordinates changed before native processing, correctly failing
+its inventory oracle. A separate STOP oracle initially assumed positive host
+execution TID; its preserved FAIL was corrected using the existing NB2 worker
+acknowledgement (`exec_tid:0`, original worker/request/PID and `ipc_stopped:true`),
+with independent negative cases. Neither correction relaxes numerical, source,
+geometry or file validation. See [profile scope](../../docs/NATIVE_LINE_PROFILE.md).
+
+### Earlier GUI rectangle continuation: typed read-only ownership, limited qualification
+
+The feature adapter now has an independently gated `native_gui_rois` group;
+the corrected direct-source-layout/mapping now has limited prepared synthetic
+actual-host qualification and profile admission is enabled. Independent session
+confirmation for the newly built qualified artifact also passed in a separate
+session with exact loaded identity, independent source/ROI and final references. Its
+fixed-build layouts and entrypoints live only in
+`mvp/adapters/gms_3_53_4137/roi_contract.hpp`, `roi_adapter.inc` and the version
+profile, not in common transport or Node. Existing module fingerprints remain
+mandatory and unknown versions are refused before this optional vendor path.
+
+Display enumeration uses the explicit image reference. An owned display-holder
+keeps its document/component context alive while the resolved display pointer
+is borrowed. Reverse image lookup returns an independently guarded reference
+which must match both the original pointer and image ID. Each acquired ROI uses
+the traced owning getter/destructor contract. IDs are composed from image,
+document, display component and ROI; they are not global ROI names or addresses.
+No document, source pixels or selection is created or modified by ROIS.
+
+Raster type and relevant vtable entries are checked before their typed getters.
+Direct getters retain errors instead of inheriting SF wrappers' exception-to-zero
+behavior. The selected-ID getter returns slice IDs, not dimensions or an axis
+permutation. Static tracing closes the direct source contract through the exact
+ImageSource_Simple class, typed identity equal to the requested GMS image, and
+its native GetSize path's canonical XY order. That path does not reorder axes;
+an axis getter is not used. Only this direct source layout, slice_ids:[0] and
+exact binary32 reciprocal normalization establish source-pixel alignment, not
+a guessed identity mapping or GUI zoom. Sliced/Group/Summed and other sources
+are unsupported. Raster replies preserve slice_ids and source_layout; unsupported
+displays report null for both rather than inventing a direct layout.
+Raw top/left/bottom/right values and rotation are preserved; only integral,
+finite, nonempty, in-bounds unrotated rectangles become half-open analysis ROIs.
+Repeated reads detect changes but do not provide an atomic GUI/source lock.
+See [the complete contract and bounded evidence](../../docs/NATIVE_GUI_ROI.md).
+
+Initial actual-host discovery confirmed raw identity/geometry but failed
+analysis eligibility under the old mapping assumption. A later observation
+also retained eligibility FAIL when slice IDs were misinterpreted as axes. The
+source/size ABI gap is now statically closed. Neither failed observation
+qualified the corrected implementation; its later prepared actual-host test did
+so independently. Explicit native ROI/crop/READ and multiblock handoff matched
+independent same-PID source/selection/calibration observations. Static reference
+accounting is balanced. The immediate same-stack source-destruction assertion
+after fixture cleanup failed and is preserved; a separate later idle-host
+observation found fixtures invalid and documents restored without extra native
+calls. This proves the bounded after-return lifecycle, not synchronous
+destruction of Python/document-held references on the current stack.
+At that earlier boundary, native line getters and LiveProfile were separate
+candidates without their own qualification or bounded 1D handoff. The later
+limited line/profile path is recorded above; histogram, wider/diagonal profiles
+and other source layouts remain unqualified.
+
+### Earlier GUI and workspace boundary
 
 The new RELEASE path uses the already qualified image-reference release ABI;
 its bridge token identifies a retained result in this session, not a vendor
 pointer or reusable host image ID. No new vendor entrypoint or module pin was
 introduced. Historical creation replies remain immutable after release.
 
-GUI ROI, profile, histogram, workspace activation and annotations remain
-unqualified. Reviewed ImageUtilities candidates use `Gatan::DM::Image`, ROI,
+The earlier investigation left GUI ROI, profile, histogram, workspace activation
+and annotations unqualified; the gated rectangle continuation is described
+above. Reviewed ImageUtilities candidates use `Gatan::DM::Image`, ROI,
 ImageDisplay/ScriptObject or utility-object layouts, not the adapter's existing
 `GMS::Image` reference contract. The histogram candidate additionally needs a
 proven typed 1D destination constructor, calibration/bin semantics and lifetime.

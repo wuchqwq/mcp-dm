@@ -47,8 +47,8 @@ FFT 的频率峰也不是自动确认的晶面或物相。预览是否能被模�
 | 路径 | 当前范围 | 使用前要知道 |
 |---|---|---|
 | **主线默认：v0.6 Python 后端** | 图像与元数据读取、二维统计、剖面、FFT 摘要、裁剪、科学数据导出，以及可选的捕获与预览 | 通过 DM 内嵌 Python 连接；部分数值计算使用 NumPy。预览需要独立环境，详见安装指南。 |
-| **可选：原生 C++ 实验后端** | 当前分支 16 个工具：原生摘要、裁剪、有限算术/FFT/滤波、PNG 预览、可见文档和有界数值交接 | 仅限 Windows x64 GMS **3.53.4137.0** 的精确指纹与各操作已验证的类型/尺寸。NPY 交接不等于 DM 原生文件保存；详见[原生工作流](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md)。 |
-| **下一阶段** | GUI 选区、原生剖面/直方图和工作区切换 | 见[官方功能对照与优先级](docs/NATIVE_NEXT_STAGE.md)；未实现的项目不是当前能力。 |
+| **可选：原生 C++ 实验后端** | 当前分支 19 个工具：原生摘要、裁剪、有限算术/FFT/滤波、GUI 矩形与线选区、一维剖面和直方图、PNG 预览、可见文档与有界数值交接 | 仅限 Windows x64 GMS **3.53.4137.0** 的精确指纹与各操作已验证的类型/尺寸。NPY 交接不等于 DM 原生文件保存；详见[原生工作流](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md)。 |
+| **下一阶段：晶体学测量** | 衍射图的尺度、晶面间距与夹角测量；FCC/BCC 候选索引；HRTEM/ADF 局部 FFT 比较 | 见[下一阶段任务](docs/DIFFRACTION_NEXT_STAGE.md)。先由用户确认中心和斑点；这些是开发目标，不是现成的自动标定或自动判相能力。 |
 
 **第一次试用，先用主线默认后端。** 原生版本请单独阅读[实验说明与版本限制](experiments/native-bridge/mvp/README.md)，不要直接在未知 GMS 版本上使用。
 
@@ -103,3 +103,5 @@ Node 服务没有 npm 运行依赖。随后按 [MCP 配置示例](mcp.json.examp
 项目代码采用 [MIT License](LICENSE)。DigitalMicrograph/GMS、Gatan 运行时、厂商文档和实验数据不随仓库分发；本项目不是 Gatan 官方产品。
 
 当前分支新增[中间结果释放与完整区域数值交接](docs/NATIVE_LIFECYCLE_HANDOFF.md)，继续保留实验后端的类型、尺寸和版本限制。SHOW 回执不保证当前工作区可见；原生工作区切换尚未接通。
+
+实验原生后端支持[读取明确图像的 GUI 矩形选区并接续分析](docs/NATIVE_GUI_ROI.md)、[宽度 1 像素的水平或竖直原生剖面](docs/NATIVE_LINE_PROFILE.md)和[有限原生直方图](docs/NATIVE_HISTOGRAM.md)，可交给 DM 文档显示并导出真实一维 NPY 与元数据。均保留各自的限定资格范围；斜线、宽线及一般物理强度换算尚未接通。完整步骤见[GUI 测量与数据交接](docs/NATIVE_GUI_MEASUREMENTS.md)。

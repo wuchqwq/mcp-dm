@@ -26,7 +26,7 @@ SCALARS = ("minimum", "maximum", "sum", "mean")
 LABELS = {"DEFAULT", "CALIBRATED_INTENSITY", "RAW_UNITS", "UINT16", "NONFINITE"}
 CATALOG = {"dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary",
            "dm_native_result", "dm_crop", "dm_native_show", "dm_native_unary", "dm_native_binary",
-           "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release"}
+           "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile"}
 BACKEND = "digitalmicrograph-native"
 COORDINATE_RULE = "physical(i)=calibrated_value_at_pixel_zero+i*scale"
 

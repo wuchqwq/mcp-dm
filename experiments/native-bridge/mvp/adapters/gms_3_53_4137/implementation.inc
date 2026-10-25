@@ -8,6 +8,9 @@
 #include "fft_contract.hpp"
 #include "preview_contract.hpp"
 #include "read_contract.hpp"
+#include "roi_contract.hpp"
+#include "line_profile_contract.hpp"
+#include "histogram_contract.hpp"
 #include "adapters/gms_3_53_4137/profile.hpp"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -48,6 +51,9 @@ using Binary = NativeRef* (*)(NativeRef*, const NativeRef*, const NativeRef*);
 using Packing = nb::NativePacking353* (*)(const void*, nb::NativePacking353*);
 using RealValue = double (*)(const void*, const nb::NativeDataIndex2D353*);
 using Crop = NativeRef* (*)(const void*, NativeRef*, const nb::NativeDataSlice353*);
+// LinePlot style flag: getter returns the byte, setter compares, stores, repaints.
+using PlotStyleGet = bool (*)(const void*);
+using PlotStyleSet = void (*)(void*, bool);
 using Delete = void (*)(void*);
 using VendorFree = void (*)(void*);
 using GetDocument = nb::ScriptImageDocument353* (*)(void*);
@@ -97,6 +103,9 @@ struct RetainedResult {
     std::vector<std::string> scientific_processing{};
     bool scientific_unresolved = false;
     std::uint32_t retention_token = 0;
+    // Frozen scientific context of a HISTOGRAM; never parsed from mutable UI.
+    std::string histogram_axis_context = "null", histogram_axis_unit{};
+    std::array<float, 3> histogram_axis_values{};
 };
 std::map<std::uint32_t, RetainedResult> retained_results;
 std::uint64_t retained_result_bytes = 0;
@@ -473,8 +482,12 @@ std::uint32_t packing_style(void* image) {
     require_ready();
     return packing.value;
 }
-std::string metadata(void* image, bool strict_calibration = true) {
+std::string metadata(void* image, bool strict_calibration = true, const char* rank1_label = nullptr) {
     auto ndim = api.ndim(image), code = api.dtype(image);
+    const bool rank_one = rank1_label != nullptr;
+    if (rank_one && (ndim != 1 || (code != nb::kProfileFloat64Code353 && code != nb::kHistogramUint32Code353) ||
+        packing_style(image) != 1))
+        throw std::runtime_error("native_rank1_output_descriptor_mismatch");
     if (ndim < 1 || ndim > 4) throw std::runtime_error("unsupported_dimension_count");
     std::vector<std::uint32_t> sizes;
     std::uint64_t pixels = 1;
@@ -488,7 +501,7 @@ std::string metadata(void* image, bool strict_calibration = true) {
     auto s = json_stream();
     s << "{\"id\":" << api.id(image) << ",\"name\":" << nb::quote(name.utf8(1024))
       << ",\"ndim\":" << ndim << ",\"data_type_code\":" << code
-      << ",\"dtype\":" << (code == 2 ? "\"float32\"" : code == 3 ? "\"complex64\"" : code == nb::kUint32Code353 ? "\"uint32\"" : "null");
+      << ",\"dtype\":" << (rank_one ? (code == nb::kProfileFloat64Code353 ? "\"float64\"" : "\"uint32\"") : code == 2 ? "\"float32\"" : code == 3 ? "\"complex64\"" : code == nb::kUint32Code353 ? "\"uint32\"" : "null");
     if (code == nb::kUint32Code353) s << ",\"is_integer\":true,\"is_unsigned\":true";
     const auto packing = api.packing ? packing_style(image) : UINT32_MAX;
     s << ",\"packing_style\":" << (api.packing ? std::to_string(packing) : "null")
@@ -496,7 +509,7 @@ std::string metadata(void* image, bool strict_calibration = true) {
     for (std::uint32_t i = 0; i < ndim; ++i) { if (i) s << ','; s << sizes[ndim - i - 1]; }
     s << "],\"dm_dimensions\":[";
     for (std::uint32_t i = 0; i < ndim; ++i) { if (i) s << ','; s << sizes[i]; }
-    s << "],\"shape_order\":\"numpy (last axis is X)\",\"pixels\":" << pixels
+    s << "],\"shape_order\":" << nb::quote(rank_one ? rank1_label : "numpy (last axis is X)") << ",\"pixels\":" << pixels
       << ",\"calibration\":[";
     bool calibration_complete = true;
     for (std::uint32_t d = 0; d < ndim; ++d) {
@@ -567,8 +580,34 @@ CropAxisCalibration crop_axis_calibration(void* image, std::uint32_t axis) {
 std::array<CropAxisCalibration, 2> crop_calibration(void* image) {
     return {crop_axis_calibration(image, 0), crop_axis_calibration(image, 1)};
 }
+std::array<float, 3> histogram_axis_values353(void* image, std::string& units) {
+    float zero = 0, scale = 0, origin = 0, raw_scale = 0; VendorString unit;
+    api.calibration(image, 0, &zero, &scale, &unit.value, 0);
+    api.calibration(image, 0, &origin, &raw_scale, nullptr, 1);
+    require_ready();
+    if (!std::isfinite(zero) || !std::isfinite(scale) || !std::isfinite(origin) || scale != raw_scale || !scale)
+        throw std::runtime_error("native_histogram_axis_descriptor_invalid");
+    units = unit.utf8(256);
+    return {zero, scale, origin};
+}
 void write_rect(std::ostringstream& s, const std::array<std::uint32_t, 4>& rect) {
     s << '[' << rect[0] << ',' << rect[1] << ',' << rect[2] << ',' << rect[3] << ']';
+}
+// Host line-plot style. Declared here because the entry points it needs live in
+// the ROI adapter, which is included after SHOW. Returns "histogram" only when the
+// host object was proven to be a LinePlotImageDisplay and the flag read back.
+const char* apply_histogram_style353(const NativeRef& image, const char** reason);
+// Appends a display-only style receipt to an already valid reply object.
+std::string attach_display_style353(std::string result, const char* style, const char* reason) {
+    if (result.empty() || result.back() != '}') throw std::runtime_error("native_show_result_invalid");
+    result.pop_back();
+    result += ",\"display_style\":";
+    result += nb::quote(style);
+    result += ",\"display_style_scope\":\"host line-plot presentation only; no scientific claim; reversible in the DM UI\"";
+    if (reason && *reason) result += ",\"display_style_reason\":" + nb::quote(reason);
+    result += '}';
+    if (!nb::valid_json(result)) throw std::runtime_error("native_show_result_invalid");
+    return result;
 }
 std::string execute_show(const NativeRequest& request) {
     if (request.args.size() != 1) throw std::runtime_error("native_show_requires_one_image_id");
@@ -576,7 +615,23 @@ std::string execute_show(const NativeRequest& request) {
     const auto owned = retained_results.find(id);
     if (!id || owned == retained_results.end()) throw std::runtime_error("native_show_requires_plugin_result");
     const bool uint32 = owned->second.data_type_code == nb::kUint32Code353;
-    if (uint32) {
+    // A true rank-one result has its own delivery group. It is never admitted by
+    // the 2D display group, and no tool may relabel it as a [1,N] raster. The
+    // document call shape below is the already qualified one; only the
+    // descriptor admission differs. PROFILE keeps native float64 samples and
+    // HISTOGRAM keeps native uint32 bin counts, each behind its own group.
+    const bool profile_1d = owned->second.kind == ResultKind::NativeOperation &&
+        owned->second.operation == "PROFILE" && owned->second.data_type_code == nb::kProfileFloat64Code353;
+    const bool histogram_1d = owned->second.kind == ResultKind::NativeOperation &&
+        owned->second.operation == "HISTOGRAM" && owned->second.data_type_code == nb::kHistogramUint32Code353;
+    const bool one_dimensional = profile_1d || histogram_1d;
+    const char* one_dimensional_group = profile_1d ? "native_profile_display" : "native_histogram_display";
+    if (one_dimensional) {
+        if (!qualified_capability353(one_dimensional_group) || !api.get_document || !api.show_document ||
+            !api.destroy_document_holder || !api.destroy_window)
+            throw std::runtime_error(std::string(one_dimensional_group) + "_not_qualified");
+    }
+    if (uint32 && !one_dimensional) {
         require_uint32_operation353("native_uint32_display", api.get_document && api.show_document &&
             api.destroy_document_holder && api.destroy_window && api.packing);
         const bool filter = owned->second.operation == "FILTER" && owned->second.uint32_operation_lineage &&
@@ -590,11 +645,24 @@ std::string execute_show(const NativeRequest& request) {
         throw std::runtime_error("image_identity_mismatch");
     // Image IDs and pointers can survive user edits. Creation-time dtype must
     // not admit a different current dtype through another display policy.
-    if (api.dtype(image.value.image) != owned->second.data_type_code)
-        throw std::runtime_error("native_show_result_descriptor_changed");
-    if (uint32 && (api.dtype(image.value.image) != 11 || api.ndim(image.value.image) != 2 ||
-        packing_style(image.value.image) != 1))
-        throw std::runtime_error("native_show_uint32_descriptor_mismatch");
+    if (one_dimensional) {
+        const auto code = api.dtype(image.value.image);
+        const auto expected_code = profile_1d ? nb::kProfileFloat64Code353 : nb::kHistogramUint32Code353;
+        if (api.ndim(image.value.image) != 1 || code != expected_code || packing_style(image.value.image) != 1)
+            throw std::runtime_error(std::string(one_dimensional_group) + "_descriptor_changed");
+        // The frozen receipt size is the only admissible element count.
+        const std::uint64_t element = profile_1d ? sizeof(double) : sizeof(std::uint32_t);
+        if (owned->second.bytes % element != 0 ||
+            static_cast<std::uint64_t>(api.dimension(image.value.image, 0)) != owned->second.bytes / element)
+            throw std::runtime_error(std::string(one_dimensional_group) + "_sample_count_changed");
+    } else {
+        if (api.ndim(image.value.image) != 2) throw std::runtime_error("native_show_requires_qualified_2d_result");
+        if (api.dtype(image.value.image) != owned->second.data_type_code)
+            throw std::runtime_error("native_show_result_descriptor_changed");
+        if (uint32 && (api.dtype(image.value.image) != 11 || api.ndim(image.value.image) != 2 ||
+            packing_style(image.value.image) != 1))
+            throw std::runtime_error("native_show_uint32_descriptor_mismatch");
+    }
     if (!api.get_document || !api.show_document || !api.destroy_document_holder || !api.destroy_window)
         throw std::runtime_error("native_show_entrypoint_unavailable");
     // Finish bounded local result construction before requesting any UI change.
@@ -605,9 +673,27 @@ std::string execute_show(const NativeRequest& request) {
       << ",\"ownership\":\"host document holds image; plugin result reference released at normal STOP/cleanup\""
       << ",\"source_write_requested\":false,\"snapshot_atomic\":false"
       << ",\"file_saved\":false,\"model_visual_verification\":false";
-    if (uint32) s << ",\"image\":" << metadata(image.value.image);
+    if (one_dimensional) {
+        // A PROFILE axis must be complete; a histogram axis may legitimately be
+        // an uncalibrated bin index, which is reported, never invented.
+        const auto one_dimensional_metadata = metadata(image.value.image, profile_1d,
+            profile_1d ? "one-dimensional native profile samples" : "one-dimensional native histogram bins");
+        if (histogram_1d) {
+            std::string unit;
+            if (owned->second.histogram_axis_context == "null" ||
+                histogram_axis_values353(image.value.image, unit) != owned->second.histogram_axis_values ||
+                unit != owned->second.histogram_axis_unit)
+                throw std::runtime_error("native_histogram_display_axis_changed");
+            s << ",\"histogram_axis_context\":" << owned->second.histogram_axis_context;
+        }
+        s << ",\"rank\":1,\"display_family\":\"native_1d_image_document\""
+          << ",\"display_class\":\"host_selected\""
+          << ",\"retained_operation\":" << nb::quote(owned->second.operation)
+          << ",\"one_dimensional_display\":" << one_dimensional_metadata;
+    }
+    if (uint32 && !one_dimensional) s << ",\"image\":" << metadata(image.value.image);
     s << '}';
-    const auto result = s.str();
+    auto result = s.str();
     if (!nb::valid_json(result)) throw std::runtime_error("native_show_result_invalid");
     require_ready();
     ShowRef holder(api.get_document(image.value.image), 0, api.destroy_document_holder);
@@ -627,6 +713,15 @@ std::string execute_show(const NativeRequest& request) {
     if (!window.value) throw std::runtime_error("native_show_window_unavailable");
     validate_show_reference(window.value, nb::kNativeWindowReferenceOffset353);
     require_ready();
+    // The count image of a histogram reads far better with the host's own bar
+    // style. This is presentation only: it is applied after the document exists,
+    // proven against the host type name, and read back through the host getter.
+    if (histogram_1d) {
+        const char* reason = "style_not_qualified";
+        const auto* style = qualified_capability353("native_line_plot_style") ?
+            apply_histogram_style353(image.value, &reason) : "default";
+        result = attach_display_style353(result, style, reason);
+    }
     // Reverse-order guards release our Window and holder references here. No
     // document/window is retained by the plugin or closed during native STOP.
     return result;
@@ -841,6 +936,10 @@ std::string execute_arithmetic(const NativeRequest& request) {
 #include "filter_adapter.inc"
 #include "preview_adapter.inc"
 #include "read_adapter.inc"
+#include "roi_adapter.inc"
+#include "plot_style.inc"
+#include "line_profile_adapter.inc"
+#include "histogram_adapter.inc"
 #include "result_release.inc"
 } // namespace
 
@@ -920,6 +1019,10 @@ void initialize_native() {
             api.get_document = nullptr; api.show_document = nullptr;
             api.destroy_document_holder = nullptr; api.destroy_window = nullptr;
         }
+        initialize_roi353(gms);
+        initialize_plot_style353(gms);
+        initialize_histogram353(image, processing);
+        initialize_line_profile353(gms, image);
         gate_error.clear();
     } catch (const std::exception& error) { gate_error = error.what(); }
 }
@@ -982,12 +1085,25 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("filter_small_uint32_2d", available("native_uint32_filters", filters));
         capability("fourier_uint32_small_2d", available("native_uint32_fft", fourier));
         capability("release_plugin_result_reference", available("native_result_release", true));
+        capability("native_line_profile", available("native_line_profile", line_api353.ready() && roi_api353.ready()));
+        capability("show_profile_float64_1d_visible_document", available("native_profile_display", display && api.packing));
+        capability("show_histogram_uint32_1d_visible_document", available("native_histogram_display", display && api.packing));
+        capability("native_histogram_axis", available("native_histogram_axis", histogram_api353.set_dimension_calibration && api.calibration));
+        capability("native_histogram", available("native_histogram", api.packing && histogram_api353.ready() && api.minimum && api.maximum));
+        capability("read_gui_rectangle_rois", available("native_gui_rois", roi_api353.ready() && api.packing));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
           << ",\"build_error\":" << (fatal_abi ? "\"native_abi_invalid_output_path_disabled\"" : gate_error.empty() ? "null" : nb::quote(gate_error)) << '}';
         return s.str();
     }
     require_ready();
+    if (request.op == "ROIS") return execute_rois353(request);
+    if (request.op == "PROFILE") return execute_line_profile353(request);
+    if (request.op == "HISTOGRAM") {
+        if (!qualified_capability353("native_histogram"))
+            throw std::runtime_error("native_operation_not_qualified:native_histogram");
+        return execute_histogram353(request);
+    }
     if (request.op == "UNARY" || request.op == "BINARY" || request.op == "FILTER" || request.op == "PREVIEW" || request.op == "READ" || nb::is_fft_operation353(request.op)) {
         const char* group = request.op == "UNARY" || request.op == "BINARY" ? "native_image_arithmetic" :
             request.op == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
@@ -1014,7 +1130,24 @@ static std::string execute_operation(const NativeRequest& request) {
             auto id = api.id(image.value.image);
             if (!ids.insert(id).second) throw std::runtime_error("dataset_enumeration_changed");
             if (i) s << ',';
-            s << metadata(image.value.image, false);
+            // Only an exact retained creator and live descriptor qualify the
+            // special rank-one label. Numeric ID reuse, edits, or another dtype
+            // must not borrow a PROFILE/HISTOGRAM creation-time qualification.
+            const auto owned = retained_results.find(id);
+            const char* rank1_label = nullptr;
+            if (owned != retained_results.end() && owned->second.kind == ResultKind::NativeOperation &&
+                owned->second.value.image == image.value.image && api.ndim(image.value.image) == 1 &&
+                api.dtype(image.value.image) == owned->second.data_type_code && api.packing &&
+                packing_style(image.value.image) == 1) {
+                const auto& retained = owned->second;
+                if (retained.operation == "PROFILE" && retained.data_type_code == nb::kProfileFloat64Code353 &&
+                    retained.bytes == static_cast<std::uint64_t>(api.dimension(image.value.image, 0)) * sizeof(double))
+                    rank1_label = "one-dimensional native profile samples";
+                if (retained.operation == "HISTOGRAM" && retained.data_type_code == nb::kHistogramUint32Code353 &&
+                    retained.bytes == static_cast<std::uint64_t>(api.dimension(image.value.image, 0)) * sizeof(std::uint32_t))
+                    rank1_label = "one-dimensional native histogram bins";
+            }
+            s << metadata(image.value.image, false, rank1_label);
             require_ready();
         }
         require_ready();
@@ -1140,6 +1273,8 @@ void shutdown_native() {
     released_results353.clear();
     released_image_ids353.clear();
     api = Api{};
+    roi_api353 = RoiApi353{};
+    line_api353 = LineApi353{};
     gate_error = "native_adapter_stopped";
 }
 bool nb353_ready() { return gate_error.empty() && !fatal_abi; }
@@ -1147,8 +1282,19 @@ std::string nb353_error() {
     return fatal_abi ? "native_abi_invalid_output_path_disabled" : gate_error;
 }
 void nb353_observe_entries(nb::HostObservation& host) {
+    if (roi_api353.ready()) {
+        for (const auto& entry : nb::gms353::profile().entries)
+            if (std::string(entry.key).find("roi_") == 0 && std::string(entry.key)!="roi_is_line" && std::string(entry.key)!="roi_line")
+                host.valid_entry_contracts.insert(entry.key);
+    }
+    if (line_api353.ready()) for (const auto* entry : {"roi_is_line","roi_line","line_profile_extract"})
+        host.valid_entry_contracts.insert(entry);
     if (api.get_document) host.valid_entry_contracts.insert("image_get_or_create_document");
     if (api.show_document) host.valid_entry_contracts.insert("image_document_show");
     if (api.destroy_document_holder) host.valid_entry_contracts.insert("destroy_document_holder");
     if (api.destroy_window) host.valid_entry_contracts.insert("destroy_window");
+    if (plot_style_get353 && plot_style_set353 && roi_api353.ready()) {
+        host.valid_entry_contracts.insert("plot_style_get");
+        host.valid_entry_contracts.insert("plot_style_set");
+    }
 }
