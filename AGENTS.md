@@ -11,6 +11,7 @@ Reports/replay are optional examples retained for compatibility, not the core
 acceptance gate. Keep native APIs, coordinate contracts, source protection and
 honest errors. Do not add an agent framework, scheduler, report platform or
 4D features as part of scope cleanup. Scope decisions are in docs/SCOPE_AUDIT.md.
+Current product direction is [the interactive microscopy workflow](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md): make a verified DM image viewable to the Agent, support explicit non-destructive display recipes, local FFT visualization, revisable annotations and multi-turn researcher corrections. This is a proposed user workflow, not permission to claim unimplemented native display controls, a model-visible image or arbitrary DM write-back. Preserve source pixels and calibration; distinguish presentation mapping from scientific derived data and external computation.
 
 For future native operations, DigitalMicrograph is the processing engine.
 The MCP facade and C++ plugin adapt explicit image IDs/parameters to verified
