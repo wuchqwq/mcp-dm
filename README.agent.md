@@ -32,7 +32,7 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 | Backend | Scope in this checkout | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Eighteen catalog entries in this feature checkout; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
+| Opt-in native | Nineteen catalog entries in this feature checkout; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
 This feature checkout's native catalog has nineteen
