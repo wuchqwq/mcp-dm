@@ -4,6 +4,8 @@
 
 This is the entry point for an agent helping a researcher install or use the MCP. For code changes, also read AGENTS.md and the relevant implementation/tests. Do not treat instructions for using tools as permission to modify the repository, install dependencies, upload data or change unrelated client settings.
 
+Planned interactive microscopy tasks (image return, iterative display/FFT adjustments, editable spot/streak/twin/defect annotations) are described in [the product roadmap](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md). They are **not** automatically part of the connected tool catalog. Check actual capabilities and client image-display behavior before attempting or claiming any step; preserve numeric versus display distinctions.
+
 For Fourier-derived READ/NPY data, preserve both native DM calibration and
 `scientific_semantics.coordinate_axes`; see [scientific handoff](docs/SCIENTIFIC_HANDOFF.md).
 Unknown context is not permission to guess the frequency origin or phase units.
