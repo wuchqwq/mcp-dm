@@ -113,6 +113,13 @@ retention token. Release drops only the plugin reference. The original PROFILE
 receipt remains unchanged. Existing native READ/SHOW/MEAN/crop/FFT/filter tools
 keep their own 2D admission; this task does not qualify them for 1D data.
 
+DATASETS preserves the qualified one-dimensional float64 descriptor while the
+exact PROFILE-created object is still held by this plugin. Enumeration does not
+read its sample values or enable any 2D operator. Arbitrary/untracked code-12
+images keep their previous unknown-type treatment; matching a numeric ID alone
+is not enough. This descriptor-only follow-up has offline regression coverage;
+it is not a new live-host qualification or 1D display capability.
+
 ## Independent acceptance
 
 Use a new empty idle test session and
