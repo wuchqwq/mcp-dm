@@ -17,6 +17,19 @@ def pattern(shape, points, heights=None, noise=0., seed=12):
     return values.astype("float32")
 
 
+def prescribed_power(modes, dc=1e4, reflection=1.):
+    """Independent known bins, not a detector-generated Fourier reference."""
+    values = np.zeros((256, 256), dtype="float32")
+    values[128, 128] = dc
+    points = []
+    for x, y in modes:
+        for sign in (-1, 1):
+            px, py = 128+sign*x, 128+sign*y
+            values[py, px] = reflection
+            points.append([px, py])
+    return values, np.asarray(points)
+
+
 class CrystalDetection(unittest.TestCase):
     center = np.array([34.25, 28.5])
     offsets = np.array([[11., 3.], [-4., 12.], [14., -9.], [-11., -3.], [4., -12.], [-14., 9.]])
@@ -42,6 +55,10 @@ class CrystalDetection(unittest.TestCase):
         self.assertTrue(all(point["sigma_px"] is None for point in result["spots"]))
         self.assertIsNone(result["diagnostics"]["center_evidence"]["sigma_px"])
         self.assertEqual(array.tobytes(), before)
+        exclusion = result["diagnostics"]["prelocalization_center_exclusion"]
+        self.assertFalse(exclusion["applied"])
+        self.assertEqual(exclusion["reason"], "NO_EXPLICIT_CENTER")
+        self.assertIsNone(exclusion["center_xy"])
 
     def test_optional_bright_beam_does_not_set_threshold_or_count_as_reflection(self):
         expected = self.points()
@@ -95,6 +112,10 @@ class CrystalDetection(unittest.TestCase):
         self.assertEqual(result["status"], "READY", result["diagnostics"])
         self.assertEqual(result["center_xy"], [-6., 3.])
         self.assert_points(result, expected)
+        exclusion = result["diagnostics"]["prelocalization_center_exclusion"]
+        self.assertFalse(exclusion["applied"])
+        self.assertEqual(exclusion["masked_pixels"], 0)
+        self.assertEqual(exclusion["reason"], "DISK_OUTSIDE_CAPTURE")
         automatic = detect_spots(array)
         self.assertEqual(automatic["status"], "NEEDS_REVIEW")
 
@@ -105,6 +126,74 @@ class CrystalDetection(unittest.TestCase):
         self.assertEqual(result["status"], "READY", result["diagnostics"])
         self.assertEqual(result["center_xy"], self.center.tolist())
         self.assert_points(result, expected)
+
+    def test_known_dc_mask_recovers_prescribed_near_dc_bins(self):
+        array, expected = prescribed_power([(3, 0), (0, 4), (3, 4)])
+        before = array.tobytes()
+        # These neighbours are three pixels apart: one-pixel localization
+        # patches resolve them independently of the DC-removal test.
+        result = detect_spots(array, center_xy=[128., 128.], min_distance=1)
+        self.assertEqual(result["status"], "READY", result["diagnostics"])
+        self.assert_points(result, expected, tolerance=.02)
+        self.assertEqual(array.tobytes(), before)
+        exclusion = result["diagnostics"]["prelocalization_center_exclusion"]
+        self.assertTrue(exclusion["applied"])
+        self.assertEqual(exclusion["center_xy"], [128., 128.])
+        self.assertEqual(exclusion["radius_px"], 2)
+        self.assertEqual(exclusion["masked_pixels"], 13)
+        self.assertEqual(exclusion["replacement_normalized"], 0.)
+        self.assertIn("working copy only", exclusion["scope"])
+        self.assertIn("explicit-centre disk", result["method"])
+
+    def test_known_dc_mask_preserves_far_bins_at_default_resolution(self):
+        array, expected = prescribed_power([(13, 0), (0, 17), (9, 11)], dc=1e10)
+        result = detect_spots(array, center_xy=[128., 128.])
+        self.assertEqual(result["status"], "READY", result["diagnostics"])
+        self.assert_points(result, expected, tolerance=1e-8)
+
+    def test_normalization_uses_faint_surviving_pixels_not_huge_excluded_dc(self):
+        array, expected = prescribed_power([(13, 0), (0, 17), (9, 11)], dc=1e30, reflection=1e-20)
+        before = array.tobytes(); array.flags.writeable = False
+        result = detect_spots(array, center_xy=[128., 128.])
+        self.assertEqual(result["status"], "READY", result["diagnostics"])
+        self.assert_points(result, expected, tolerance=1e-8)
+        self.assertEqual(result["diagnostics"]["working_intensity_scale"], float(np.float32(1e-20)))
+        self.assertEqual(array.tobytes(), before)
+        self.assertFalse(array.flags.writeable)
+        self.assertFalse(result["diagnostics"]["original_pixels_changed"])
+        json.dumps(result, allow_nan=False)
+
+    def test_signed_float64_source_and_view_are_never_modified_by_mask(self):
+        expected = self.points()
+        backing = np.asarray(pattern((64, 80), expected.tolist()), dtype="float64")-9.
+        backing[29, 34] = -1e300
+        array = backing.view(); before = backing.tobytes()
+        result = detect_spots(array, center_xy=self.center.tolist())
+        self.assertEqual(result["status"], "READY", result["diagnostics"])
+        self.assert_points(result, expected)
+        self.assertEqual(backing.tobytes(), before)
+        self.assertEqual(array.tobytes(), before)
+        self.assertEqual(array.dtype, np.dtype("float64"))
+        self.assertTrue(result["diagnostics"]["prelocalization_center_exclusion"]["applied"])
+
+    def test_entire_capture_excluded_returns_review_without_invented_spots(self):
+        array = np.ones((4, 4), dtype="float32"); before = array.tobytes()
+        result = detect_spots(array, center_xy=[1.5, 1.5], exclude_radius=10)
+        self.assertEqual(result["status"], "NEEDS_REVIEW")
+        self.assertEqual(result["spots"], [])
+        self.assertIn("NO_UNMASKED_LOCALIZATION_PIXELS", result["diagnostics"]["reasons"])
+        self.assertEqual(result["diagnostics"]["prelocalization_center_exclusion"]["masked_pixels"], 16)
+        self.assertEqual(array.tobytes(), before)
+
+    def test_zero_surviving_power_returns_review_not_dc_reflection(self):
+        array = np.zeros((32, 32), dtype="float32"); array[16, 16] = 1e30
+        before = array.tobytes()
+        result = detect_spots(array, center_xy=[16, 16])
+        self.assertEqual(result["status"], "NEEDS_REVIEW")
+        self.assertEqual(result["spots"], [])
+        self.assertIn("NO_POSITIVE_PEAK_CONTRAST", result["diagnostics"]["reasons"])
+        self.assertEqual(result["diagnostics"]["working_intensity_scale"], 0.)
+        self.assertEqual(array.tobytes(), before)
 
     def test_output_budget_keeps_complete_pairs(self):
         result = detect_spots(pattern((64, 80), self.points().tolist()), max_spots=5)

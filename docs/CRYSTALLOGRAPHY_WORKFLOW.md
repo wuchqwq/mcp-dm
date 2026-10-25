@@ -73,6 +73,12 @@ C:\analysis\crystal-env\Scripts\python -m crystallography verify --output C:\ana
 这些是有限适用条件，不是统计置信概率。无中心亮斑也能工作；最亮点不直接等同直射束。
 重叠晶粒、缺斑、束挡、饱和/环状或畸变图可能返回需要复核，不能强制成功。
 
+对已明确给出中心的情况，包括原生 FFT 的数学 DC，`detection.exclude_radius`
+在归一化、平滑和峰定位之前作用于独立工作副本。排除圆盘使用未排除像素的中位数
+填充，亮 DC 不再通过平滑晕或强度尺度压住邻近反射；记录中的
+`prelocalization_center_exclusion` 保留范围和处理依据。该步骤不修改科学输入，
+不把最亮点认作中心，也不将显示用对数图用于测量。
+
 手动模式使用 `center:{"mode":"user_confirmed","xy":[x,y],"sigma_px":[sx,sy]}` 和
 `spots:[{"id":"s1","xy":[x,y],"sigma_px":[sx,sy]}, ...]`。
 点坐标是**源图像像素中心**，不是缩小 PNG 或窗口坐标；区域偏移自动换算，不裁边、不取整。
@@ -95,6 +101,14 @@ C:\analysis\crystal-env\Scripts\python -m crystallography verify --output C:\ana
   请求用 `source.kind:"fft"`、`center.mode:"frequency_grid_dc"`。中心和坐标采用已有数学
   `frequency_grid`，保留 crop+READ 偏移与区域外 DC；不使用原生显示半格偏移代替数学频率。
   不新增外部 FFT fallback，不放宽原生尺寸限制；历史 ADF FFT 精度 FAIL 原样保留。
+
+这条交接路径已有有限的真实宿主验收：新合成图经过 DM 原生正号、居中 FFT 与
+power、实际 MCP READ、NPY/sidecar，再由独立 ASE/SciPy 环境自动测量；同时核对
+signed 轴、ROI 偏移、原生半格标定与数学频率网格分别保留。有界的授权 ADF 区域
+也完成相同的数据交接与外部测量，原图像素、标定和源文件另行只读核对。
+这仅资格确认已执行的正向频谱与交接步骤，不包含新的 IFFT 精度保证、隐藏的外部
+FFT 替代或普通 MCP 客户端验收。有限 ROI 的频率格距不能当成统计误差；相近 d
+与六方度量匹配也不能独自证明金刚石多型或其它碳相，具体基底须按参考结构另行检查。
 
 ## 候选比较能说明什么
 
@@ -123,8 +137,9 @@ python -m examples.crystallography_demo --workspace C:\analysis\demo-hcp --model
 
 使用上面独立环境的解释器运行。演示生成的是**外部合成高斯点位**，不是 DM 计算或
 电子衍射强度模拟。请求不含中心/斑点数值答案；独立答案在 `answer-record.json`，运行时不读取。
-实测/模型/文件结果应分别报告。新流程真实 DM 实验数据与普通 MCP 客户端尚需单独验收；
-保存回执一致不等于重新读取了真实宿主。实际范围见[验收记录](CRYSTALLOGRAPHY_VALIDATION.md)，后续进展见 [Issue #11](https://github.com/wuchqwq/mcp-dm/issues/11)。
+实测/模型/文件结果应分别报告。上述有限实机交接不替代标准样品的晶体学标定、
+物相判断或普通 MCP 客户端验收；保存回执一致不等于重新读取了真实宿主。
+实际范围见[验收记录](CRYSTALLOGRAPHY_VALIDATION.md)，后续进展见 [Issue #11](https://github.com/wuchqwq/mcp-dm/issues/11)。
 
 给 Agent 的短提示：
 

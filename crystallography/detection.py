@@ -18,7 +18,7 @@ from scipy.stats import median_abs_deviation
 MAX_ARRAY_BYTES = 16 * 1024 * 1024
 MAX_CANDIDATES = 64
 MAX_CENTER_HYPOTHESES = 32
-_METHOD = "external SciPy Gaussian/local-maxima/connected-components/centre-of-mass; Friedel assignment and robust least-squares centre"
+_METHOD = "external SciPy Gaussian/local-maxima/connected-components/centre-of-mass; explicit-centre disk excluded before localization; Friedel assignment and robust least-squares centre"
 
 
 def _require(value, message):
@@ -55,25 +55,55 @@ def _answer(center, spots, status, diagnostics):
             "status": status, "diagnostics": diagnostics, "method": _METHOD}
 
 
-def _localize(array, min_distance, threshold_rel, diagnostics):
+def _localize(array, min_distance, threshold_rel, diagnostics, center_xy=None, exclude_radius=0):
     # SciPy owns filtering, connected-component detection and subpixel centroid
     # evaluation. Float64 is localization working storage, not a new scientific
     # intensity file or an altered source array.
-    source = np.asarray(array, dtype=np.float64)
-    magnitude = float(np.max(np.abs(source)))
+    source = np.array(array, dtype=np.float64, copy=True)
+    excluded = None
+    mask_evidence = {"applied": False, "center_xy": None, "radius_px": exclude_radius,
+                     "coordinate_rule": "hypot(x-center_x,y-center_y) <= radius_px; pixel centres",
+                     "masked_pixels": 0, "replacement": None,
+                     "scope": "independent localization working copy only; scientific input unchanged",
+                     "reason": "NO_EXPLICIT_CENTER"}
+    if center_xy is not None:
+        yy, xx = np.ogrid[:array.shape[0], :array.shape[1]]
+        excluded = np.hypot(xx-center_xy[0], yy-center_xy[1]) <= exclude_radius
+        count = int(np.count_nonzero(excluded))
+        mask_evidence.update(center_xy=list(center_xy), masked_pixels=count,
+                             applied=count > 0,
+                             reason="EXPLICIT_CENTER_DISK" if count else "DISK_OUTSIDE_CAPTURE")
+        diagnostics["prelocalization_center_exclusion"] = mask_evidence
+        if count == source.size:
+            diagnostics["reasons"].append("NO_UNMASKED_LOCALIZATION_PIXELS")
+            return [], []
+    surviving = source if excluded is None else source[~excluded]
+    magnitude = float(np.max(np.abs(surviving)))
+    # Normalize using surviving values, so an excluded bright DC cannot impose
+    # either a floating-point floor or a Gaussian halo on faint reflections.
+    if excluded is not None:
+        source[excluded] = 0
     if magnitude:
-        source = source/magnitude
+        source /= magnitude
+    if excluded is not None and mask_evidence["applied"]:
+        replacement = float(np.median(source[~excluded]))
+        source[excluded] = replacement
+        mask_evidence.update(replacement="median of unmasked normalized working values",
+                             replacement_normalized=replacement)
+    diagnostics["prelocalization_center_exclusion"] = mask_evidence
     work = ndimage.gaussian_filter(source, sigma=.65, mode="nearest")
     background = float(np.median(work))
     noise = float(median_abs_deviation(work, scale="normal", axis=None))
     contrast = float(np.max(work) - background)
     diagnostics.update(background_smoothed=background, robust_noise_sigma_smoothed=noise,
                        smoothing_sigma_px=.65, noise_gate_sigma=5., working_intensity_scale=magnitude,
-                       localization_intensity_units="raw values / max absolute raw value; localization only, no intensity calibration")
+                       localization_intensity_units="raw values / max absolute unmasked raw value; localization only, no intensity calibration")
     if contrast <= 0:
         diagnostics["reasons"].append("NO_POSITIVE_PEAK_CONTRAST")
         return [], []
     maxima = work == ndimage.maximum_filter(work, size=2*min_distance+1, mode="constant", cval=-np.inf)
+    if excluded is not None:
+        maxima &= ~excluded
     # Excluding the single brightest peak from a threshold reference is not a
     # centre choice. A median of at most twelve candidate heights lets a bright
     # direct beam coexist with weaker spots instead of defining their cutoff.
@@ -272,7 +302,7 @@ def detect_spots(array, *, center_xy=None, max_spots=12, min_distance=3,
         _require(type(center_xy) in (list, tuple) and len(center_xy) == 2 and all(_finite(v) for v in center_xy),
                  "Explicit finite centre XY pixel coordinates required")
     diagnostics = _base_diagnostics(array, threshold_rel, min_distance, exclude_radius, center_tolerance_px)
-    points, heights = _localize(array, min_distance, threshold_rel, diagnostics)
+    points, heights = _localize(array, min_distance, threshold_rel, diagnostics, center_xy, exclude_radius)
     if not points:
         diagnostics["reasons"].append("NO_RELIABLY_LOCALIZED_SPOTS")
         return _answer(center_xy, [], "NEEDS_REVIEW", diagnostics)
