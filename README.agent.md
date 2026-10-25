@@ -25,6 +25,14 @@ physical units or a crystallographic classification. Select external tools
 explicitly; never present them as an automatic native fallback. The default
 catalog/configuration is unchanged. Other TIFF dtypes are not yet supported.
 
+For multi-turn overlays, use exact source IDs and source/frequency coordinates,
+then preview the annotated object directly to revise the display. Lines, arrows
+and polygons retain anchors across resizing. FFT previews can explicitly apply
+display-only Gaussian smoothing/background suppression, enlarge the figure and
+label cycles/pixel axes. Keep arrows small and outside the evidence; inspect
+the returned image before calling a plot usable. See [annotation and figure
+recipes](docs/IMAGE_ANNOTATIONS.md). Filtered PNGs never replace complex NPY.
+
 The researcher may normally work through DM's GUI and use external Python for specialized analysis. Do not require them to learn DM scripting or force every request through a capture/report pipeline.
 
 - Use the connected backend's actual tools for supported DM operations.

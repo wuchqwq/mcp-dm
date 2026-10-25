@@ -26,6 +26,13 @@ The last example requires an agent that can work with files and execute code: **
 
 FFT frequency peaks are not confirmed lattice planes or phases. Whether the model can actually see a preview depends on the client; producing a PNG does not establish model vision.
 
+The experimental independent `image_*` tools also open uncalibrated uint16
+multi-frame TIFFs, compare the same ROI, revise displays, run external FFT and
+edit annotations anchored to image/frequency coordinates. Spectrum display
+filtering, enlargement and small arrows preserve the separate raw arrays. See
+[multi-turn figures and overlays](docs/IMAGE_ANNOTATIONS.md). The default backend
+is unchanged.
+
 ## Product direction: iterative microscopy analysis (planned)
 
 The goal is to let researchers keep inspecting and selecting data in DM while an Agent **brings back the actual image, prepares alternative presentations, produces local FFT views, adds editable annotations and revises scientific hypotheses over multiple turns**. Profiles, histograms and indexing are enabling tools, not the finished user experience.

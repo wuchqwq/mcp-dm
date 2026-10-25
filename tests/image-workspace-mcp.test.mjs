@@ -62,6 +62,43 @@ test('pixel FFT/measurement/context/export retain inputs and reject invalid requ
  }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
 });
 
+test('anchored overlays survive display revisions, export and fresh-client recovery through MCP',async()=>{
+ const f=fixture();let c=client(f.workspace);try{
+  const source=readFileSync(f.source);
+  const opened=result(await c.tool('image_open',{source_path:f.source,request_id:'anchor-open'}));
+  const frame=result(await c.tool('image_frame',{object_id:opened.object_id,frame_index:1,request_id:'anchor-frame'}));
+  const v=result(await c.tool('image_preview',{object_id:frame.object_id,rect:[2,3,22,15],max_size:32,request_id:'anchor-view'}));
+  const mark={annotation_id:'stripe-a',kind:'arrow',coordinate_space:'source_pixels',source_object_id:frame.object_id,coordinates:[4,5,18,12],status:'hypothesized',note:'Location candidate, not a twin claim'};
+  const markedMessage=await c.tool('image_annotate',{object_id:v.object_id,annotations:[mark],request_id:'anchor-mark'});
+  const marked=result(markedMessage);picture(markedMessage);
+  const revisedMessage=await c.tool('image_preview',{object_id:marked.object_id,gamma:2,request_id:'anchor-gamma'});
+  const revised=result(revisedMessage);picture(revisedMessage);
+  assert.deepEqual(revised.annotations[0].anchor,{coordinate_space:mark.coordinate_space,source_object_id:frame.object_id,coordinates:mark.coordinates});
+  assert.deepEqual(readFileSync(revised.array_path),readFileSync(v.array_path));
+  const fftMessage=await c.tool('image_fft',{object_id:frame.object_id,rect:[2,3,22,15],window:'hann',subtract_mean:true,request_id:'anchor-fft'});
+  const fft=result(fftMessage);picture(fftMessage);
+  const frequencyMark={annotation_id:'frequency-a',kind:'line',coordinate_space:'frequency_cycles_per_pixel',source_object_id:fft.object_id,coordinates:[-.1,0,.1,0],status:'hypothesized'};
+  const spectrumMark=result(await c.tool('image_annotate',{object_id:fft.object_id,annotations:[frequencyMark],request_id:'anchor-frequency'}));
+  const rerenderMessage=await c.tool('image_preview',{object_id:spectrumMark.object_id,representation:'power',gamma:2,request_id:'anchor-power'});
+  const rerender=result(rerenderMessage);picture(rerenderMessage);
+  assert.equal(rerender.fft_recomputed,false);assert.equal(rerender.annotations[0].anchor.source_object_id,fft.object_id);
+  const withdrawn=result(await c.tool('image_annotate',{object_id:rerender.object_id,annotations:[{...frequencyMark,status:'retracted'}],request_id:'anchor-withdraw'}));
+  assert.equal(withdrawn.annotations[0].status,'retracted');
+  const destination=path.join(f.dir,'anchor-export');
+  result(await c.tool('image_export',{object_id:withdrawn.object_id,output_dir:destination,request_id:'anchor-export'}));
+  assert.deepEqual(readFileSync(path.join(destination,'data.npy')),readFileSync(fft.array_path));
+  const manifest=JSON.parse(readFileSync(path.join(destination,'manifest.json')));
+  assert.equal(manifest.display_object.annotations[0].status,'retracted');
+  assert.equal(manifest.display_object.annotations[0].anchor.source_object_id,fft.object_id);
+  await c.close();c=client(f.workspace);
+  const recoveredMessage=await c.tool('image_result',{request_id:'anchor-power'});
+  assert.equal(result(recoveredMessage).object_id,rerender.object_id);picture(recoveredMessage);
+  assert.equal((await c.tool('image_annotate',{object_id:rerender.object_id,annotations:[{...frequencyMark,source_object_id:frame.object_id}],request_id:'anchor-wrong-source'})).result.isError,true);
+  assert.equal((await c.tool('image_annotate',{object_id:rerender.object_id,annotations:[{...frequencyMark,status:'confirmed_by_AI'}],request_id:'anchor-wrong-status'})).error.code,-32602);
+  assert.deepEqual(readFileSync(f.source),source);
+ }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
+});
+
 test('multi-turn context and FFT presentation revisions stay usable through actual MCP',async()=>{
  const f=fixture();let c=client(f.workspace);try{
   const before=readFileSync(f.source);
@@ -97,5 +134,34 @@ test('multi-turn context and FFT presentation revisions stay usable through actu
   const recoveredMessage=await c.tool('image_result',{request_id:'rev-fft-render'});picture(recoveredMessage);
   assert.equal(result(recoveredMessage).object_id,rendered.object_id);
   assert.deepEqual(readFileSync(f.source),before);assert.deepEqual(readFileSync(fft.array_path),raw);
+ }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
+});
+
+test('readable FFT presentation filters, axes and small arrows are actual MCP revisions',async()=>{
+ const f=fixture();const c=client(f.workspace);try{
+  const original=readFileSync(f.source);
+  const opened=result(await c.tool('image_open',{source_path:f.source,request_id:'figure-open'}));
+  const frame=result(await c.tool('image_frame',{object_id:opened.object_id,frame_index:1,request_id:'figure-frame'}));
+  const fft=result(await c.tool('image_fft',{object_id:frame.object_id,window:'hann',subtract_mean:true,request_id:'figure-fft'}));
+  const originalSpectrum=readFileSync(fft.array_path);
+  const spec={smooth_sigma_bins:.5,background_sigma_bins:4};
+  const message=await c.tool('image_preview',{object_id:fft.object_id,spectrum_filter:spec,spectrum_axes:true,upscale:true,max_size:512,request_id:'figure-filtered'});
+  const view=result(message);picture(message);
+  assert.deepEqual(view.display.spectrum_filter,spec);assert.equal(view.display.spectrum_axes,true);assert.equal(view.fft_recomputed,false);
+  assert.deepEqual(view.panels[0].image_rect_xyxy.slice(0,2),[64,44]);
+  const mark={annotation_id:'A',kind:'arrow',source_object_id:fft.object_id,coordinate_space:'frequency_cycles_per_pixel',coordinates:[.3,.2,.15,.1],status:'hypothesized',line_width:1,arrowhead_size:3};
+  const marked=result(await c.tool('image_annotate',{object_id:view.object_id,annotations:[mark],request_id:'figure-small-arrow'}));
+  const revisedMessage=await c.tool('image_preview',{object_id:marked.object_id,max_size:640,gamma:1.2,request_id:'figure-larger'});
+  const revised=result(revisedMessage);picture(revisedMessage);
+  assert.deepEqual(revised.display.spectrum_filter,spec);assert.equal(revised.annotations[0].arrowhead_size,3);
+  assert.deepEqual(revised.annotations[0].anchor.coordinates,mark.coordinates);
+  assert.deepEqual(readFileSync(revised.array_path),originalSpectrum);
+  const restored=result(await c.tool('image_preview',{object_id:revised.object_id,spectrum_filter:null,spectrum_axes:false,request_id:'figure-unfiltered'}));
+  assert.equal(restored.display.spectrum_filter,null);assert.deepEqual(readFileSync(restored.array_path),originalSpectrum);
+  assert.equal((await c.tool('image_preview',{object_id:frame.object_id,spectrum_filter:spec,request_id:'figure-wrong-domain'})).result.isError,true);
+  assert.equal((await c.tool('image_preview',{object_id:fft.object_id,spectrum_filter:{smooth_sigma_bins:2,background_sigma_bins:1},request_id:'figure-invalid-filter'})).result.isError,true);
+  assert.equal((await c.tool('image_preview',{object_id:fft.object_id,spectrum_axes:true,max_size:128,request_id:'figure-too-small'})).result.isError,true);
+  assert.equal((await c.tool('image_annotate',{object_id:view.object_id,annotations:[{...mark,arrowhead_size:100}],request_id:'figure-oversize-arrow'})).error.code,-32602);
+  assert.deepEqual(readFileSync(f.source),original);
  }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
 });

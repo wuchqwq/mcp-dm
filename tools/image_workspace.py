@@ -18,7 +18,7 @@ import uuid
 
 import numpy as np
 import PIL
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import tifffile
 
 BACKEND = "external-image-workspace"
@@ -32,7 +32,7 @@ OBJECT_ID = re.compile(r"[a-f0-9]{32}\Z")
 FIELDS = {
     "open": {"source_path"}, "frame": {"object_id", "frame_index"},
     "import_capture": {"source_path"},
-    "view": {"object_id", "rect", "display_range", "gamma", "max_size", "representation"},
+    "view": {"object_id", "rect", "display_range", "gamma", "max_size", "representation", "spectrum_filter", "upscale", "spectrum_axes"},
     "compare": {"object_ids", "rect", "display_range", "gamma", "max_size"},
     "fft": {"object_id", "rect", "window", "subtract_mean", "max_size"},
     "annotate": {"object_id", "annotations"}, "context": {"object_id", "metadata"},
@@ -201,6 +201,8 @@ def display_options(request, values, inherited=None):
     inherited = inherited if inherited is not None else {}
     gamma = request.get("gamma", inherited.get("gamma", 1.0))
     maximum = request.get("max_size", inherited.get("max_size", 1024))
+    upscale = request.get("upscale", inherited.get("upscale", False))
+    need(type(upscale) is bool, "upscale must be boolean and affects PNG only")
     need(number(gamma) and gamma > 0 and math.isfinite(1.0 / gamma), "gamma must be finite and positive")
     need(integer(maximum, 1, 1024), "max_size must be an integer in 1..1024")
     supplied = request.get("display_range")
@@ -221,9 +223,9 @@ def display_options(request, values, inherited=None):
         low, high = map(float, supplied)
         range_source = "explicit"
     return {"display_range": [low, high], "range_source": range_source,
-            "gamma": float(gamma), "max_size": maximum, "constant_range": low == high,
+            "gamma": float(gamma), "max_size": maximum, "upscale": upscale, "constant_range": low == high,
             "display_only": True, "quantitative": False,
-            "resampling": "Pillow LANCZOS thumbnail; display interpolation only, no scientific resampling"}
+            "resampling": "Pillow LANCZOS display resizing; optional enlargement adds no measured detail; scientific array unchanged"}
 
 
 def spectrum_display(values, representation):
@@ -242,13 +244,39 @@ def spectrum_display(values, representation):
     return shown, expressions[representation]
 
 
+def spectrum_filter_display(shown, specification):
+    """Explicit presentation filter of amplitudes, never complex coefficients."""
+    if specification is None:
+        return shown, None
+    need(type(specification) is dict and set(specification) == {"smooth_sigma_bins", "background_sigma_bins"},
+         "spectrum_filter requires explicit smooth_sigma_bins and background_sigma_bins, or null")
+    smooth, background = specification["smooth_sigma_bins"], specification["background_sigma_bins"]
+    need(number(smooth) and number(background) and 0 <= smooth <= 4 and 1 <= background <= 64 and background > smooth,
+         "spectrum_filter needs 0<=smooth<=4, 1<=background<=64 and background>smooth (FFT bins)")
+    import scipy
+    from scipy.ndimage import gaussian_filter
+    work = gaussian_filter(shown, smooth, mode="reflect", truncate=4.0) if smooth else shown
+    background_values = gaussian_filter(work, background, mode="reflect", truncate=4.0)
+    shown = np.maximum(work-background_values, 0.0)
+    need(np.isfinite(shown).all(), "Spectrum presentation filter produced nonfinite values")
+    return shown, {"library": "SciPy", "version": scipy.__version__, "function": "scipy.ndimage.gaussian_filter",
+                   "mode": "reflect", "truncate": 4.0, "sigma_unit": "FFT bins before display resizing",
+                   "expression": "max(0, Gaussian(representation,smooth)-Gaussian(Gaussian(representation,smooth),background))",
+                   "scientific_data_changed": False, "quantitative": False}
+
+
 def render(values, settings, bound):
     low, high = settings["display_range"]
     scaled = np.zeros(values.shape, dtype=np.float64) if low == high else np.clip((values.astype(np.float64) - low) / (high - low), 0, 1)
     scaled = np.power(scaled, 1.0 / settings["gamma"])
     pixels = np.floor(scaled * 255 + 0.5).astype(np.uint8)
     image = Image.fromarray(pixels)
-    image.thumbnail(bound, Image.Resampling.LANCZOS)
+    if settings.get("upscale"):
+        scale = min(bound[0]/image.width, bound[1]/image.height)
+        size = (max(1, min(bound[0], round(image.width*scale))), max(1, min(bound[1], round(image.height*scale))))
+        image = image.resize(size, Image.Resampling.LANCZOS)
+    else:
+        image.thumbnail(bound, Image.Resampling.LANCZOS)
     return image
 
 
@@ -258,6 +286,40 @@ def stats(values):
               "maximum": float(floating.max()), "mean": float(np.mean(floating)), "stddev": float(np.std(floating))}
     need(all(number(v) for k, v in result.items() if k != "dtype"), "Statistics exceed finite binary64 range")
     return result
+
+
+def spectrum_canvas(shown, settings, spectrum_id):
+    """Bounded optional figure axes; panel transforms include the margins."""
+    axes = settings.get("spectrum_axes", False)
+    need(type(axes) is bool, "spectrum_axes must be boolean")
+    maximum = settings["max_size"]
+    need(not axes or maximum >= 256, "Frequency-axis labels require max_size>=256")
+    bounds = (maximum-84, maximum-100) if axes else (maximum, maximum)
+    plot = render(shown, settings, bounds)
+    if not axes:
+        return plot, frequency_panel(spectrum_id, shown.shape, [0, 0, plot.width, plot.height])
+    left, top = 64, 44
+    # Tiny spectra can retain their native display size when upscale is false;
+    # reserve a minimum legend canvas so axes/title are not silently cropped.
+    image = Image.new("RGB", (max(256, plot.width+84), max(192, plot.height+100)), "#171b22")
+    image.paste(plot, (left, top))
+    panel_info = frequency_panel(spectrum_id, shown.shape, [left, top, left+plot.width, top+plot.height])
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=13)
+    title = "FFT | filtered display" if settings.get("spectrum_filter") else "FFT | " + settings["representation"]
+    draw.text((left, 8), title, fill="white", font=font)
+    draw.text((8, 28), "fy", fill="white", font=font)
+    draw.rectangle([left-1, top-1, left+plot.width, top+plot.height], outline="#a0a8b4")
+    for frequency in (-.25, 0, .25):
+        x, y = coordinate_transform([frequency, frequency], panel_info, False, inverse=True)
+        draw.line([x, top+plot.height, x, top+plot.height+4], fill="white")
+        label = "0" if frequency == 0 else str(frequency)
+        draw.text((x, top+plot.height+7), label, fill="white", font=font, anchor="mt")
+        draw.line([left-4, y, left, y], fill="white")
+        draw.text((left-8, y), label, fill="white", font=font, anchor="rm")
+    draw.text((max(128, left+plot.width/2), top+plot.height+30), "fx (cycles/pixel)",
+              fill="white", font=font, anchor="mt")
+    return image, panel_info
 
 
 class Workspace:
@@ -446,14 +508,25 @@ class Workspace:
                             capture_verification_mode="image" if native else "default_schema1_hashes_dtype_axes")
         elif action in ("view", "fft", "measure"):
             spectral_view = False
+            inherited_annotations = []
             if action == "view":
                 parent, parent_directory, context = self.resolved(request.get("object_id"))
+                inherited_annotations = parent.get("annotations", [])
+                if parent["kind"] == "annotate":
+                    parent, parent_directory = self.object(parent["render_base_object_id"])
+                if parent["kind"] == "compare":
+                    return self.revise_comparison(parent, parent_directory, context, request, metadata, directory,
+                                                  inherited_annotations)
                 spectral_view = parent["kind"] in ("fft", "fft_view")
                 need(parent["kind"] in ("frame", "view", "fft", "fft_view"),
-                     "preview requires a frame/view or FFT; for annotations use render_base_object_id and reapply annotations")
+                     "preview requires a frame/view, comparison, annotated view or FFT")
                 values = load_array(parent_directory / "data.npy", allow_complex=spectral_view)
                 need(spectral_view or "representation" not in request,
                      "representation is only valid for a saved complex FFT")
+                need(spectral_view or "spectrum_filter" not in request,
+                     "spectrum_filter is only valid for a saved complex FFT display")
+                need(spectral_view or "spectrum_axes" not in request,
+                     "spectrum_axes is only valid for a saved complex FFT display")
             else:
                 parent, _, context, values = self.scalar(request.get("object_id"))
             metadata.update(parent_object_id=request["object_id"], user_context=context,
@@ -466,21 +539,24 @@ class Workspace:
                 previous_mode = old_display.get("representation", "log_amplitude")
                 mode = request.get("representation", previous_mode)
                 shown, expression = spectrum_display(values, mode)
-                if mode != previous_mode:
+                filter_spec = request.get("spectrum_filter", old_display.get("spectrum_filter"))
+                shown, filter_provenance = spectrum_filter_display(shown, filter_spec)
+                if mode != previous_mode or filter_spec != old_display.get("spectrum_filter"):
                     # Amplitude, power and log amplitude have different units;
                     # preserve gamma/size, but never inherit their old limits.
                     old_display.pop("display_range", None)
                 settings = display_options(request, [shown], old_display)
                 settings["representation"] = mode
-                image = render(shown, settings, (settings["max_size"], settings["max_size"]))
+                settings.update(spectrum_filter=filter_spec, filter_provenance=filter_provenance)
+                settings["spectrum_axes"] = request.get("spectrum_axes", old_display.get("spectrum_axes", False))
                 spectrum_id = parent.get("spectrum_object_id", parent["object_id"])
+                image, spectrum_panel = spectrum_canvas(shown, settings, spectrum_id)
                 save_array(directory, "data.npy", values)
-                save_png(directory / "preview.png", image)
                 metadata.update(kind="fft_view", source_object_id=spectrum_id, spectrum_object_id=spectrum_id,
                                 dtype="complex128", shape_yx=list(values.shape), axes=["fy", "fx"], array_domain="frequency",
                                 frequency_unit=parent["frequency_unit"], physical_frequency_unit=parent["physical_frequency_unit"],
                                 frequency_axes=parent["frequency_axes"], display_representation=expression, display=settings,
-                                panels=[frequency_panel(spectrum_id, values.shape, [0, 0, image.width, image.height])],
+                                panels=[spectrum_panel],
                                 fft_recomputed=False, scientific_data_changed=False,
                                 rendering_scope="saved external complex FFT; amplitude/power/log are display-only; NPY remains complex")
             elif action == "measure":
@@ -533,11 +609,15 @@ class Workspace:
                                     array_domain=parent.get("array_domain", "spatial"),
                                     scientific_semantics=parent.get("scientific_semantics"),
                                     scientific_context=parent.get("scientific_context"))
-                save_png(directory / "preview.png", image)
                 metadata["panels"] = ([frequency_panel(ident, spectrum.shape, [0, 0, image.width, image.height])]
                                       if action == "fft" else
-                                      [panel(parent["object_id"], rect, [0, 0, image.width, image.height],
-                                             array_domain=parent.get("array_domain"))])
+                                      [spatial_panel(parent, rect, [0, 0, image.width, image.height])])
+            if action == "view" and inherited_annotations:
+                save_png(directory / "unannotated.png", image)
+                image, projected = overlay(image, inherited_annotations, metadata["panels"], reproject=True)
+                metadata.update(annotations=projected, annotation_reprojection=True, scientific_data_changed=False)
+            if action in ("view", "fft"):
+                save_png(directory / "preview.png", image)
         elif action == "compare":
             ids = request.get("object_ids")
             need(type(ids) is list and 2 <= len(ids) <= 4 and len(set(ids)) == len(ids), "compare requires 2..4 distinct scalar object IDs")
@@ -556,8 +636,7 @@ class Workspace:
             panels, left = [], 0
             for index, (ident, roi, image) in enumerate(zip(ids, rois, images)):
                 composite.paste(image, (left, 0))
-                panels.append(panel(ident, rect, [left, 0, left + image.width, image.height],
-                                    array_domain=loaded[index][0].get("array_domain")))
+                panels.append(spatial_panel(loaded[index][0], rect, [left, 0, left + image.width, image.height]))
                 left += image.width
                 save_array(directory, "data-{}.npy".format(index), roi)
             save_png(directory / "preview.png", composite)
@@ -576,22 +655,8 @@ class Workspace:
             render_base, base_directory = self.object(base_id)
             annotations = request.get("annotations")
             need(type(annotations) is list and len(annotations) <= 128, "annotations must be an explicit list of at most128 items")
-            image = Image.open(base_directory / "preview.png").convert("RGB")
-            draw = ImageDraw.Draw(image)
-            validated = []
-            for item in annotations:
-                normalized = annotation(item, image.size, render_base.get("panels", []))
-                validated.append(normalized)
-                if normalized["status"] != "retracted":
-                    color = "#00e060" if normalized["status"] == "user_confirmed" else "#ffba30"
-                    coords = normalized["coordinates"]
-                    if normalized["kind"] == "point":
-                        x, y = coords
-                        draw.ellipse([x - 3, y - 3, x + 3, y + 3], outline=color, width=2)
-                    elif normalized["kind"] == "rectangle":
-                        draw.rectangle(coords, outline=color, width=2)
-                    else:
-                        draw.text(coords, normalized["text"], fill=color)
+            base_file = "unannotated.png" if "unannotated.png" in render_base["files_sha256"] else "preview.png"
+            image, validated = overlay(Image.open(base_directory / base_file), annotations, render_base.get("panels", []))
             save_png(directory / "preview.png", image)
             metadata.update(parent_object_id=request["object_id"], render_base_object_id=base_id,
                             panels=render_base.get("panels", []), annotations=validated,
@@ -674,6 +739,32 @@ class Workspace:
             raise WorkspaceError("INVALID_ARGUMENT", "Unknown action")
         return self.publish(metadata, directory)
 
+    def revise_comparison(self, parent, parent_directory, context, request, metadata, directory, annotations):
+        need(request.get("rect") is None and "representation" not in request and "spectrum_filter" not in request and "spectrum_axes" not in request,
+             "Saved comparison preview changes display only; choose a new ROI using image_compare")
+        names = ["data-{}.npy".format(i) for i in range(len(parent["panels"]))]
+        values = [load_array(parent_directory / name) for name in names]
+        settings = display_options(request, values, parent["display"])
+        need(settings["max_size"] >= len(values), "max_size is too small for comparison panels")
+        images = [render(v, settings, (settings["max_size"] // len(values), settings["max_size"])) for v in values]
+        image = Image.new("L", (sum(v.width for v in images), max(v.height for v in images)))
+        panels, left = [], 0
+        for old, png, name, values_part in zip(parent["panels"], images, names, values):
+            image.paste(png, (left, 0))
+            panels.append({**old, "image_rect_xyxy": [left, 0, left + png.width, png.height]})
+            left += png.width
+            save_array(directory, name, values_part)
+        if annotations:
+            save_png(directory / "unannotated.png", image)
+            image, annotations = overlay(image, annotations, panels, reproject=True)
+        save_png(directory / "preview.png", image)
+        for key in ("object_ids", "source_shape_yx", "source_rect_xyxy", "raw_statistics", "raw_differences", "comparison_scope"):
+            metadata[key] = parent[key]
+        metadata.update(kind="compare", parent_object_id=request["object_id"], user_context=context,
+                        display=settings, panels=panels, scientific_data_changed=False,
+                        annotations=annotations, annotation_reprojection=bool(annotations))
+        return self.publish(metadata, directory)
+
 
 def panel(object_id, source_rect, image_rect, array_domain=None):
     frequency = array_domain == "frequency"
@@ -686,6 +777,16 @@ def panel(object_id, source_rect, image_rect, array_domain=None):
             "edge_mapping": "source_x=x0+(image_x-panel_left)*source_width/panel_width; analogous y"}
 
 
+def spatial_panel(parent, rect, image_rect):
+    """Compose crop offsets; a display object is not a new source coordinate grid."""
+    if parent.get("kind") == "view" and len(parent.get("panels", [])) == 1:
+        old = parent["panels"][0]
+        x, y = old["source_rect_xyxy"][:2]
+        mapped = [rect[0] + x, rect[1] + y, rect[2] + x, rect[3] + y]
+        return {**old, "source_rect_xyxy": mapped, "image_rect_xyxy": list(image_rect)}
+    return panel(parent["object_id"], rect, image_rect, array_domain=parent.get("array_domain"))
+
+
 def frequency_panel(object_id, shape, image_rect):
     height, width = map(int, shape)
     return {"domain": "frequency", "source_object_id": object_id, "image_rect_xyxy": list(image_rect),
@@ -695,67 +796,162 @@ def frequency_panel(object_id, shape, image_rect):
             "spatial_roi_mapping": "not performed; the FFT input spatial ROI is separate operation provenance"}
 
 
-def annotation(item, image_size, panels):
-    need(type(item) is dict and set(item) <= {"kind", "coordinates", "text", "status", "note"}, "Unknown annotation field")
+def coordinate_transform(coords, current, edges, inverse=False):
+    """Continuous coordinate transform, independent x/y sizes, no clipping."""
+    left, top, right, bottom = current["image_rect_xyxy"]
+    if current["domain"] == "frequency":
+        h, w = current["fft_shape_yx"]
+        # Frequency coordinates are bin centres; edges lie half a bin outside.
+        offsets = [-(w // 2), -(h // 2)]
+        source0, extent = [0, 0], [w, h]
+    else:
+        x0, y0, x1, y1 = current["source_rect_xyxy"]
+        source0, extent = [x0, y0], [x1-x0, y1-y0]
+    result = []
+    for i, value in enumerate(coords):
+        axis = i % 2
+        start, size = (left, right-left) if axis == 0 else (top, bottom-top)
+        # Spatial edges use source edge indices; frequency edges use continuous
+        # centre indices (edge zero = bin -0.5), as in the existing FFT panel.
+        centre = 0.5 if not edges or current["domain"] == "frequency" else 0.0
+        image_centre = 0.0 if edges else 0.5
+        if inverse:
+            local = value*extent[axis]-offsets[axis] if current["domain"] == "frequency" else value
+            result.append(start + (local-source0[axis]+centre)*size/extent[axis]-image_centre)
+        else:
+            local = source0[axis]+(value-start+image_centre)*extent[axis]/size-centre
+            result.append((local+offsets[axis])/extent[axis] if current["domain"] == "frequency" else local)
+    need(all(number(value) for value in result), "Annotation transform exceeds finite coordinates")
+    return result
+
+
+def annotation(item, image_size, panels, reproject=False):
+    if reproject:
+        anchor = item.get("anchor")
+        need(anchor is not None, "Annotation has no unique source anchor; replace or remove it before re-rendering")
+        supplied = {key: item[key] for key in ("kind", "text", "status", "note", "annotation_id", "line_width", "arrowhead_size") if key in item}
+        supplied.update(anchor)
+        item = supplied
+    allowed = {"kind", "coordinates", "text", "status", "note", "annotation_id", "coordinate_space", "source_object_id",
+               "line_width", "arrowhead_size"}
+    need(type(item) is dict and set(item) <= allowed, "Unknown annotation field")
     kind, coords = item.get("kind"), item.get("coordinates")
-    need(kind in ("point", "rectangle", "text") and type(coords) is list and len(coords) == (4 if kind == "rectangle" else 2) and
-         all(number(value) for value in coords), "Annotation requires explicit finite rendered-image pixel coordinates")
-    width, height = image_size
-    need(0 <= coords[0] < width and 0 <= coords[1] < height, "Annotation starts outside the rendered image")
+    lengths = {"point": 2, "text": 2, "rectangle": 4, "line": 4, "arrow": 4}
+    need(type(coords) is list and all(number(value) for value in coords) and
+         (kind == "polygon" and 6 <= len(coords) <= 64 and len(coords) % 2 == 0 or
+          kind in lengths and len(coords) == lengths[kind]), "Invalid annotation kind or finite coordinate count")
+    edges = kind in ("rectangle", "polygon")
     if kind == "rectangle":
-        need(coords[0] < coords[2] <= width and coords[1] < coords[3] <= height, "Invalid half-open annotation rectangle")
+        need(coords[0] < coords[2] and coords[1] < coords[3], "Invalid half-open annotation rectangle")
+    if kind in ("line", "arrow"):
+        need(coords[:2] != coords[2:], "Line/arrow needs distinct endpoints")
     status = item.get("status", "hypothesized")
     need(status in ("hypothesized", "user_confirmed", "retracted"), "Explicit annotation status required")
     text, note = item.get("text", ""), item.get("note", "")
     need(type(text) is str and len(text) <= 256 and type(note) is str and len(note) <= 2048, "Annotation text/note exceeds budget")
-    if kind == "text":
-        need(bool(text), "Text annotation requires text")
-    mappings = []
-    for current in panels:
-        left, top, right, bottom = current["image_rect_xyxy"]
-        contained = left <= coords[0] < right and top <= coords[1] < bottom
-        if kind == "rectangle":
-            contained = contained and coords[2] <= right and coords[3] <= bottom
-        if contained:
-            if current.get("domain") == "frequency":
-                fft_height, fft_width = current["fft_shape_yx"]
-                if kind == "rectangle":
-                    mapped = [(coords[0] - left) * fft_width / (right-left) - 0.5,
-                              (coords[1] - top) * fft_height / (bottom-top) - 0.5,
-                              (coords[2] - left) * fft_width / (right-left) - 0.5,
-                              (coords[3] - top) * fft_height / (bottom-top) - 0.5]
-                    frequencies = [(mapped[0] - fft_width // 2) / fft_width,
-                                   (mapped[1] - fft_height // 2) / fft_height,
-                                   (mapped[2] - fft_width // 2) / fft_width,
-                                   (mapped[3] - fft_height // 2) / fft_height]
-                else:
-                    mapped = [(coords[0] - left + 0.5) * fft_width / (right-left) - 0.5,
-                              (coords[1] - top + 0.5) * fft_height / (bottom-top) - 0.5]
-                    frequencies = [(mapped[0] - fft_width // 2) / fft_width,
-                                   (mapped[1] - fft_height // 2) / fft_height]
-                mappings.append({"source_object_id": current["source_object_id"], "domain": "frequency",
-                                 "fft_bin_coordinates": mapped, "frequency_cycles_per_pixel": frequencies,
-                                 "coordinate_convention": "FFT bin center indices; rectangles denote pixel-edge positions in this continuous index system",
-                                 "frequency_coordinate_rule": current["frequency_coordinate_rule"],
-                                 "physical_frequency_unit": None, "spatial_roi_mapping_performed": False})
-                continue
+    need(kind != "text" or bool(text), "Text annotation requires text")
+    ident = item.get("annotation_id")
+    need(ident is None or type(ident) is str and REQUEST_ID.fullmatch(ident), "Invalid annotation_id")
+    line_width, arrowhead_size = item.get("line_width", 1), item.get("arrowhead_size", 4)
+    need(integer(line_width, 1, 4) and integer(arrowhead_size, 1, 12), "Annotation line_width needs 1..4 and arrowhead_size 1..12 display pixels")
+    space = item.get("coordinate_space", "rendered_image_pixels")
+    need(space in ("rendered_image_pixels", "source_pixels", "source_array_indices", "frequency_cycles_per_pixel"),
+         "Unsupported annotation coordinate space")
+    rendered, matches, anchor = list(coords), [], None
+    def contains(values, bounds):
+        l, t, r, b = bounds
+        return all(l <= x <= r and t <= y <= b if edges else l <= x <= r-1 and t <= y <= b-1
+                   for x, y in zip(values[::2], values[1::2]))
+    if space == "rendered_image_pixels":
+        need("source_object_id" not in item, "Rendered coordinates do not take a source_object_id")
+        need(contains(coords, [0, 0, *image_size]), "Annotation lies outside the rendered image")
+        matches = [p for p in panels if contains(coords, p["image_rect_xyxy"])]
+        if len(matches) == 1:
+            current = matches[0]
+            anchor = {"coordinate_space": {"frequency": "frequency_cycles_per_pixel", "spatial_pixels": "source_pixels",
+                                           "source_array_indices": "source_array_indices"}[current["domain"]],
+                      "source_object_id": current["source_object_id"],
+                      "coordinates": coordinate_transform(coords, current, edges)}
+    else:
+        source = item.get("source_object_id")
+        need(type(source) is str and OBJECT_ID.fullmatch(source), "Anchored annotations require an explicit source_object_id from panels")
+        domain = {"frequency_cycles_per_pixel": "frequency", "source_pixels": "spatial_pixels",
+                  "source_array_indices": "source_array_indices"}[space]
+        matches = [p for p in panels if p["source_object_id"] == source and p["domain"] == domain]
+        need(len(matches) == 1, "Annotation source/domain must match exactly one panel; no name/recency matching")
+        current = matches[0]
+        anchor = {"coordinate_space": space, "source_object_id": source, "coordinates": list(coords)}
+        rendered = coordinate_transform(coords, current, edges, inverse=True)
+        # Coordinate centres at the last source pixel can map slightly past the
+        # last displayed centre under downsampling; check source bounds instead.
+        if current["domain"] == "frequency":
+            h, w = current["fft_shape_yx"]
+            margin = 0.5 if edges else 0
+            bounds = [(-(w//2)-margin)/w, (-(h//2)-margin)/h,
+                      (w-1-w//2+margin)/w, (h-1-h//2+margin)/h]
+        else:
             x0, y0, x1, y1 = current["source_rect_xyxy"]
-            if kind == "rectangle":
-                mapped = [x0 + (coords[0] - left) * (x1-x0)/(right-left), y0 + (coords[1] - top) * (y1-y0)/(bottom-top),
-                          x0 + (coords[2] - left) * (x1-x0)/(right-left), y0 + (coords[3] - top) * (y1-y0)/(bottom-top)]
-            else:
-                mapped = [x0 + (coords[0] - left + 0.5) * (x1-x0)/(right-left) - 0.5,
-                          y0 + (coords[1] - top + 0.5) * (y1-y0)/(bottom-top) - 0.5]
-            if current.get("domain") == "source_array_indices":
-                mappings.append({"source_object_id": current["source_object_id"], "domain": "source_array_indices",
-                                 "array_index_coordinates": mapped, "spatial_roi_mapping_performed": False,
-                                 "frequency_mapping_performed": False,
-                                 "limitation": current["limitation"]})
-            else:
-                mappings.append({"source_object_id": current["source_object_id"], "domain": "spatial_pixels", "coordinates": mapped})
-    return {"kind": kind, "coordinates": list(coords), "coordinate_space": "rendered_image_pixels; compare uses whole horizontal composite",
-            "status": status, "text": text, "note": note, "source_mappings": mappings,
-            "mapping_status": "one_source" if len(mappings) == 1 else "not_a_single_source_region"}
+            bounds = [x0, y0, x1 if edges else x1-1, y1 if edges else y1-1]
+        visible = all(bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3]
+                      for x, y in zip(coords[::2], coords[1::2]))
+        need(reproject or visible, "Annotation lies outside its source panel")
+    mappings = []
+    if len(matches) == 1:
+        current = matches[0]
+        mapped = anchor["coordinates"]
+        if current["domain"] == "frequency":
+            h, w = current["fft_shape_yx"]
+            mappings.append({"source_object_id": current["source_object_id"], "domain": "frequency",
+                             "frequency_cycles_per_pixel": mapped,
+                             "fft_bin_coordinates": [v*n+n//2 for v, n in zip(mapped, [w, h]*(len(mapped)//2))],
+                             "physical_frequency_unit": None, "spatial_roi_mapping_performed": False})
+        else:
+            key = "array_index_coordinates" if current["domain"] == "source_array_indices" else "coordinates"
+            mappings.append({"source_object_id": current["source_object_id"], "domain": current["domain"], key: mapped,
+                             **({"spatial_roi_mapping_performed": False, "frequency_mapping_performed": False} if key == "array_index_coordinates" else {})})
+    return {"kind": kind, "coordinates": rendered, "coordinate_space": "rendered_image_pixels",
+            "coordinate_convention": "pixel edges" if edges else "pixel/bin centres; x right, y down",
+            "status": status, "text": text, "note": note, "source_mappings": mappings, "anchor": anchor,
+            "line_width": line_width, "arrowhead_size": arrowhead_size,
+            **({"annotation_id": ident} if ident is not None else {}),
+            "visibility": "outside_view" if space != "rendered_image_pixels" and not visible else "visible",
+            "mapping_status": "one_source" if len(matches) == 1 else "not_a_single_source_region"}
+
+
+def overlay(image, annotations, panels, reproject=False):
+    image = image.convert("RGB")
+    draw, result, seen = ImageDraw.Draw(image), [], set()
+    for item in annotations:
+        mark = annotation(item, image.size, panels, reproject=reproject)
+        ident = mark.get("annotation_id")
+        need(ident is None or ident not in seen, "Duplicate annotation_id in replacement revision")
+        seen.add(ident)
+        result.append(mark)
+        if mark["status"] == "retracted" or mark["visibility"] != "visible":
+            continue
+        color = "#00e060" if mark["status"] == "user_confirmed" else "#ffba30"
+        coords, kind = mark["coordinates"], mark["kind"]
+        if kind == "point":
+            x, y = coords
+            draw.ellipse([x-3, y-3, x+3, y+3], outline=color, width=mark["line_width"])
+        elif kind == "rectangle":
+            draw.rectangle(coords, outline=color, width=mark["line_width"])
+        elif kind == "polygon":
+            points = list(zip(coords[::2], coords[1::2]))
+            draw.line(points + points[:1], fill=color, width=mark["line_width"])
+        elif kind in ("line", "arrow"):
+            draw.line(coords, fill=color, width=mark["line_width"])
+            if kind == "arrow":
+                x0, y0, x1, y1 = coords
+                angle = math.atan2(y1-y0, x1-x0)
+                size = min(mark["arrowhead_size"], math.hypot(x1-x0, y1-y0)/3)
+                points = [(x1, y1)] + [(x1-size*math.cos(angle+a), y1-size*math.sin(angle+a)) for a in (-.5, .5)]
+                draw.polygon(points, fill=color)
+        else:
+            draw.text(coords, mark["text"], fill=color)
+        if mark["text"] and kind != "text":
+            draw.text(coords[:2], mark["text"], fill=color)
+    return image, result
 
 
 def _execute(request):
