@@ -1,5 +1,33 @@
 # Native bridge validation matrix
 
+## Pixel exploration and independent image input
+
+This feature branch adds explicitly external, opt-in uint16 TIFF and verified
+saved-capture tools, rather than making crystallographic classification an
+entry requirement. Missing scale permits pixel ROI/view/FFT/annotation/export;
+unknown physical units, aspect and frame depth are not invented. Source,
+numerical arrays, display recipes, user context and revision history stay
+separate. See [pixel workflow](../../docs/PIXEL_IMAGE_WORKFLOW.md).
+
+| Scope | Actual result |
+| --- | --- |
+| Public-disabled native source, C++ offline programs | 15/15 PASS; substitutes only |
+| Final complete Node suite, including actual external-worker lifecycle and synthetic Windows pipe recovery | 248/248 PASS; zero skips |
+| Final complete Python discovery and default-backend selftest | 767/767 PASS, zero skips; selftest PASS |
+| Anonymous mathematical stat-fixture replacement, post-change targeted Python | 31/31 PASS; runtime Python source remained unchanged during the complete final run |
+| Independently rehashed negative controls for FRAME qualification, original IDs, imported metadata and scientific coordinate domains | PASS within offline scope |
+| Authorised read-only TIFF, actual stdio MCP → Codex image content → user-requested frame revision | PASS within this client/path scope |
+| Independent raw-page/ROI comparison, directly summed selected Fourier bins, reopened scientific exports and unchanged source file identity/hash | PASS within that real-file external scope |
+| Other clients/tool reloading; new native pixel real-host qualification | NOT_TESTED; HOLD respectively |
+
+An earlier real-file envelope check exposed large filesystem integers rounded
+by JSON binary64 transport. Decimal-string identities and negative controls
+correct that contract; the strict failed run remains preserved. Native pixel
+groups remain disabled and their prepared candidate was not installed. Exact
+module fingerprints, existing physical-mode checks and default v0.6 remain.
+This does not claim DM-native execution for external NumPy/Pillow tools, a
+physical scale from raw uint16 values or complete model-client qualification.
+
 ## Explicit uint16 sequence-frame working copies
 
 `dm_native_frame` adds a separately gated exact-build path: explicit rank-three
