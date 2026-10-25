@@ -512,7 +512,7 @@ The immutable PROFILE receipt includes frozen little-endian float64 values and
 retention identity. The external saved-response encoder writes actual `[N]`
 NPY/schema-1 metadata with that original receipt, source GUI line, both
 calibrations and sample trajectory. It is data handoff, not DM SaveAs. RELEASE
-and STOP share the existing owned-reference path. Existing 2D READ/SHOW still
+and STOP share the existing owned-reference path. Existing 2D READ and 2D display admission still
 reject rank-one images; no new general 1D scientific API is implied.
 
 Independent prepared-host checks matched nonlinear and high-unsigned controls,

@@ -1,4 +1,9 @@
-# PR #7/#8 integration: paused checkpoint
+# PR #7/#8 integration: historical paused checkpoint
+
+This checkpoint was preserved after an explicit resume. For the current
+integration and fresh evidence scope, read [HANDOFF](../experiments/native-bridge/mvp/HANDOFF.md)
+and [RESULTS](../experiments/native-bridge/RESULTS.md). The old session and its
+uncompleted manual trial are not retroactively repaired.
 
 Paused at the user's explicit request on 2026-10-25 because another Agent may
 also be operating DM. Do not resume desktop or host work without coordinating

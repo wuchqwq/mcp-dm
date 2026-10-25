@@ -104,4 +104,4 @@ Node 服务没有 npm 运行依赖。随后按 [MCP 配置示例](mcp.json.examp
 
 当前分支新增[中间结果释放与完整区域数值交接](docs/NATIVE_LIFECYCLE_HANDOFF.md)，继续保留实验后端的类型、尺寸和版本限制。SHOW 回执不保证当前工作区可见；原生工作区切换尚未接通。
 
-实验原生后端支持[读取明确图像的 GUI 矩形选区并接续分析](docs/NATIVE_GUI_ROI.md)、[宽度 1 像素的水平或竖直原生剖面](docs/NATIVE_LINE_PROFILE.md)和[有限原生直方图](docs/NATIVE_HISTOGRAM.md)，可交给 DM 文档显示并导出真实一维 NPY 与元数据。均保留各自的限定资格范围；斜线、宽线与直方图物理强度横轴尚未接通。
+实验原生后端支持[读取明确图像的 GUI 矩形选区并接续分析](docs/NATIVE_GUI_ROI.md)、[宽度 1 像素的水平或竖直原生剖面](docs/NATIVE_LINE_PROFILE.md)和[有限原生直方图](docs/NATIVE_HISTOGRAM.md)，可交给 DM 文档显示并导出真实一维 NPY 与元数据。均保留各自的限定资格范围；斜线、宽线及一般物理强度换算尚未接通。完整步骤见[GUI 测量与数据交接](docs/NATIVE_GUI_MEASUREMENTS.md)。

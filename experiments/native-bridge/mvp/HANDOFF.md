@@ -1,5 +1,33 @@
 # Native MVP continuation handoff
 
+## Current integration: GUI measurement, display and scientific files
+
+The independent `integration/native-gui-measurements-20261025` branch retains
+PR #7's exact owned one-dimensional dtype repair, PR #8's native histogram and
+true-rank-one SHOW, and the reviewed PR #9 axis interface. It does not merge
+main or change the default v0.6 backend.
+
+The integration admits bins greater than source pixels, separates native uint32
+counts from binary64 transport and `<u4` NPY, and makes creation/SHOW/QUERY/file
+axis validation consistent. Non-identity source intensity calibration remains
+bin_index; only identity calibration plus a unit may use the precisely checked
+native axis. SHOW rechecks the live axis against frozen creation context.
+Optional bar styling remains NOT_QUALIFIED after independent ownership/RTTI
+review; document delivery does not depend on it. Historical axis/style claims
+do not qualify this artifact.
+
+See [the short workflow](../../../docs/NATIVE_GUI_MEASUREMENTS.md),
+[histogram semantics](../../../docs/NATIVE_HISTOGRAM.md),
+[axis audit](../../../docs/HISTOGRAM_AXIS_AUDIT.md) and
+[RESULTS](../RESULTS.md) for actual completed scopes. Original failed and
+interrupted evidence remains private and unchanged. Same-session original-ID
+recovery, exact build gates, source protection and after-idle lifetime checks
+remain mandatory. Ordinary model clients are a separate untested scope.
+
+The next section records the earlier profile qualification; it is not a blanket
+qualification of later display/histogram changes.
+
+
 ## Current continuation: GUI line to native one-dimensional profile
 
 The native catalog now has nineteen entries, adding `dm_native_profile` and
@@ -28,8 +56,8 @@ RELEASE followed by a separate host-idle observation invalidated the released
 outputs; the pre-saved original STOP and its actual PID/worker identity were
 verified and remaining hidden outputs became invalid. Cleanup returned to idle
 before independently checking fixture destruction; normal exit and manifest
-removal completed. Existing 2D READ/SHOW and other 2D tools still refuse 1D
-outputs. Result tokens, original-ID recovery and frozen records remain shared.
+removal completed. Existing 2D READ and other 2D operators still refuse 1D outputs;
+SHOW now has separate true-1D admission groups described above. Result tokens, original-ID recovery and frozen records remain shared.
 
 The final qualified session independently repeated horizontal, vertical,
 reversed and boundary cases across the fixed float32/nonlinear/high-uint32/

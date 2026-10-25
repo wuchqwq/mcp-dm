@@ -513,3 +513,43 @@ actual-host qualification. True-1D document delivery does not depend on bars.
 
 Fresh integration tests and host observations are recorded separately below;
 no offline result substitutes for actual DM, manual drawing or ordinary clients.
+
+## Independent GUI measurement integration
+
+The independent integration branch retains PR #7/#8/#9 histories and preserves
+the five-module gate and default v0.6 backend. Detailed raw traces, original
+requests, failures and installation records remain private. These are newly
+executed checks of the integrated artifact, not inherited PR acceptance.
+
+| Scope | Actual result |
+|---|---|
+| Windows x64 plugin build and C++ offline suites | PASS, 13/13; rejection-suite vendor calls zero |
+| Windows synthetic named-pipe transport | PASS, 13/13; synthetic hosts only |
+| Full Node suite with this build's Windows fake host/scientific fixture | PASS, 206/206, zero failures/skips |
+| Default v0.6 selftest | PASS, original 21-tool catalog |
+| C++ raw PROFILE/HISTOGRAM/SHOW to Node, saved NPY and independent NumPy reopening | PASS, offline cross-contract evidence only |
+| Python measurement oracle and adversarial cases | PASS, 18/18 |
+| Full Python regression | **FAILED**, 604 methods, zero assertion FAIL, five ERROR, zero skipped; all five are original 10-second subprocess timeouts |
+| Unchanged-deadline standalone rerun of affected STOP and SUMMARY classes | PASS, 8/8 and 12/12; does not replace the full-suite FAILED result or establish the timeout cause |
+| Historical fault controls and current trial subtests | PASS, original 106/106 and current 191/191; independently counted during that full run |
+| Fresh actual DM, loaded build identity and independent pre-operation source/GUI baseline | PASS, exact adapter, actual observer PID/session and no preparation bypass |
+| Native float32/uint32 axis-aligned profiles, native float32 histograms including sparse bins and raw edge controls | PASS within the bounded synthetic contract; no bridge calculation fallback |
+| Identity-calibrated intensity axis, positive/negative lower edges and a non-exact binary32 round trip | PASS, exact stored origin/physical-zero model, exact scale/unit and predefined resolution gate |
+| Non-identity source intensity calibration | PASS, explicit bin_index and unapplied original calibration; no false physical unit conversion |
+| Immutable original-ID QUERY, true 1D f64/u32 NPY and same-host independent values/calibration/source checks | PASS; transport binary64 and saved/native uint32 count hashes remain separate |
+| Owned one-dimensional DATASETS dtype after result creation | PASS, exact still-retained objects keep their creation dtype and shape |
+| Exact-document PROFILE/HISTOGRAM SHOW and repeated SHOW | PASS, native rank one and display type 3; repeated SHOW creates no extra document |
+| RELEASE, original pre-saved STOP and independent later idle observations | PASS, hidden outputs invalid and displayed outputs still document-held; original creation records unchanged |
+| Normal close of only delivered documents, separate idle last-reference check | PASS, outputs invalid while source data/calibration/names/GUI and source documents remain unchanged |
+| Owned fixture cleanup, separate idle empty-host observation, normal host exit and post-exit saved-file reopening | PASS; no forced termination, loaded-DLL replacement or original experimental file use |
+| Optional histogram bar-style candidate | NOT_QUALIFIED, disabled for shipping; ordinary document delivery works without it |
+| Fresh user-manual line through native MCP in its original live session | PENDING in a separate prepared synthetic session; a late line drawn after the first session's STOP is saved observation only |
+| Ordinary model-client acceptance | NOT_TESTED |
+
+The timeout cause is unresolved. A passing focused rerun is evidence of that
+rerun, not permission to discard the complete-run errors or widen deadlines.
+The earlier paused host discontinuity, exact-equality axis FAIL and precision
+FAIL of the experimental ADF FFT round trip remain preserved separately. No
+claim about original experimental GUI measurements, general profiles, physical
+intensity conversion, native SaveAs, concurrent host use or other GMS builds is
+added by these results.
