@@ -1,0 +1,23 @@
+name: PR16 Windows path diagnostic
+on:
+  push:
+    branches: [validation/pr16-fix-check-20261026]
+    paths: ['.github/workflows/pr16-path-probe.yml']
+permissions:
+  contents: read
+jobs:
+  paths:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe only synthetic temp paths
+        run: node .review/path_probe.mjs
