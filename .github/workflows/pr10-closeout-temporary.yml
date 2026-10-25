@@ -1,0 +1,121 @@
+name: Independent PR10 closeout
+on:
+  push:
+    branches: [validation/pr10-closeout-20261025]
+    paths: [.github/workflows/pr10-closeout-temporary.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: product
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 217597e195abf6fbca7a53dbcb49235787d695fa
+          path: product
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Record frozen source and environment
+        run: |
+          New-Item -ItemType Directory -Force ../evidence | Out-Null
+          git rev-parse HEAD | Tee-Object ../evidence/commit.txt
+          git rev-parse 'HEAD^{tree}' | Tee-Object ../evidence/tree.txt
+          git archive --format=zip --output=../evidence/source-217597e.zip HEAD
+          python --version
+          node --version
+          python -m pip install -r requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Test dependencies failed' }
+          python -m pip freeze | Out-File ../evidence/dependencies.txt -Encoding utf8
+          "DM_TEST_PYTHON=$((Get-Command python).Source)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Upload pinned public source
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr10-source-217597e
+          path: evidence/source-217597e.zip
+          retention-days: 3
+      - name: Prepare pinned compiler and build all native tests
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'llvm.zip'
+          Invoke-WebRequest -Uri 'https://github.com/mstorsjo/llvm-mingw/releases/download/20250528/llvm-mingw-20250528-ucrt-x86_64.zip' -OutFile $zip
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'llvm')
+          $cxx = Join-Path $env:RUNNER_TEMP 'llvm/llvm-mingw-20250528-ucrt-x86_64/bin/clang++.exe'
+          & $cxx --version
+          if ($LASTEXITCODE -ne 0) { throw 'Compiler failed' }
+          $build = Join-Path $env:RUNNER_TEMP 'native-build'
+          & ./experiments/native-bridge/mvp/build.ps1 -Cxx $cxx -OutputDirectory $build
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          "REVIEW_BUILD=$build" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DM_NATIVE_FAKE_HOST_EXE=$build/fake_host.exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DM_NATIVE_SCIENTIFIC_FIXTURE=$build/scientific-read.json" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: All C++ suites and synthetic Windows transport
+        run: |
+          foreach ($name in @('core_tests','adapter_tests','read_adapter_tests','result_release_tests','roi_adapter_tests','line_profile_adapter_tests','histogram_adapter_tests','uint32_adapter_tests','uint32_operations_tests','adapter_profile_tests','adapter_rejection_tests','candidate_calls_tests')) {
+            & (Join-Path $env:REVIEW_BUILD "$name.exe")
+            if ($LASTEXITCODE -ne 0) { throw "$name failed" }
+          }
+          & (Join-Path $env:REVIEW_BUILD 'scientific_handoff_tests.exe') $env:DM_NATIVE_SCIENTIFIC_FIXTURE
+          if ($LASTEXITCODE -ne 0) { throw 'Scientific handoff failed' }
+          python -B experiments/native-bridge/mvp/test_transport.py --exe $env:DM_NATIVE_FAKE_HOST_EXE
+          if ($LASTEXITCODE -ne 0) { throw 'Transport failed' }
+      - name: Full Node and default mock
+        run: |
+          node --test *> ../evidence/node.txt
+          $nodeResult = $LASTEXITCODE
+          Get-Content ../evidence/node.txt | Select-Object -Last 15
+          if ($nodeResult -ne 0) { throw 'Node failed' }
+          node selftest.mjs *> ../evidence/default-mock.txt
+          $mockResult = $LASTEXITCODE
+          Get-Content ../evidence/default-mock.txt | Select-Object -Last 8
+          if ($mockResult -ne 0) { throw 'Default mock failed' }
+      - name: Full Python regression first fixed run
+        id: python_first
+        continue-on-error: true
+        run: |
+          python -B -m unittest discover -s tests -p 'test_*.py' -v *> ../evidence/python-full-first.txt
+          $code = $LASTEXITCODE
+          Get-Content ../evidence/python-full-first.txt | Select-Object -Last 100
+          if ($code -ne 0) { throw "First full Python run failed: $code" }
+      - name: Full Python regression second fixed run
+        id: python_second
+        if: always() && steps.python_first.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          python -B -m unittest discover -s tests -p 'test_*.py' -v *> ../evidence/python-full-second.txt
+          $code = $LASTEXITCODE
+          Get-Content ../evidence/python-full-second.txt | Select-Object -Last 100
+          if ($code -ne 0) { throw "Second full Python run failed: $code" }
+      - name: Verify no source or deadline edits
+        if: always()
+        run: |
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { throw 'Tracked source changed' }
+          git diff --cached --exit-code
+          if ($LASTEXITCODE -ne 0) { throw 'Index changed' }
+          git status --short | Out-File ../evidence/worktree.txt -Encoding utf8
+          if ((git rev-parse HEAD) -ne '217597e195abf6fbca7a53dbcb49235787d695fa') { throw 'Unexpected HEAD' }
+      - name: Upload complete validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr10-closeout-evidence
+          path: evidence/
+          retention-days: 7
+      - name: Preserve both full-run outcomes
+        if: always()
+        run: |
+          if ('${{ steps.python_first.outcome }}' -ne 'success' -or '${{ steps.python_second.outcome }}' -ne 'success') {
+            throw 'Full regression not green: preserve failures; no skipped or relaxed test is accepted'
+          }
