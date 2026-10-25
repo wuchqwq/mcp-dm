@@ -48,7 +48,7 @@ The priorities are straightforward: use the intended image, do not silently chan
 |---|---|---|
 | **Default on main: v0.6 Python backend** | Images and metadata, 2D statistics, profiles, FFT summaries, cropping, scientific exports, and optional capture/preview | Connects through DM's embedded Python. Some numerical operations use NumPy. Previews require a separate environment. |
 | **Optional experimental native C++ backend** | Nineteen tools in this checkout: native summaries, crop, bounded arithmetic/FFT/filters, GUI rectangle/line identity, limited 1D profiles and histograms, PNG preview, visible documents and numerical handoff | Exact Windows x64 GMS **3.53.4137.0** fingerprints and per-operation dtype/size limits. NPY handoff is not native DM file saving; see the [native workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md). |
-| **Next stage** | More general line profiles, native saving and workspace switching | See the [official-feature comparison and priorities](docs/NATIVE_NEXT_STAGE.md). Planned items are not current capabilities. |
+| **Next stage: crystallographic measurements** | Diffraction scale, lattice-spacing and angle measurements; FCC/BCC indexing candidates; local HRTEM/ADF FFT comparison | See the [next-stage task](docs/DIFFRACTION_NEXT_STAGE.md). Start with user-confirmed centres and spots. These are development goals, not implemented automatic calibration or phase identification. |
 
 **For a first trial, use the default backend on main.** Read the [native guide and build restrictions](experiments/native-bridge/mvp/README.md) before trying the C++ experiment. Do not use it on an unrecognized GMS build.
 
