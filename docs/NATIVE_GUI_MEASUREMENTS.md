@@ -77,6 +77,10 @@ numeric checks, document lifetime and ordinary model-client acceptance are
 reported separately in [RESULTS](../experiments/native-bridge/RESULTS.md).
 Manual drawing counts as a manual-selection trial only when observed in that
 same host with a new baseline before processing. API-created fixture lines do
-not substitute for it. Last-reference checks run after returning to host idle;
-a same-stack reference cannot prove destruction. Keep every original failed
+not substitute for it. The integrated build has separately passed one fresh
+synthetic user-drawn horizontal-line continuation through native PROFILE, QUERY,
+exact-document SHOW, lossless NPY, RELEASE/STOP, document close and independent
+idle cleanup checks. This does not qualify general lines, original experimental
+selections or ordinary model clients. Last-reference checks run after returning
+to host idle; a same-stack reference cannot prove destruction. Keep every original failed
 run and its saved request records.

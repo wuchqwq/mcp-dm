@@ -543,8 +543,14 @@ executed checks of the integrated artifact, not inherited PR acceptance.
 | Normal close of only delivered documents, separate idle last-reference check | PASS, outputs invalid while source data/calibration/names/GUI and source documents remain unchanged |
 | Owned fixture cleanup, separate idle empty-host observation, normal host exit and post-exit saved-file reopening | PASS; no forced termination, loaded-DLL replacement or original experimental file use |
 | Optional histogram bar-style candidate | NOT_QUALIFIED, disabled for shipping; ordinary document delivery works without it |
-| Fresh user-manual line through native MCP in its original live session | PENDING in a separate prepared synthetic session; a late line drawn after the first session's STOP is saved observation only |
+| Fresh user-manual line through native MCP in its original live session | PASS, separate fresh synthetic host with no prepared lines: user-drawn horizontal ROI frozen before processing; exact identity/endpoints, native samples/calibration, original-ID QUERY, true 1D NPY and exact-document SHOW independently checked |
+| Manual-line result lifetime and final cleanup | PASS, RELEASE and pre-saved STOP preserve the document-held result; normal document close followed by a separate idle check invalidates it with sources/GUI unchanged; owned fixture cleanup, normal exit, manifest-only DLL removal and post-exit NPY reopening complete |
 | Ordinary model-client acceptance | NOT_TESTED |
+
+The earlier late line drawn after the first integration session's STOP remains
+saved observation only. It was not replayed or used to qualify the new manual
+trial. The new user-drawn line was independently frozen and processed in its own
+original host session before STOP; model-side visual review remains NOT_TESTED.
 
 The timeout cause is unresolved. A passing focused rerun is evidence of that
 rerun, not permission to discard the complete-run errors or widen deadlines.

@@ -92,14 +92,13 @@ raster. The reply keeps `rank:1`, `display_family:native_1d_image_document`,
 shape and one native axis; the bridge never asserts a display class name.
 See docs/NATIVE_LINE_PROFILE.md and docs/NATIVE_HISTOGRAM.md.
 
-Histogram delivery also switches the host line plot to its bar style through
-native_line_plot_style. That is one byte in the display object: the bridge first
-proves the object's dynamic type by the decorated name in its own complete object
-locator, then calls the vendor setter and reads the byte back through the vendor
-getter. A raster display carries a byte at the same offset, so an unproven object
-is never written; the receipt then reports display_style "default" with a reason.
-This is host presentation only: it never fails a delivery and it makes no
-scientific claim.
+Histogram bar styling is a separate optional native_line_plot_style candidate,
+currently NOT_QUALIFIED and disabled for shipping. Histogram delivery uses the
+host default and reports display_style "default" with style_not_qualified.
+The candidate checks the complete native display object's pinned RTTI layout
+and balances its acquired image reference before any vendor setter/getter call;
+a decorated type name alone is not sufficient. Presentation does not qualify
+scientific values or block ordinary one-dimensional document delivery.
 
 native_histogram creates its destination with the exported
 `Image::CreateImage(DataSize, type, char_range)` and fills it with the exported

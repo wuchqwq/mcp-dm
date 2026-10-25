@@ -24,6 +24,20 @@ interrupted evidence remains private and unchanged. Same-session original-ID
 recovery, exact build gates, source protection and after-idle lifetime checks
 remain mandatory. Ordinary model clients are a separate untested scope.
 
+The fresh manual continuation is complete: the user added a horizontal line to
+a new synthetic source that had no prepared lines. A read-only freeze preserved
+the original fixture and established the new GUI baseline before native MCP
+processing. Exact source/document/display/ROI identity, ordered endpoints,
+native samples and calibration, original-ID QUERY, true 1D NPY, and delivery of
+that same output to a DM document passed independent same-host checks. RELEASE
+and the pre-saved STOP left the document-held result alive; after normal document
+close and a separate idle observation it was invalid, while source data and GUI
+remained unchanged. Owned fixture cleanup, normal exit, manifest-only removal
+and post-exit saved-file reopening also completed. The earlier late selection
+after another session's STOP remains observation only, not retroactive acceptance.
+Full Python regression remains FAILED with five original subprocess deadline
+errors; passing unchanged-deadline focused reruns do not replace that result.
+
 The next section records the earlier profile qualification; it is not a blanket
 qualification of later display/histogram changes.
 
