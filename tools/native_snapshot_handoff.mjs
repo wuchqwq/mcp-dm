@@ -127,7 +127,6 @@ export function validateSavedSnapshot(raw) {
   if (receipt.original_operation === 'PROFILE') validateNativeLineProfile(result, receipt.normalized_args, receipt.id);
   else if (receipt.original_operation === 'HISTOGRAM') {
     validateNativeHistogram(result, receipt.normalized_args, receipt.id);
-    requireThat(result.axis_mode === 'bin_index', 'Only the qualified native histogram bin-index axis may be handed off');
   }
   else {
     validateNativeDataSnapshot(result, receipt.normalized_args);
@@ -199,13 +198,19 @@ export function packageInfo(snapshot, captureId, npy) {
   if (receipt?.original_operation === 'HISTOGRAM') return {
     schema_version:1, capture_id:captureId, capture_mode:'native_histogram', shape:result.shape,
     dtype:'uint32', native_storage_dtype:'uint32', byte_order:'little', array_order:'C',
-    axes:['bin_index'], axis_roles:[{numpy_axis:0,dm_dimension:0,role:'bin_index'}],
+    axes:[result.axis_mode === 'bin_index' ? 'bin_index' : 'intensity_bin'],
+    axis_roles:[{numpy_axis:0,dm_dimension:0,role:result.axis_mode === 'bin_index' ? 'bin_index' : 'intensity_bin'}],
     source_image_id:result.source_image_id, source_shape_yx:result.source.shape,
     source_metadata:result.source, source_calibration_dm:result.source.calibration,
     histogram_metadata:result.image, histogram_calibration:result.image.calibration,
     calibration_complete:result.image.calibration_complete, axis_mode:result.axis_mode,
-    axis_calibration_is_bin_left_edge:false,
-    native_calibration_semantics:'native bin-index axis; explicit bin geometry is not a calibrated native intensity axis',
+    axis_calibration_is_bin_left_edge:result.axis_calibration_is_bin_left_edge,
+    native_calibration_semantics:result.axis_mode === 'bin_index' ?
+      'native bin-index axis; explicit bin geometry is not a calibrated native intensity axis' :
+      'native raw-intensity bin-left-edge axis; requested geometry and observed binary32 calibration remain separate',
+    ...Object.fromEntries(['axis_zero_requested','axis_zero_observed','axis_scale_observed','axis_roundtrip_error',
+      'axis_tolerance','axis_roundtrip_bound','axis_max_coordinate_error','axis_unavailable_reason']
+      .filter(key=>Object.hasOwn(result,key)).map(key=>[key,result[key]])),
     bins:result.bins, bin_left_edge:result.bin_left_edge, bin_width:result.bin_width,
     requested_range:result.requested_range, binning:result.binning, bin_edge_rule:result.bin_edge_rule,
     source_min:result.source_min, source_max:result.source_max, source_pixels:result.source_pixels,

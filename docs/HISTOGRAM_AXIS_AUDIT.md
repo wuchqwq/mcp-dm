@@ -1,67 +1,66 @@
-# Histogram axis: evidence and remaining ABI boundary
+# Histogram axis: native arithmetic and scientific limits
 
-The integrated histogram continues to publish `axis_mode:"bin_index"`. Its
-native count image is uint32; its bounded wire payload uses binary64 because
-every admitted count is exactly representable there. Neither encoding changes
-the scientific meaning of the X axis or applies the source intensity calibration.
+The histogram range and binning inputs remain raw pixel values. The native count
+image is uint32; binary64 is its exact bounded wire transport. Neither a unit
+label nor a display-axis setter applies source intensity calibration to those
+values or counts.
 
-## Official example and native contract
+## Traced contract and historical failure
 
 Gatan's [Interactive histogram example](https://www.gatan.com/Software/Scripts/DigitalMicrograph-Library/Interactive-histogram)
-creates a one-dimensional unsigned four-byte integer image. Before calculating
-the histogram it sets the X calibration with origin equal to the lower requested
-bound, scale equal to range width divided by the number of channels, the source
-intensity unit, and format zero. It separately sets the output intensity
-calibration to zero origin, unit scale and `#pixels`. The example therefore
-distinguishes bin coordinates from count values. It does not document the C++
-ABI or define the numeric `format` enumeration.
+sets a bin-left-edge X calibration separately from the count intensity axis. It
+is evidence of script-level intent, not proof of a C++ calling convention or
+permission to treat non-identity calibrated values as raw positions.
 
-The pinned export inventory independently identifies two different native
-`Image::SetDimensionCalibration` overloads. One takes a dimension and a
-`DimensionCalibrationInfo` object; the other takes a dimension, two floats,
-a wide-character begin/end range and an integer format. They cannot be
-interchanged with a Python method, a script wrapper, or a `std::wstring`
-argument. The existing begin/end POD and getter ABI do not alone qualify a
-setter call or an unknown calibration-info object layout.
+The pinned native overload takes a dimension, two binary32 values, a UTF-16
+begin/end range and an integer format. Format zero receives a physical value
+at pixel zero. The native setter divides that value by the signed scale and
+stores the negative quotient; the format-zero getter multiplies it back.
+Format one instead exposes the stored origin. Preserve both values.
 
-The already qualified getter preserves two different quantities: its format-zero
-value is the physical coordinate at pixel zero; format one supplies the stored
-origin. The bridge's coordinate contract is
-`physical(i)=physical_zero+i*signed_scale`. Under the separately established
-stored-origin convention, `physical_zero=-stored_origin*signed_scale`.
-Consequently, interpreting a requested lower intensity edge as a stored pixel
-origin would generally give a different axis. This is a diagnostic distinction,
-not proof that it caused the earlier setter failure.
+The original exact-readback comparison failed. Later tracing and an independent
+legacy API comparison explain a binary32 division/multiplication round trip;
+they do not erase that FAIL or establish the scientific meaning of an arbitrary
+source unit. Exact equality is possible for some inputs and fails for others.
+The integration also rejected a broad `epsilon * max(abs(origin),abs(scale),1)`
+bound: its absolute floor could exceed a tiny bin width and conceal a wrong axis.
 
-## What the independent integration review established
+## Current predefined checks
 
-The prior PR records a failed attempted format-zero setter/readback comparison.
-That failure is preserved. The available historical calibration probe source
-sets a nonzero lower bound and reads both getter formats, but its saved output
-was not present in the reviewed evidence directory. The retained successful
-histogram receipt instead has the untouched index axis: raw origin zero,
-physical zero zero, unit scale and unknown unit. The review cannot reconstruct
-the failed call's exact inputs, returned values or root cause from that receipt,
-and does not relabel the historical report as an independently reproduced FAIL.
+Only identity source intensity origin/scale (zero/one) plus a nonempty unit may
+use the source-unit display axis. Non-identity or missing calibration stays
+`bin_index`, retaining the complete original calibration for later explicit
+interpretation. There is no hidden physical-intensity transformation.
 
-No setter was added, called or qualified in this review. In particular, the
-official script's last parameter being zero does not authorize trying several
-native formats until one happens to look plausible. Source intensity units also
-do not justify labelling raw bin boundaries as calibrated electron counts.
+For raw lower edge `a`, mathematical bin width `w` and `n` bins, the plan uses
+binary32 `s=round32(w)`, `q=round32(a/s)` and `z=round32(q*s)`. Scale must be
+positive and normal; quotient and reconstructed zero must be finite and normal
+when the lower edge is nonzero. The native stored origin must read back as
+`-q`, physical zero as `z`, and scale/unit must match exactly.
 
-## Required controlled follow-up
+The predefined error bound is `ULP32(q)*s + ULP32(z)`, using the larger adjacent
+finite binary32 spacing. It has no unit-sized floor. The bound plus accumulated
+scale rounding over `n-1` bins must remain below one quarter of a mathematical
+bin. This is a resolution admission check, not permission to move bin edges.
+The receipt exposes requested/observed zero, scale, error and bound. An axis
+which cannot pass the plan is reported as a bin index with an explicit reason.
+The count range and numerical results never change to make a display pass.
 
-Before enabling an intensity axis, retain the exact typed call contract and
-its static evidence, then run a fresh idle synthetic-host comparison. Record
-the submitted setter parameters, exact host identity, both getter formats,
-stored origin, physical pixel zero, signed scale and unit before and after.
-Compare script/Python and direct native paths separately. Include nonzero
-positive and negative lower edges and non-unit scales; a zero origin alone
-cannot distinguish the two conventions. Check the output document's axis
-against the returned metadata without changing the source.
+Creation, SHOW, QUERY and saved NPY validation share this contract. SHOW carries
+the frozen creation axis context and rechecks the actual live axis; metadata
+saying only `calibration_complete:true` is insufficient. Independent actual-host
+checks must compare both getter formats and the original raw bin geometry.
 
-Also qualify counts at each bin boundary, including the requested upper edge,
-using the DM operator and an independent saved-input oracle. Explicit range and
-bin geometry are retained even while the display remains an index plot. No
-claim about a physical intensity display axis or untested overflow handling is
-implied by count conservation or successful file export.
+## Qualification boundaries
+
+Offline cases include zero/nonzero and signed lower edges, non-unit/tiny scales,
+subnormal or overflowing plans, forged offsets/tolerances, wrong source
+calibration and both historical bin-index and current display receipts. These
+are contract checks, not another native build qualification.
+
+The fresh synthetic host separately checks native counts against independent
+saved input, exact axis readback, unchanged sources, exact document ownership,
+release/STOP and last-reference behavior. See [RESULTS](../experiments/native-bridge/RESULTS.md)
+for actual completed scopes. General physical-intensity conversion, non-covering
+ranges and other GMS builds remain unsupported. Raw trace material and detailed
+run records remain private.

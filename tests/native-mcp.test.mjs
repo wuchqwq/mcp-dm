@@ -11,7 +11,7 @@ import {NativeBridge} from "../lib/native_bridge.mjs";
 import {operationFixture, readFixture, imageMetadata, uint32BinaryFixture, uint32OperationFixture} from "./fixtures/native-operations.mjs";
 import {guiRoisFixture} from './fixtures/native-rois.mjs';
 import {profileFixture,profileArgs} from './fixtures/native-profile.mjs';
-import {histogramFixture,histogramArgs} from './fixtures/native-histogram.mjs';
+import {histogramFixture,histogramArgs,histogramIntensityFixture,histogramIndexAxisFixture,histogramShowFixture} from './fixtures/native-histogram.mjs';
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -277,6 +277,60 @@ test('malformed histogram creation and original QUERY never turn native counts i
   try {
     await client.init();for(const request_id of ['zero-image','wrong-wire','fake-axis','source-size','foreign-creation']) {
       assert.equal(toolOutput(await client.tool('dm_native_histogram',{image_id:77,bins:8,min:-4,max:4,request_id}),true).code,'NATIVE_PROTOCOL');
+      assert.equal(toolOutput(await client.tool('dm_native_result',{request_id}),true).code,'NATIVE_PROTOCOL');
+    }
+  } finally {await client.close();await host.close();}
+});
+
+test('HISTOGRAM creation, original QUERY and SHOW share exact native axis evidence while old bin-index QUERY remains usable',async()=>{
+  const records=new Map();
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.id==='legacy-index-query') {
+      socket.end(JSON.stringify(reply('completed',histogramFixture(histogramArgs,request.id),{
+        original_operation:'HISTOGRAM',normalized_args:histogramArgs,result_type:'native_histogram',result_version:1}))+'\n');return;
+    }
+    if(!records.has(request.id)) {
+      let result;
+      if(request.id.startsWith('show-')) {
+        result=histogramShowFixture(histogramIntensityFixture('axis-good'));
+        Object.assign(result,{display_style:'default',display_style_reason:'style_not_qualified',
+          display_style_scope:'host line-plot presentation only; no scientific claim; reversible in the DM UI'});
+        if(request.id==='show-no-context')delete result.histogram_axis_context;
+        if(request.id==='show-fake-axis')result.histogram_axis_context.axis_roundtrip_bound=1;
+        if(request.id==='show-fake-style')result.display_style='histogram',result.display_style_reason='style_not_qualified';
+      } else if(request.id==='axis-index')result=histogramIndexAxisFixture(histogramArgs,request.id);
+      else {
+        result=histogramIntensityFixture(request.id);
+        if(request.id==='axis-nonidentity')result.source_intensity_calibration.scale=-2;
+        if(request.id==='axis-offset') {
+          result.image.calibration[0].calibrated_value_at_pixel_zero+=2**-22;
+          result.axis_zero_observed=result.image.calibration[0].calibrated_value_at_pixel_zero;result.axis_roundtrip_error=2**-22;
+        }
+        if(request.id==='axis-large-tolerance')result.axis_tolerance='binary32 1000 ulp';
+      }
+      records.set(request.id,result);
+    }
+    socket.end(JSON.stringify(reply('completed',records.get(request.id)))+'\n');
+  });
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_ANALYSIS_PYTHON:'must-not-start.exe'});
+  try {
+    await client.init();const args={image_id:77,bins:8,min:-4,max:4};
+    for(const request_id of ['axis-good','axis-index']) {
+      const result=toolOutput(await client.tool('dm_native_histogram',{...args,request_id}));
+      assert.deepEqual(toolOutput(await client.tool('dm_native_result',{request_id})),result);
+      assert.equal(result.dtype,'uint32');assert.equal(result.raw_bytes,64);assert.equal(result.output_bytes,32);
+    }
+    const historical=toolOutput(await client.tool('dm_native_result',{request_id:'legacy-index-query'}));
+    assert.equal(historical.axis_mode,'bin_index');assert.equal(Object.hasOwn(historical,'axis_tolerance'),false);
+    const shown=toolOutput(await client.tool('dm_native_show',{image_id:99,request_id:'show-good'}));
+    assert.equal(shown.display_style,'default');assert.equal(shown.display_style_reason,'style_not_qualified');
+    assert.deepEqual(toolOutput(await client.tool('dm_native_result',{request_id:'show-good'})),shown);
+    for(const request_id of ['axis-nonidentity','axis-offset','axis-large-tolerance']) {
+      assert.equal(toolOutput(await client.tool('dm_native_histogram',{...args,request_id}),true).code,'NATIVE_PROTOCOL');
+      assert.equal(toolOutput(await client.tool('dm_native_result',{request_id}),true).code,'NATIVE_PROTOCOL');
+    }
+    for(const request_id of ['show-no-context','show-fake-axis','show-fake-style']) {
+      assert.equal(toolOutput(await client.tool('dm_native_show',{image_id:99,request_id}),true).code,'NATIVE_PROTOCOL');
       assert.equal(toolOutput(await client.tool('dm_native_result',{request_id}),true).code,'NATIVE_PROTOCOL');
     }
   } finally {await client.close();await host.close();}

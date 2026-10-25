@@ -38,3 +38,37 @@ export function savedHistogramFixture(args=histogramArgs,requestId='saved-histog
     request_id:requestId,state:'completed',host_pid:301,exec_tid:303,worker_tid:302,timings_us:{queue:1,execute:2},
     original_operation:'HISTOGRAM',normalized_args:args,result_type:'native_histogram',result_version:1}};
 }
+
+// Exactly representable, hand-checkable identity-intensity axis: L=-4,W=1,
+// q=-4,r=-4. Each local ULP is 2^-21, so their bound is 2^-20.
+export function histogramIntensityFixture(requestId='saved-histogram') {
+  const result=histogramFixture(histogramArgs,requestId);
+  Object.assign(result,{axis_mode:'source_intensity_units',axis_calibration_is_bin_left_edge:true,
+    source_intensity_calibration:{origin:0,scale:1,unit:'arb'},axis_zero_requested:-4,axis_zero_observed:-4,
+    axis_scale_observed:1,axis_roundtrip_error:0,axis_roundtrip_bound:2**-20,axis_max_coordinate_error:2**-20,
+    axis_tolerance:'binary32_local_ulp_v1',axis_unavailable_reason:null});
+  result.image.calibration_complete=true;
+  Object.assign(result.image.calibration[0],{origin:4,calibrated_value_at_pixel_zero:-4,scale:1,unit:'arb',usable:true,issue:null});
+  return result;
+}
+export function histogramIndexAxisFixture(args=histogramArgs,requestId='saved-histogram',options={}) {
+  const result=histogramFixture(args,requestId,options);
+  Object.assign(result,{axis_zero_requested:null,axis_zero_observed:null,axis_scale_observed:null,
+    axis_roundtrip_error:null,axis_roundtrip_bound:null,axis_max_coordinate_error:null,
+    axis_tolerance:'binary32_local_ulp_v1',axis_unavailable_reason:'source_intensity_calibration_not_identity'});
+  return result;
+}
+export function histogramAxisContext(result) {
+  const keys=['axis_mode','requested_range','bins','bin_width','bin_left_edge','source_intensity_calibration',
+    'axis_calibration_is_bin_left_edge','axis_zero_requested','axis_zero_observed','axis_scale_observed',
+    'axis_roundtrip_error','axis_roundtrip_bound','axis_max_coordinate_error','axis_tolerance','axis_unavailable_reason'];
+  return structuredClone(Object.fromEntries(keys.filter(key=>Object.hasOwn(result,key)).map(key=>[key,result[key]])));
+}
+export function histogramShowFixture(result=histogramFixture()) {
+  return {backend:'digitalmicrograph-native',image_id:result.image_id,delivery:'visible_dm_document',document_visible:true,
+    operator:'ImageGetOrCreateImageDocument + ImageDocumentShow',rank:1,display_family:'native_1d_image_document',
+    display_class:'host_selected',retained_operation:'HISTOGRAM',one_dimensional_display:structuredClone(result.image),
+    histogram_axis_context:histogramAxisContext(result),
+    ownership:'host document holds image; plugin result reference released at normal STOP/cleanup',
+    source_write_requested:false,snapshot_atomic:false,file_saved:false,model_visual_verification:false};
+}

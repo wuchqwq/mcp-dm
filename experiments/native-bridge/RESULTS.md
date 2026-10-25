@@ -486,3 +486,30 @@ the bridge.
 Not qualified by this round: diagonal/wide/fractional profiles, uint32 or complex
 histogram sources, non-covering ranges, other builds, file saving, model-side
 visual review and concurrent host use.
+
+## Histogram intensity axis and presentation: reviewed continuation
+
+The third-round PR reported a native axis readback matching an independent
+legacy-API division/multiplication round trip and a rank-one histogram document.
+It also reported native bar styling. Those historical observations remain
+separate from qualification of the integrated artifact.
+
+The original exact-equality axis comparison remains **FAIL**. Exact equality is
+possible for some inputs; it is not generally preserved by binary32 division
+and multiplication. Integration review additionally found that the replacement
+absolute tolerance floor could exceed small bin widths, that raw bin positions
+were labelled with non-identity source physical units, and that a style helper
+leaked an owned image reference. A type-name-only RTTI guard also did not establish
+a safe complete-object pointer. These findings prevent inheriting the earlier
+axis/style claims as current acceptance.
+
+The integrated contract restricts source-unit axes to identity intensity
+calibration, uses local binary32 spacing and a bin-resolution gate, and validates
+both stored origin and reconstructed physical zero. Other cases remain explicit
+bin indexes. Creation, SHOW, QUERY and scientific NPY preserve the same context.
+The style candidate has stronger offline guards and balanced references, but
+shipping bar-style admission stays NOT_QUALIFIED pending its own independent
+actual-host qualification. True-1D document delivery does not depend on bars.
+
+Fresh integration tests and host observations are recorded separately below;
+no offline result substitutes for actual DM, manual drawing or ordinary clients.

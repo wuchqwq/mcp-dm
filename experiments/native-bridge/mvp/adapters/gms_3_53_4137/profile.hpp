@@ -68,10 +68,19 @@ inline const AdapterProfile& profile() {
             {"native_histogram_display", true, "limited synthetic qualification; plugin-owned rank-1 uint32 HISTOGRAM count image only; no file save; host decides the 1D display", {
                 {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}},
                 {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
+            // Histogram bar style is a display-only preference of the host's own line
+            // plot. It is applied only after the object is proven to be a
+            // LinePlotImageDisplay by its own RTTI name, then read back.
+            {"native_line_plot_style", false, "NOT_QUALIFIED after stricter pointer/RTTI/ownership guards; SHOW remains available with the host default style", {},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window",
+                 "roi_image_display_count", "roi_image_display_at", "roi_resolve_display", "roi_display_image", "roi_destroy_display_holder",
+                 "plot_style_get", "plot_style_set"}},
             // Histogram creation and binning are vendor calls: the destination
             // is a native 1D uint32 image from Image::CreateImage and the counts
             // come from GMSImageProcessing::CalcHistogram. No bridge kernel.
-            {"native_histogram", true, "limited synthetic qualification; float32 ordinary 2D <=4194304 pixels; caller range must cover the complete native source min/max; 2..4096 bins; uint32 native counts; count axis reported as bin index", {
+            {"native_histogram_axis", true, "pinned binary32 dimension setter; optional raw intensity axis only for identity source intensity calibration and resolved bin coordinates", {
+                {"GMSImage.dll", "?SetDimensionCalibration@Image@GMS@@QEAAXKMMAEBV?$char_range_t@_WU?$char_traits@_W@std@@@Gatan@@J@Z"}}, {}},
+            {"native_histogram", true, "limited synthetic qualification; float32 ordinary 2D <=4194304 pixels; caller range must cover complete source min/max; 2..4096 bins; uint32 counts; index axis unless optional identity-calibrated raw intensity axis is resolved", {
                 {"GMSImage.dll", "?CreateImage@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSize@Imaging@4@KAEBV?$char_range_t@_WU?$char_traits@_W@std@@@4@@Z"},
                 {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
                 {"GMSImage.dll", "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"},
@@ -164,6 +173,11 @@ inline const AdapterProfile& profile() {
             {"roi_image_display_count", "GMS.dll", 0x2d8370},
             {"roi_image_display_at", "GMS.dll", 0x4c2d10},
             {"roi_resolve_display", "GMS.dll", 0x3cbbc0},
+            // One-byte display style flag of a LinePlotImageDisplay. The getter is
+            // two instructions; the setter compares, stores and repaints. Both are
+            // reached through the already qualified display resolution path.
+            {"plot_style_get", "GMS.dll", 0x20b490},
+            {"plot_style_set", "GMS.dll", 0x220cd0},
             {"roi_display_image", "GMS.dll", 0x3d2d20},
             {"roi_raster_count", "GMS.dll", 0x1a13a0},
             {"roi_raster_at", "GMS.dll", 0x1a4470},

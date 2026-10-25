@@ -49,7 +49,7 @@ before per-operator ABI, scientific and ownership qualification.
 - `lib/native_bridge.mjs`: opt-in NB2 transport for `DM_MCP_BACKEND=native`; immutable original-operation/result identities, strict typed receipts, one submission followed by same-ID QUERY, no Python fallback.
 - `lib/native_preview.mjs`: bounded PNG encoding of the validated native gray8 display result; it does not process scientific pixels or save files.
 - `experiments/native-bridge/mvp/`: common protocol, pipe, host-thread dispatch and retained-result lifecycle. Version selection lives in `adapter_profile.hpp`, `adapter_identity_win.hpp` and `adapter_dispatch.inc`; vendor fingerprints, POD layouts and entrypoints live under `adapters/gms_3_53_4137/`. Only the exact Windows x64 GMS 3.53.4137.0 profile is supported. Read ADAPTERS.md, README, INSTALL and the parent RESULTS/ABI_NOTES before native changes. Never build or load the retired `nb_probe.cpp`.
-- `tools/native_snapshot_handoff.mjs`: explicitly invoked external encoder for a saved, validated native READ (2D float32/uint32), PROFILE (true 1D float64) or HISTOGRAM (native uint32 counts, binary64 wire) response. It exclusively creates a new NPY/schema-1 capture after persisting its own request journal; it never calls DM, submits a request or saves a DM document. Keep rank/coordinate/count validators separate. Histogram NPY is `<u4`, not the wire `<f8`; preserve both hashes and bin-index geometry without inventing an intensity axis.
+- `tools/native_snapshot_handoff.mjs`: explicitly invoked external encoder for a saved, validated native READ (2D float32/uint32), PROFILE (true 1D float64) or HISTOGRAM (native uint32 counts, binary64 wire) response. It exclusively creates a new NPY/schema-1 capture after persisting its own request journal; it never calls DM, submits a request or saves a DM document. Keep rank/coordinate/count validators separate. Histogram NPY is `<u4`, not the wire `<f8`; preserve both hashes and validated axis mode/raw bin geometry without inventing a physical conversion.
 - `examples/native_handoff_mean.py`: optional user-invoked NumPy example over that saved capture in an independent workspace, with software/script/input provenance. It is absent from the MCP/plugin runtime, never returns data to DM and is never a fallback for a missing DM operator.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
@@ -92,6 +92,15 @@ raster. The reply keeps `rank:1`, `display_family:native_1d_image_document`,
 shape and one native axis; the bridge never asserts a display class name.
 See docs/NATIVE_LINE_PROFILE.md and docs/NATIVE_HISTOGRAM.md.
 
+Histogram delivery also switches the host line plot to its bar style through
+native_line_plot_style. That is one byte in the display object: the bridge first
+proves the object's dynamic type by the decorated name in its own complete object
+locator, then calls the vendor setter and reads the byte back through the vendor
+getter. A raster display carries a byte at the same offset, so an unproven object
+is never written; the receipt then reports display_style "default" with a reason.
+This is host presentation only: it never fails a delivery and it makes no
+scientific claim.
+
 native_histogram creates its destination with the exported
 `Image::CreateImage(DataSize, type, char_range)` and fills it with the exported
 `GMSImageProcessing::CalcHistogram`; there is no bridge binning kernel. Only
@@ -105,10 +114,14 @@ requested bin geometry. The strict client and encoder validate native uint32
 storage separately from exact binary64 transport. Do not retrofit current source
 metadata guards onto historical v1 evidence; the external encoder does not
 reobserve source pixels or descriptors.
-The count axis is a bin index: `SetDimensionCalibration` is deliberately not
-bound because its live read-back did not reproduce the requested physical zero.
-Never relabel these counts as calibrated intensity, and never widen the range
-silently.
+The histogram range remains raw pixel intensity. The count axis stays bin_index
+for missing or non-identity source intensity calibration. Only identity origin/
+scale plus a nonempty source unit may use the separately checked native intensity
+axis setter; require its precise binary32 round-trip and resolution guards.
+Preserve requested/observed axis evidence through creation, SHOW, QUERY and NPY.
+Counts themselves are never intensity-calibrated. Bar styling is optional and
+requires its own qualification; a type name alone is not a safe this-pointer.
+Never widen a caller range or tolerance silently. See docs/HISTOGRAM_AXIS_AUDIT.md.
 
 The prepared ROI host passed explicit-ID GUI rectangle to native crop/mean/READ
 and multiblock handoff with independent source/selection/calibration checks.

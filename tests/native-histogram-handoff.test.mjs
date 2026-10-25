@@ -8,7 +8,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {canonical,encodeHistogramNpy,encodeNpy,encodeProfileNpy,handoff,validateSavedSnapshot} from '../tools/native_snapshot_handoff.mjs';
-import {histogramArgs,histogramFloatBits,savedHistogramFixture} from './fixtures/native-histogram.mjs';
+import {histogramArgs,histogramFloatBits,histogramIntensityFixture,savedHistogramFixture} from './fixtures/native-histogram.mjs';
 
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const json=filename=>JSON.parse(fs.readFileSync(filename,'utf8'));
@@ -90,6 +90,34 @@ test('histogram complete sparse 4096-bin destination does not require 4096 sourc
   const receipt=handoff(options(directory,snapshot));assert.deepEqual(receipt.shape,[4096]);
   const info=json(path.join(directory,'capture','input.json'));assert.equal(info.source_pixels,2);
   assert.equal(info.native_storage_bytes,16384);assert.equal(info.wire_raw_bytes,32768);assert.equal(info.counts_sum,2);
+});
+
+test('identity-intensity histogram handoff keeps observed native axis separate from exact bin edges and uint32 counts',t=>{
+  const directory=temporary(t),payload={...histogramIntensityFixture(),native_receipt:savedHistogramFixture().native_receipt};
+  const snapshot=prepare(directory,payload),args=options(directory,snapshot),receipt=handoff(args);
+  const target=path.join(directory,'capture'),info=json(path.join(target,'input.json'));
+  assert.deepEqual(handoff(args),receipt);assert.deepEqual(info.axes,['intensity_bin']);
+  assert.equal(info.axis_roles[0].role,'intensity_bin');assert.equal(info.calibration_complete,true);
+  assert.equal(info.axis_mode,'source_intensity_units');assert.equal(info.axis_calibration_is_bin_left_edge,true);
+  for(const key of ['axis_zero_requested','axis_zero_observed','axis_scale_observed','axis_roundtrip_error',
+    'axis_roundtrip_bound','axis_max_coordinate_error','axis_tolerance','axis_unavailable_reason'])assert.deepEqual(info[key],payload[key]);
+  assert.equal(info.histogram_calibration[0].origin,4);assert.equal(info.histogram_calibration[0].calibrated_value_at_pixel_zero,-4);
+  assert.equal(info.intensity_calibration_applied,false);assert.equal(info.dtype,'uint32');
+  assert.equal(info.raw_bytes,32);assert.equal(info.wire_raw_bytes,64);
+  const check=spawnSync(process.env.DM_TEST_PYTHON||'python',['-c',
+    "import numpy as np,sys; a=np.load(sys.argv[1],allow_pickle=False); assert a.dtype==np.dtype('<u4') and a.shape==(8,); assert a.tolist()==[1,0,1,0,0,1,0,1]",
+    path.join(target,'input.npy')],{encoding:'utf8'});assert.equal(check.status,0,check.stderr);
+});
+
+test('saved calibrated histograms reject fake units, offset observations and inflated roundtrip bounds before writing',t=>{
+  for(const change of [p=>p.source_intensity_calibration.origin=7.5,p=>p.source_intensity_calibration.scale=-2,
+    p=>p.axis_tolerance='binary32 arbitrary tolerance',p=>p.axis_roundtrip_bound=1,p=>p.axis_max_coordinate_error=1,
+    p=>{p.image.calibration[0].calibrated_value_at_pixel_zero+=2**-22;p.axis_zero_observed=p.image.calibration[0].calibrated_value_at_pixel_zero;p.axis_roundtrip_error=2**-22;}]) {
+    const directory=temporary(t),payload={...histogramIntensityFixture(),native_receipt:savedHistogramFixture().native_receipt};
+    change(payload);const snapshot=prepare(directory,payload);
+    assert.throws(()=>handoff(options(directory,snapshot)),undefined,change.toString());
+    assert.deepEqual(fs.readdirSync(directory),['saved.json']);
+  }
 });
 
 test('inconsistent histogram counts, source, calibration, encoding or receipt are rejected before creating outputs',t=>{

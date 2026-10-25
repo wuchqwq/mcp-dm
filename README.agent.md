@@ -69,9 +69,10 @@ their actual rank and dtype. See [line/profile use and limits](docs/NATIVE_LINE_
 including more bins than pixels. Save the request ID and binary32 range before
 submission; the range must cover the whole source. DM computes the counts.
 The native image and NPY use uint32; the immutable wire payload uses exact
-binary64 values. Its axis is always `bin_index`, with raw bin edges/range stored
-separately and source intensity calibration unapplied. Do not claim an intensity
-axis setter or a DM SaveAs call. See [histogram handoff](docs/NATIVE_HISTOGRAM.md).
+binary64 values. Raw bin edges/range are retained separately from the native
+axis. Non-identity source intensity calibration stays unapplied with `bin_index`;
+only identity calibration and an explicit unit may admit the checked native
+intensity axis. Do not claim general physical-intensity conversion or DM SaveAs. See [histogram handoff](docs/NATIVE_HISTOGRAM.md).
 Reference release was verified after the one-shot returned to an idle host;
 the earlier immediate same-stack destruction assertion failed and is preserved.
 Do not turn a completed QUERY or a local wrapper release into a promise that
@@ -221,3 +222,8 @@ Conclude a task with the target data/ROI, actual backend and computation origin,
 Use [AGENTS.md](AGENTS.md), [scope decisions](docs/SCOPE_AUDIT.md) and the actual branch's native documentation. Preserve the human-first README: describe user tasks and availability there; put schemas, ABI details, recovery contracts and test logs in dedicated references. Keep both human-language versions aligned.
 
 Prefer finishing an end-to-end researcher task over adding unused operator names. DM-native capabilities stay native; explicitly requested external analysis stays a separate, provenance-preserving workflow. The [compatibility-generator RFC](https://github.com/wuchqwq/mcp-dm/pull/3) is future work and must not interrupt current native feature development.
+
+For the explicit GUI selection → native 1D measurement → document/NPY handoff,
+follow [the short workflow](docs/NATIVE_GUI_MEASUREMENTS.md). Preserve every
+side-effect request ID before submission; histogram raw bins, native uint32
+counts and binary64 transport are distinct.

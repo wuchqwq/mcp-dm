@@ -81,7 +81,7 @@ ABI, scientific, source-protection and lifecycle qualification before admission.
 | `dm_native_release` | Saved-request-ID release of only the exact plugin result reference; no document closure or mutation of old records |
 | `dm_native_rois` | Explicit image → document/display/ROI identity; new v2 replies preserve rectangle and line geometry with eligibility diagnostics |
 | `dm_native_profile` | Saved-ID native extraction from an explicitly identified width-one integer horizontal/vertical GUI line; true 1D float64 image and frozen numeric snapshot |
-| `dm_native_histogram` | Saved-ID DM-native histogram of an explicit bounded float32 2D source; 2..4096 bins including sparse bins, full caller range, uint32 counts, exact binary64 snapshot and explicit bin-index axis |
+| `dm_native_histogram` | Saved-ID DM-native histogram of an explicit bounded float32 2D source; 2..4096 bins including sparse bins, full caller range, uint32 counts, exact binary64 snapshot and explicit validated axis mode |
 
 The profile path has limited synthetic-host qualification, including separate
 fresh-host confirmation of the final qualified artifact and its exact loaded

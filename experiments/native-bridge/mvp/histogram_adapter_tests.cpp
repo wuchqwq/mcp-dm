@@ -1,5 +1,6 @@
 // Offline histogram adapter checks. Synthetic C callbacks only; no GMS loaded.
 #include <optional>
+#include <fstream>
 #define main existing_adapter_test_main
 #include "adapter_tests.cpp"
 #undef main
@@ -56,6 +57,21 @@ void histogram_calc_fake353(const NativeRef* source, const NativeRef* destinatio
     if (histogram_fault353 == "changed_source_calibration") fake.origin[0] += 1;
     if (histogram_fault353 == "changed_source_intensity") histogram_intensity_scale353 += 1;
 }
+// Models the pinned build: format 0 divides "origin" by the scale and stores the
+// negated index origin, so a later format-0 read multiplies it back and cannot be
+// bit-exact for most inputs.
+void histogram_set_fake353(void* image, std::uint32_t dimension, float origin, float scale,
+                           const nb::NativeCharRange353* unit, std::int32_t format) {
+    ++histogram_set_calls353;
+    auto* target = static_cast<FakeImage*>(image);
+    check(dimension == 0 && format == 0 && unit != nullptr && unit->end > unit->begin && scale != 0);
+    target->origin[0] = format == 0 ? -(origin / scale) : origin;
+    target->scale[0] = scale;
+    target->unit[0] = std::wstring(unit->begin, unit->end);
+    if (histogram_fault353 == "axis_origin") target->origin[0] += 0.25f;
+    if (histogram_fault353 == "axis_scale") target->scale[0] = scale * 2;
+    if (histogram_fault353 == "axis_unit") target->unit[0] = L"other";
+}
 void histogram_intensity_fake353(void* image, float* origin, float* scale, void* unit) {
     *origin = static_cast<float>(histogram_intensity_origin353);
     *scale = static_cast<float>(histogram_intensity_scale353);
@@ -82,8 +98,9 @@ void setup_histogram_fake353() {
     fake.pixels.assign(16, 0.0f);
     for (std::size_t i = 0; i < 16; ++i) fake.pixels[i] = static_cast<float>(i);
     expected_summary = {0.0, 15.0, 120.0};
-    histogram_api353 = HistogramApi353{histogram_create_fake353, histogram_intensity_fake353,
-                                       histogram_value_fake353, histogram_calc_fake353};
+    histogram_api353 = HistogramApi353{histogram_create_fake353, histogram_set_fake353,
+                                       histogram_intensity_fake353, histogram_value_fake353,
+                                       histogram_calc_fake353};
 }
 std::uint32_t float_bits353(float value) {
     std::uint32_t bits = 0;
@@ -107,20 +124,83 @@ void expect_histogram_failure353(const char* message, NativeRequest request = hi
     check(histogram_create_calls353 == created && histogram_calc_calls353 == calculated);
     histogram_counts353.clear();
 }
+
+// --- Host line-plot style fakes -------------------------------------------------
+// A fake module image holds the decorated type name that the adapter's type check
+// reads through the complete object locator.
+alignas(8) unsigned char style_module353[0x200] = {};
+struct StyleLocator353 { std::uint32_t signature, offset, class_offset, descriptor_rva, class_rva, self_rva; };
+StyleLocator353 style_locator353{};
+void* style_vtable353[2] = {&style_locator353, nullptr};
+struct StyleDisplay353 { void* vftable; unsigned char payload[kPlotStyleObjectBytes353]{}; };
+StyleDisplay353 style_display353{&style_vtable353[1]};
+bool style_flag353 = false;
+int style_get_calls353 = 0, style_set_calls353 = 0;
+bool style_get_fake353(const void* object) {
+    ++style_get_calls353;
+    check(object == &style_display353);
+    return style_flag353;
+}
+void style_set_fake353(void* object, bool value) {
+    ++style_set_calls353;
+    check(object == &style_display353);
+    style_flag353 = value;
+}
+struct StyleHolder353 { std::int64_t references = 1; void* document; std::int32_t component_id; std::int32_t pad; void* cached_component; };
+void* style_last_image353 = nullptr;
+bool style_wrong_back353 = false;
+std::size_t style_display_count353(const NativeRef* image, const NativeRef*) {
+    check(image && image->image);
+    return 1;
+}
+void* style_display_at353(void* image, std::uint32_t index) {
+    check(image != nullptr && index == 0);
+    style_last_image353 = image;
+    return new StyleHolder353{1, nullptr, 7, 0, &style_display353};
+}
+void* style_resolve353(void* holder) { return static_cast<StyleHolder353*>(holder)->cached_component; }
+void* style_display_image353(void*) {
+    auto* image = style_wrong_back353 ? &fake : static_cast<FakeImage*>(style_last_image353);
+    InterlockedIncrement64(&image->references);
+    return image;
+}
+void style_destroy_holder353(void* holder) { delete static_cast<StyleHolder353*>(holder); }
+void setup_style_fake353(const char* type_name) {
+    std::memset(style_module353, 0, sizeof(style_module353));
+    std::memcpy(style_module353 + 0x110 + 0x10, type_name, std::strlen(type_name) + 1);
+    style_flag353 = false;
+    style_wrong_back353 = false;
+    style_get_calls353 = style_set_calls353 = 0;
+    gms_base353 = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+    gms_image_bytes353 = plot_style_module_size353(GetModuleHandleW(nullptr));
+    style_locator353 = {1,0,0,static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(style_module353 + 0x110)-gms_base353),
+        static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(style_module353 + 0x180)-gms_base353),
+        static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(&style_locator353)-gms_base353)};
+    plot_style_get353 = style_get_fake353;
+    plot_style_set353 = style_set_fake353;
+    roi_api353.display_count = style_display_count353;
+    roi_api353.display_at = style_display_at353;
+    roi_api353.resolve_display = style_resolve353;
+    roi_api353.display_image = style_display_image353;
+    roi_api353.destroy_display = style_destroy_holder353;
+}
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
         // Success path: native counts with an exact total and explicit bin geometry.
         setup_histogram_fake353();
         const auto result = execute_native(histogram_request353());
         check(nb::valid_json(result));
+        if (argc >= 2) { std::ofstream file(argv[1]); file << result << '\n'; check(file.good()); }
         check(histogram_create_calls353 == 1 && histogram_calc_calls353 == 1 && histogram_set_calls353 == 0);
         check(result.find("\"operation\":\"HISTOGRAM\"") != std::string::npos);
         check(result.find("\"bins\":4") != std::string::npos && result.find("\"counts_sum\":16") != std::string::npos);
         check(result.find("\"counts_complete\":true") != std::string::npos);
         check(result.find("\"axis_mode\":\"bin_index\"") != std::string::npos);
         check(result.find("\"axis_calibration_is_bin_left_edge\":false") != std::string::npos);
+        check(result.find("\"axis_zero_requested\":null") != std::string::npos);
+        check(result.find("\"axis_tolerance\":\"binary32_local_ulp_v1") != std::string::npos);
         check(result.find("\"shape\":[4]") != std::string::npos && result.find("\"dtype\":\"uint32\"") != std::string::npos);
         check(result.find("\"raw_bytes\":32") != std::string::npos && result.find("\"output_bytes\":16") != std::string::npos);
         check(result.find("\"retention\":{") != std::string::npos);
@@ -146,13 +226,50 @@ int main() {
         retained.value.image = original_pointer;
         // A rank-one counter image is delivered through its own group and keeps
         // its true [bins] shape instead of a fabricated 2D raster.
+        setup_style_fake353(".?AVLinePlotImageDisplay@@");
         const auto shown = execute_native({"show-histogram", "SHOW", {output_id}});
+        if (argc >= 4) { std::ofstream file(argv[3]); file << shown << '\n'; check(file.good()); }
         check(nb::valid_json(shown) && document_calls == 1);
+        // Shipping style remains unqualified; it cannot stop ordinary SHOW.
+        check(shown.find("\"display_style\":\"default\"") != std::string::npos);
+        check(shown.find("style_not_qualified") != std::string::npos);
+        check(style_set_calls353 == 0);
+        check(shown.find("\"histogram_axis_context\":{") != std::string::npos);
+        const auto refs_before_style = output_image->references;
+        const char* style_reason = "";
+        check(std::string(apply_histogram_style353({output_image}, &style_reason)) == "histogram");
+        check(style_set_calls353 == 1 && style_flag353 && style_get_calls353 >= 2);
+        check(output_image->references == refs_before_style);
+        check(std::string(apply_histogram_style353({output_image}, &style_reason)) == "histogram");
+        check(style_set_calls353 == 1 && output_image->references == refs_before_style);
+        setup_style_fake353(".?AVRasterImageDisplay@@");
+        check(std::string(apply_histogram_style353({output_image}, &style_reason)) == "default");
+        check(std::string(style_reason) == "display_is_not_a_line_plot" && style_set_calls353 == 0);
+        check(output_image->references == refs_before_style);
+        // A name match cannot authorize a secondary base or construction object.
+        for (const auto defect : {0,1,2,3,4}) {
+            setup_style_fake353(".?AVLinePlotImageDisplay@@");
+            if (defect == 0) style_locator353.offset = 8;
+            if (defect == 1) style_locator353.class_offset = 4;
+            if (defect == 2) style_locator353.signature = 0;
+            if (defect == 3) ++style_locator353.self_rva;
+            if (defect == 4) style_locator353.descriptor_rva = 0xffffffffu;
+            check(std::string(apply_histogram_style353({output_image}, &style_reason)) == "default");
+            check(style_get_calls353 == 0 && style_set_calls353 == 0 && output_image->references == refs_before_style);
+        }
+        setup_style_fake353(".?AVLinePlotImageDisplay@@"); style_wrong_back353 = true;
+        const auto source_refs = fake.references;
+        check(std::string(apply_histogram_style353({output_image}, &style_reason)) == "default");
+        check(style_get_calls353 == 0 && style_set_calls353 == 0 && fake.references == source_refs);
         check(shown.find("\"rank\":1") != std::string::npos);
         check(shown.find("\"retained_operation\":\"PROFILE\"") == std::string::npos);
         check(shown.find("\"retained_operation\":\"HISTOGRAM\"") != std::string::npos);
         check(shown.find("\"dtype\":\"uint32\"") != std::string::npos);
         check(shown.find("\"image\":{") == std::string::npos);
+        output_image->origin[0] += 1;
+        try { execute_native({"show-histogram-axis-changed", "SHOW", {output_id}}); check(false); }
+        catch (const std::runtime_error& error) { check(std::string(error.what()) == "native_histogram_display_axis_changed"); }
+        output_image->origin[0] -= 1;
         output_image->code = 12;
         try { execute_native({"show-histogram-type-changed", "SHOW", {output_id}}); check(false); }
         catch (const std::runtime_error& error) { check(std::string(error.what()) == "native_histogram_display_descriptor_changed"); }
@@ -191,9 +308,62 @@ int main() {
         // complete source intensity calibration.
         setup_histogram_fake353();
         histogram_intensity_unit353 = L"";
-        check(execute_native(histogram_request353()).find("\"axis_mode\":\"bin_index\"") != std::string::npos);
-        check(histogram_set_calls353 == 0);
+        const auto index_axis = execute_native(histogram_request353());
+        check(index_axis.find("\"axis_mode\":\"bin_index\"") != std::string::npos);
+        check(index_axis.find("\"axis_calibration_is_bin_left_edge\":false") != std::string::npos);
+        for (const auto& item : std::vector<std::pair<const char*, const char*>>{
+                 {"axis_origin", "native_histogram_axis_origin_mismatch"},
+                 {"axis_scale", "native_histogram_axis_scale_mismatch"},
+                 {"axis_unit", "native_histogram_axis_unit_mismatch"}}) {
+            setup_histogram_fake353();
+            histogram_intensity_origin353 = 0; histogram_intensity_scale353 = 1;
+            histogram_fault353 = item.first;
+            try { execute_native(histogram_request353()); check(false); }
+            catch (const std::runtime_error& error) { check(std::string(error.what()) == item.second); }
+            check(retained_results.empty() && retained_result_bytes == 0);
+            histogram_counts353.clear();
+        }
+        // A value whose binary32 round trip is not exact still passes the bound.
+        setup_histogram_fake353();
+        histogram_intensity_origin353 = 0; histogram_intensity_scale353 = 1;
+        const auto round_low = float_bits353(-15.5f), round_high = float_bits353(16.9f);
+        const auto roundtrip = execute_native({"histogram-roundtrip", "HISTOGRAM", {17, 11, round_low, round_high}});
+        if (argc >= 3) { std::ofstream file(argv[2]); file << roundtrip << '\n'; check(file.good()); }
+        check(roundtrip.find("\"axis_mode\":\"source_intensity_units\"") != std::string::npos);
+        const auto error_at = roundtrip.find("\"axis_roundtrip_error\":");
+        check(error_at != std::string::npos);
+        const auto roundtrip_error = std::stod(roundtrip.substr(error_at + 23));
+        // The vendor round trip is not bit-exact, so an exact-equality guard would
+        // have rejected a correct write.
+        check(roundtrip_error > 0 && roundtrip_error < 1e-4);
         histogram_counts353.clear();
+
+        // A unit-sized absolute floor would accept a substantial fraction of
+        // these tiny bins. The local model must reject even that small write.
+        setup_histogram_fake353();
+        histogram_intensity_origin353 = 0; histogram_intensity_scale353 = 1;
+        fake.pixels.assign(16, 0); expected_summary = {0,0,0}; histogram_fault353 = "axis_origin";
+        try { execute_native(histogram_request353(4096, float_bits353(0), float_bits353(1e-7f))); check(false); }
+        catch (const std::runtime_error& error) { check(std::string(error.what()) == "native_histogram_axis_origin_mismatch"); }
+        check(retained_results.empty() && histogram_set_calls353 == 1);
+        // Unsafe scale resolution leaves the untouched index axis; no setter.
+        for (const bool underflow : {true, false}) {
+            setup_histogram_fake353();
+            histogram_intensity_origin353 = 0; histogram_intensity_scale353 = 1;
+            const auto lower = underflow ? 0.0f : 1e8f;
+            const auto upper = std::nextafter(lower, std::numeric_limits<float>::infinity());
+            fake.pixels.assign(16, lower); expected_summary = {lower,lower,static_cast<double>(lower)*16};
+            const auto unresolved = execute_native(histogram_request353(4096, float_bits353(lower), float_bits353(upper)));
+            check(unresolved.find("\"axis_mode\":\"bin_index\"") != std::string::npos);
+            check(unresolved.find("\"axis_unavailable_reason\":\"binary32_axis_not_resolved\"") != std::string::npos);
+            check(histogram_set_calls353 == 0);
+        }
+        setup_histogram_fake353();
+        histogram_intensity_origin353 = 0; histogram_intensity_scale353 = 1;
+        histogram_api353.set_dimension_calibration = nullptr;
+        const auto no_axis = execute_native(histogram_request353());
+        check(no_axis.find("\"axis_unavailable_reason\":\"axis_entrypoint_unavailable\"") != std::string::npos);
+        check(histogram_calc_calls353 == 1 && histogram_set_calls353 == 0);
 
         // Rejections that must not create or fill any native image.
         for (const auto& item : std::vector<std::pair<NativeRequest, const char*>>{

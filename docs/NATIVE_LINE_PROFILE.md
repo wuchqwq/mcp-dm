@@ -110,8 +110,9 @@ come from this plugin's qualified PROFILE (or, separately, HISTOGRAM) record.
 
 `dm_native_result_info` and `dm_native_release` use the same output ID and
 retention token. Release drops only the plugin reference. The original PROFILE
-receipt remains unchanged. Existing native READ/SHOW/MEAN/crop/FFT/filter tools
-keep their own 2D admission; this task does not qualify them for 1D data.
+receipt remains unchanged. Existing native READ/MEAN/crop/FFT/filter tools retain their 2D admission.
+SHOW has the separate native_profile_display group described above; it does
+not extend the 2D display group.
 
 DATASETS preserves the qualified one-dimensional float64 descriptor while the
 exact PROFILE-created object is still held by this plugin. Enumeration does not

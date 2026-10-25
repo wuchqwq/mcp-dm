@@ -447,12 +447,34 @@ already qualified rank-one `GetRealValue` path and requires the counts to be
 exact integers whose total equals the source pixel count.
 
 `Image::SetDimensionCalibration(uint32, float, float, char_range_t const&, int32)`
-is exported but **not bound**: on this build a `format=0` write of the requested
-physical value at pixel zero did not read back through the qualified getter, so
-the guard failed closed (`native_histogram_axis_origin_mismatch`). The histogram
-therefore reports a bin-index axis with explicit bin geometry instead of an
-intensity axis it cannot substantiate. Do not re-add the setter without a live
-read-back that reproduces the documented left-edge convention exactly.
+is exported and now bound. Disassembly of the pinned build shows XMM2 carrying the
+origin **in the requested format** and XMM3 the scale; the trailing int32 (stack
+argument 6) is the format. `format = 0` branches to a divide: the stored index
+origin becomes `-(origin / scale)`, while `format = 1` stores the given index
+origin unchanged. A format-0 read therefore multiplies the stored index origin by
+the scale again, which is why a physical read-back is not bit-exact: a DM-Python
+oracle that writes `origin = -15.5`, `scale = 2.796875` reads back
+`-15.499999046325684`, and the native read agrees to the same last bit.
+
+For the histogram axis, the integration guard models the actual binary32
+quotient and product, checks both stored origin and reconstructed physical zero,
+and bounds local rounding/whole-axis drift relative to a bin. The previous
+`epsilon * max(abs(origin),abs(scale),1)` floor is not a local ULP bound and is
+rejected. Only identity source intensity calibration plus an explicit unit may
+label raw bin positions with that unit; other sources retain bin_index. See
+[the axis audit](../../docs/HISTOGRAM_AXIS_AUDIT.md).
+
+`LinePlotImageDisplaySetHistogramStyle` is a script-registered function whose
+argument goes through a script-object unwrap followed by
+`__RTDynamicCast(..., &Annotation::RTTI_Type_Descriptor,
+&LinePlotImageDisplay::RTTI_Type_Descriptor, 0)` before the internal setter runs.
+The internal setter only compares, stores and repaints one byte of the display
+object, and a dedicated two-instruction getter returns that byte; a scan of the
+module shows no other reader or writer of the field. The bridge therefore skips
+the script layer entirely: it resolves the display through the already qualified
+ROI display path, proves the dynamic type by reading the decorated name in the
+object's own complete object locator, calls the setter, and reads the byte back
+through the getter. Anything that is not proven to be that class is left alone.
 
 ## Minimum runtime verification order
 

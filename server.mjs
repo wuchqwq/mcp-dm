@@ -436,7 +436,7 @@ const nativeTools = [
     rect: {...RECT, items: {type: "integer", minimum: 0, maximum: 4294967295}},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "rect", "request_id"]),
-  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果（该 dtype 的交付能力也必须已合格）创建或复用包含该明确 image_id 的可见 DM 文档；显式数字 image_id 和提交前已保存的 request_id 必填，不选择最新/前台窗口。接受二维原生结果，以及 dm_native_profile 产生的真一维 float64 结果（走独立的 native_profile_display 准入，条目仍是真实 [N] 形状和单条原生轴，不伪装成 [1,N] 光栅）。首次创建在当前工作区；复用已有文档不保证激活其工作区标签页，也不由 Bridge 断言显示类名。只在 DM 空闲且不编辑源图时调用，源图不改，不保存文件，不代表模型已看图。正常 native STOP/cleanup 只释放插件的结果引用，不关闭已显示的文档；超时/取消/断连后在原 session 只查询同 ID，不自动重发，不回退 Python。", {
+  tool("dm_native_show", "实验性指定构建：仅为本插件仍持有的已合格原生结果创建或复用包含明确 image_id 的可见 DM 文档；显式 image_id 和提交前保存的 request_id 必填，不选择最新/前台窗口。接受已合格二维结果、PROFILE 的真一维 float64 和 HISTOGRAM 的真一维 uint32；保留真实 [N] 和单条原生轴，不伪装成 [1,N] 光栅。直方图轴须与冻结的创建上下文一致。柱状样式为独立可选能力：原生类型核对及 setter/getter 读回通过才报告 display_style=histogram；未应用时保留默认显示并报告原因，样式不构成科学声明。首次创建在当前工作区；复用文档不保证激活其标签页。源图不改，不保存文件，不代表模型已看图。STOP/cleanup 只释放插件引用，不关闭已显示的文档；超时/取消后只查询同 ID，不重发或回退 Python。", {
     image_id: {...NATIVE_IMAGE_ID, description: "本插件仍持有的已合格原生结果 image_id（显式 uint32）；不接受任意源图、front 或数字字符串"},
     request_id: {...NATIVE_REQUEST_ID, description: "必填：客户端在提交前保存的 [A-Za-z0-9_-]{1,64} 请求 ID；超时/取消/断连后在同一 session 用 dm_native_result 查询。STOP 或新 session 不承诺恢复"},
   }, ["image_id", "request_id"]),
@@ -480,7 +480,7 @@ const nativeTools = [
       description: '从明确 GUI line 快照保存的 [x0,y0,x1,y1] 像素中心，端点包含；不是半开矩形边缘'},
     width: {type: 'integer', enum: [1]}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ['image_id', 'document_id', 'display_id', 'roi_id', 'expected_line', 'width', 'request_id']),
-  tool('dm_native_histogram', '用 DM 自带 GMSImageProcessing::CalcHistogram 计算明确 image_id 的强度直方图：原生 Image::CreateImage 建立一维计数图，Bridge 只做参数核对与有界读取，不写自己的分箱内核、不用 NumPy 顶替。源为普通二维 float32、最多4194304像素；bins 2..4096，可多于源像素数；min/max 为 binary32 原始强度边界，必须覆盖源的原生 minimum/maximum，否则明确拒绝而不是猜测越界归属。逐 bin 计数必须是精确非负整数且总和等于源像素数，否则失败关闭。原生存储为 uint32，数值快照以精确 binary64 传输。始终保留 bin_index 轴，另报原始强度分箱边界和宽度；不设置或声称强度轴已标定，不应用源强度标定。产生插件持有的独立一维结果，源图不改；显示用 dm_native_show，保存数值用显式 NPY 交接。必须提前保存 request_id；超时/取消只查询同 ID。', {
+  tool('dm_native_histogram', '用 DM 自带 GMSImageProcessing::CalcHistogram 计算明确 image_id 的原始强度直方图，不写自己的分箱内核、不用 NumPy 顶替。源为普通二维 float32、最多4194304像素；bins 2..4096，可多于源像素数；min/max 为 binary32 原始强度边界，必须覆盖源的原生 minimum/maximum，否则拒绝。逐 bin 计数为精确非负整数且总和等于源像素数。原生存储为 uint32，数值快照以精确 binary64 传输。不应用源强度标定：仅源强度 origin=0、scale=1 且单位非空时，允许原生一维强度轴，回执保留请求/观测/往返误差及固定校验界；其它情况保持 bin_index 并另报原始强度分箱边界。产生插件持有的独立一维结果，源图不改；显示用 dm_native_show，保存数值用显式 NPY 交接。必须提前保存 request_id；超时/取消只查询同 ID。', {
     image_id: NATIVE_IMAGE_ID,
     bins: {type: 'integer', minimum: 2, maximum: 4096, description: '原生一维计数图的 bin 数（目的图维度）'},
     min: {type: 'number', description: 'binary32 原始强度下界；必须 <= 源原生 minimum'},

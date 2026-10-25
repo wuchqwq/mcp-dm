@@ -48,7 +48,7 @@ The priorities are straightforward: use the intended image, do not silently chan
 |---|---|---|
 | **Default on main: v0.6 Python backend** | Images and metadata, 2D statistics, profiles, FFT summaries, cropping, scientific exports, and optional capture/preview | Connects through DM's embedded Python. Some numerical operations use NumPy. Previews require a separate environment. |
 | **Optional experimental native C++ backend** | Nineteen tools in this checkout: native summaries, crop, bounded arithmetic/FFT/filters, GUI rectangle/line identity, limited 1D profiles and histograms, PNG preview, visible documents and numerical handoff | Exact Windows x64 GMS **3.53.4137.0** fingerprints and per-operation dtype/size limits. NPY handoff is not native DM file saving; see the [native workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md). |
-| **Next stage** | More general line profiles, native histograms and workspace switching | See the [official-feature comparison and priorities](docs/NATIVE_NEXT_STAGE.md). Planned items are not current capabilities. |
+| **Next stage** | More general line profiles, native saving and workspace switching | See the [official-feature comparison and priorities](docs/NATIVE_NEXT_STAGE.md). Planned items are not current capabilities. |
 
 **For a first trial, use the default backend on main.** Read the [native guide and build restrictions](experiments/native-bridge/mvp/README.md) before trying the C++ experiment. Do not use it on an unrecognized GMS build.
 
@@ -104,4 +104,4 @@ Native Fourier metadata: [scientific handoff and validation scope](docs/SCIENTIF
 
 This checkout adds [explicit result release and complete bounded numerical handoff](docs/NATIVE_LIFECYCLE_HANDOFF.md), retaining the experimental build/type/size limits. SHOW does not guarantee active-workspace visibility; native workspace activation is not implemented.
 
-The experimental native backend can [read an explicitly identified image’s GUI rectangle](docs/NATIVE_GUI_ROI.md), [extract width-one integer horizontal/vertical profiles](docs/NATIVE_LINE_PROFILE.md), and [compute bounded native histograms](docs/NATIVE_HISTOGRAM.md). Eligible 1D results can reach DM documents and true 1D NPY/metadata, within their separate qualification scopes. Diagonal/wide profiles and a physical histogram intensity axis remain unsupported.
+The experimental native backend can [read an explicitly identified image’s GUI rectangle](docs/NATIVE_GUI_ROI.md), [extract width-one integer horizontal/vertical profiles](docs/NATIVE_LINE_PROFILE.md), and [compute bounded native histograms](docs/NATIVE_HISTOGRAM.md). Eligible 1D results can reach DM documents and true 1D NPY/metadata, within their separate qualification scopes. Diagonal/wide profiles and general physical-intensity conversion remain unsupported. See the [GUI measurement workflow](docs/NATIVE_GUI_MEASUREMENTS.md) for explicit selection and export.
