@@ -29,10 +29,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Apply reviewed source and verify all five local-tested blob identities
+      - name: Apply reviewed source and verify all six locally tested blobs
         run: |
           set -o pipefail
           python payload/.review/apply_multiturn.py source 2>&1 | tee "$RUNNER_TEMP/pr16-fix-source.log"
+          python payload/.review/apply_windows_paths.py source 2>&1 | tee -a "$RUNNER_TEMP/pr16-fix-source.log"
           cd source
           git diff --check
       - name: Install independent external dependencies only
@@ -55,7 +56,7 @@ jobs:
         run: |
           set -o pipefail
           node selftest.mjs 2>&1 | tee "$RUNNER_TEMP/pr16-fix-default.log"
-      - name: Publish only the five checked files to the isolated review branch
+      - name: Publish only six checked files to the isolated review branch
         working-directory: source
         run: |
           set -euo pipefail
@@ -63,13 +64,14 @@ jobs:
           expected=e1ab9cd788dba9f637b7edf6a8a20738a583e184
           actual=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
           test "$actual" = "$expected"
-          git add -- docs/PIXEL_IMAGE_WORKFLOW.md lib/image_workspace.mjs tools/image_workspace.py tests/image-workspace-mcp.test.mjs tests/test_image_workspace_revisions.py
+          git add -- docs/PIXEL_IMAGE_WORKFLOW.md lib/image_workspace.mjs tools/image_workspace.py tests/image-worker-lifecycle.test.mjs tests/image-workspace-mcp.test.mjs tests/test_image_workspace_revisions.py
           git diff --cached --check
           python - <<'PY'
           import hashlib, pathlib, subprocess
           expected = {
             'tools/image_workspace.py': '518b7eea6a968985f8d0f8eb7989a78ed360afe3',
-            'lib/image_workspace.mjs': 'b25cdf0c8753f0d560605d9855b9bee9071b2ce1',
+            'lib/image_workspace.mjs': '4ee2d28fa4698cbdb97326b613ee6a9bab9b549d',
+            'tests/image-worker-lifecycle.test.mjs': '690cf802c5166138b7f527a547a0465ed9e4ded3',
             'tests/image-workspace-mcp.test.mjs': 'be42e44a4c9d1cc89a2d36cf3dfcf0db95e00edd',
             'tests/test_image_workspace_revisions.py': '8f2b92f3d42ba7aea261d70b601eb1e021a1392d',
             'docs/PIXEL_IMAGE_WORKFLOW.md': '95573a0aacbeb44355fc9c12a8605a23606bb3e9',
@@ -83,7 +85,7 @@ jobs:
           PY
           git config user.name 'mcp-dm review'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(images): preserve multi-turn context and re-render saved FFT views'
+          git commit -m 'fix(images): preserve context, re-render FFT and normalize Windows image paths'
           git push origin "HEAD:refs/heads/$branch"
           git rev-parse HEAD | tee "$RUNNER_TEMP/pr16-fix-commit.log"
           git archive --format=zip HEAD -o "$RUNNER_TEMP/pr16-fixed-source.zip"
