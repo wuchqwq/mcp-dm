@@ -59,22 +59,40 @@ static evidence are in [ABI_NOTES.md](../ABI_NOTES.md).
 
 ## Axis
 
-The count image keeps an uncalibrated index axis. `axis_mode` is therefore always
-`"bin_index"` and the reply carries `bin_left_edge`, `bin_width` and
-`requested_range` so a caller can map bin `i` to
-`[bin_left_edge + i*bin_width, bin_left_edge + (i+1)*bin_width)`.
+The count image is calibrated in the source's **intensity** units when the source
+has a complete, finite intensity calibration with a non-empty unit. Otherwise the
+axis stays an uncalibrated bin index and `axis_mode` is `"bin_index"`.
 
-Writing an intensity axis was attempted and **rejected by the bridge itself**: on
-the pinned build `Image::SetDimensionCalibration(dimension, origin, scale, unit,
-format=0)` does not read back the requested physical value at pixel zero, so the
-read-back guard fails closed (`native_histogram_axis_origin_mismatch`). The setter
-is therefore not bound at all in this version. DM's own scripting example
-calibrates such an image with the left bin edge, which is what a future qualified
-version must reproduce exactly before it may claim an intensity axis.
+The write follows DM's own scripting example for histograms: the left edge of
+bin 0 is the origin and the bin width is the scale, written with `format = 0`
+("calibrated value at pixel index 0").
+
+What the pinned build actually does (static + live evidence):
+
+- `Image::SetDimensionCalibration(uint32 dimension, float a, float b,
+  char_range_t<wchar_t> const& unit, int32 format)` receives `a` in XMM2 as the
+  origin **in the requested format** and `b` in XMM3 as the scale.
+- For `format = 0` the implementation divides: it stores the negated index origin
+  `-(origin / scale)`; `format = 1` stores the index origin directly. A later
+  format-0 read multiplies the stored index origin by the scale again.
+- Therefore the read-back can never be bit-exact for most inputs. A DM-Python
+  oracle that performs the same write reports `origin = -15.499999046325684` for a
+  requested `-15.5` with scale `2.796875`; the native read-back returns exactly
+  the same value.
+
+The guard is consequently a **binary32 round-trip bound**, not a data tolerance:
+the observed physical zero must be within `8 ulp` of `max(|origin|, |scale|, 1)`,
+the scale must match exactly (it is stored without arithmetic), and the unit must
+match exactly. Any of those failing rejects the operation and releases the created
+image (`native_histogram_axis_origin_mismatch`, `..._scale_mismatch`,
+`..._unit_mismatch`). The receipt publishes `axis_zero_requested`,
+`axis_zero_observed`, `axis_scale_observed`, `axis_roundtrip_error` and
+`axis_tolerance`, so a caller can see the exact arithmetic instead of trusting a
+label.
 
 `intensity_calibration_applied` stays `false`: counts are raw pixel counts, not
-electrons or calibrated intensities. The source intensity calibration is reported
-for context only.
+electrons or calibrated intensities. Only the *axis* is expressed in intensity
+units.
 
 ## Output
 
@@ -95,10 +113,13 @@ never admitted by the 2D display group.
   path, budget/dtype/range rejection, source-range coverage, missing output,
   descriptor mismatch, incomplete/fractional/negative/non-finite/oversized
   counts, the level-1 SHOW descriptor, and refused Fourier lineage.
-- Actual host (synthetic 24x32 float32 image, raw intensity, 8 bins): the counts
-  matched an independent NumPy binning of the same pixels exactly
-  (`[15,64,133,167,179,139,60,11]`, total 768 = pixel count), the source pixels
-  and intensity calibration were unchanged, and the result document was rank 1
-  with display type 3 (line plot) while the source raster stayed type 1.
+- Actual host (synthetic 24x32 float32 image, raw intensity unit `arb`, 8 bins
+  over a covering range): the counts matched an independent NumPy binning of the
+  same pixels exactly (`[15,64,133,167,179,139,60,11]`, total 768 = pixel count);
+  the result axis read back as unit `arb`, scale `2.796875` (the bin width) and
+  physical zero `-15.499999046325684` for a requested `-15.5` (round-trip error
+  `9.5e-07`, bounded); the source pixels and intensity calibration were unchanged;
+  the result document was rank 1 with display type 3 (line plot) while the source
+  raster stayed type 1.
 - Not covered: uint32 or complex sources, ranges that do not cover the source,
   concurrent host edits, other builds, file saving and model-side visual review.

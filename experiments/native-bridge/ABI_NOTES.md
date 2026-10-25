@@ -447,12 +447,20 @@ already qualified rank-one `GetRealValue` path and requires the counts to be
 exact integers whose total equals the source pixel count.
 
 `Image::SetDimensionCalibration(uint32, float, float, char_range_t const&, int32)`
-is exported but **not bound**: on this build a `format=0` write of the requested
-physical value at pixel zero did not read back through the qualified getter, so
-the guard failed closed (`native_histogram_axis_origin_mismatch`). The histogram
-therefore reports a bin-index axis with explicit bin geometry instead of an
-intensity axis it cannot substantiate. Do not re-add the setter without a live
-read-back that reproduces the documented left-edge convention exactly.
+is exported and now bound. Disassembly of the pinned build shows XMM2 carrying the
+origin **in the requested format** and XMM3 the scale; the trailing int32 (stack
+argument 6) is the format. `format = 0` branches to a divide: the stored index
+origin becomes `-(origin / scale)`, while `format = 1` stores the given index
+origin unchanged. A format-0 read therefore multiplies the stored index origin by
+the scale again, which is why a physical read-back is not bit-exact: a DM-Python
+oracle that writes `origin = -15.5`, `scale = 2.796875` reads back
+`-15.499999046325684`, and the native read agrees to the same last bit.
+
+Where the axis matters (the histogram's left-edge intensity axis) the guard is a
+binary32 round-trip bound of `8 ulp` of `max(|origin|, |scale|, 1)`, with an exact
+scale and unit comparison. Do not replace it with an exact-equality check, and do
+not treat it as a scientific tolerance: the exactness it protects is the vendor's
+own arithmetic.
 
 ## Minimum runtime verification order
 

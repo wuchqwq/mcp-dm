@@ -83,7 +83,7 @@ int main(int argc,char** argv) {
         auto* profile_image=registry.at(id);
         const auto pixels_read_before_listing=profile_value_calls353;
         const auto references_before_listing=profile_image->references;
-        const auto expected_profile_metadata=metadata(profile_image,false,true);
+        const auto expected_profile_metadata=metadata(profile_image,false,"one-dimensional native profile samples");
         const auto listed=execute_native({"list-profile","DATASETS",{}});
         const bool complete_profile_metadata=listed.find(expected_profile_metadata)!=std::string::npos;
         if(!complete_profile_metadata)std::cerr<<"REGRESSION: DATASETS lost owned PROFILE float64 metadata\n";

@@ -69,8 +69,9 @@ inline const AdapterProfile& profile() {
             // Histogram creation and binning are vendor calls: the destination
             // is a native 1D uint32 image from Image::CreateImage and the counts
             // come from GMSImageProcessing::CalcHistogram. No bridge kernel.
-            {"native_histogram", true, "limited synthetic qualification; float32 ordinary 2D <=4194304 pixels; caller range must cover the complete native source min/max; 2..4096 bins; uint32 native counts; count axis reported as bin index", {
+            {"native_histogram", true, "limited synthetic qualification; float32 ordinary 2D <=4194304 pixels; caller range must cover the complete native source min/max; 2..4096 bins; uint32 native counts; optional left-edge intensity axis when the source intensity calibration is complete", {
                 {"GMSImage.dll", "?CreateImage@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSize@Imaging@4@KAEBV?$char_range_t@_WU?$char_traits@_W@std@@@4@@Z"},
+                {"GMSImage.dll", "?SetDimensionCalibration@Image@GMS@@QEAAXKMMAEBV?$char_range_t@_WU?$char_traits@_W@std@@@Gatan@@J@Z"},
                 {"GMSImageProcessing.dll", "?CalcHistogram@GMSImageProcessing@@YAXAEBV?$ref_ptr@VImage@GMS@@@Gatan@@0NN@Z"}}, {}},
             {"native_datasets", true, "bounded native registry and metadata", {}, {}},            {"native_result_release", true, "explicit own image ID plus bridge retention token; plugin reference only; no document closure", {}, {}},
             {"native_gui_rois", true, "readonly explicit ordinary 2D direct ImageSource_Simple raster; bounded rectangle snapshots; limited idle-host synthetic qualification",

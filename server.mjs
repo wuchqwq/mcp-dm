@@ -480,7 +480,7 @@ const nativeTools = [
       description: '从明确 GUI line 快照保存的 [x0,y0,x1,y1] 像素中心，端点包含；不是半开矩形边缘'},
     width: {type: 'integer', enum: [1]}, request_id: NATIVE_SAVED_REQUEST_ID,
   }, ['image_id', 'document_id', 'display_id', 'roi_id', 'expected_line', 'width', 'request_id']),
-  tool('dm_native_histogram', '用 DM 自带 GMSImageProcessing::CalcHistogram 计算明确 image_id 的强度直方图：原生 Image::CreateImage 建立一维计数图，Bridge 只做参数核对与有界读取，不写自己的分箱内核、不用 NumPy 顶替。源为普通二维 float32、最多4194304像素；bins 2..4096；min/max 为 binary32 原始强度边界，必须覆盖源的原生 minimum/maximum，否则明确拒绝而不是猜测越界归属。逐 bin 计数必须是精确非负整数且总和等于源像素数，否则失败关闭。不应用强度标定；若源有完整强度标定与单位，则原生一维轴按左侧 bin 边界与 bin 宽度标定，否则明确报告为 bin 索引轴。产生插件持有的独立一维结果，源图不改；显示用 dm_native_show。必须提前保存 request_id；超时/取消只查询同 ID。', {
+  tool('dm_native_histogram', '用 DM 自带 GMSImageProcessing::CalcHistogram 计算明确 image_id 的强度直方图：原生 Image::CreateImage 建立一维计数图，Bridge 只做参数核对与有界读取，不写自己的分箱内核、不用 NumPy 顶替。源为普通二维 float32、最多4194304像素；bins 2..4096；min/max 为 binary32 原始强度边界，必须覆盖源的原生 minimum/maximum，否则明确拒绝而不是猜测越界归属。逐 bin 计数必须是精确非负整数且总和等于源像素数，否则失败关闭。不应用强度标定；若源有完整强度标定与单位，则用原生 SetDimensionCalibration 按左侧 bin 边界与 bin 宽度把一维轴标定为源强度单位，并把 requested/observed/roundtrip/tolerance 一并回执（二进制32 往返界，不是数值容差）；否则明确报告为 bin 索引轴。产生插件持有的独立一维结果，源图不改；显示用 dm_native_show。必须提前保存 request_id；超时/取消只查询同 ID。', {
     image_id: NATIVE_IMAGE_ID,
     bins: {type: 'integer', minimum: 2, maximum: 4096, description: '原生一维计数图的 bin 数（目的图维度）'},
     min: {type: 'number', description: 'binary32 原始强度下界；必须 <= 源原生 minimum'},

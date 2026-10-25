@@ -1084,7 +1084,8 @@ static std::string execute_operation(const NativeRequest& request) {
             const auto owned = retained_results.find(id);
             const bool owned_profile = owned != retained_results.end() &&
                 owned->second.operation == "PROFILE" && owned->second.value.image == image.value.image;
-            s << metadata(image.value.image, false, owned_profile);
+            s << metadata(image.value.image, false,
+                owned_profile ? "one-dimensional native profile samples" : nullptr);
             require_ready();
         }
         require_ready();

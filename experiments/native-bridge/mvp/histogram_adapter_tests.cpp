@@ -50,6 +50,21 @@ void histogram_calc_fake353(const NativeRef* source, const NativeRef* destinatio
     if (histogram_fault353 == "oversized") counts.front() = 1e9;
     histogram_counts353[destination->image] = counts;
 }
+// Models the pinned build: format 0 divides "origin" by the scale and stores the
+// negated index origin, so a later format-0 read multiplies it back and cannot be
+// bit-exact for most inputs.
+void histogram_set_fake353(void* image, std::uint32_t dimension, float origin, float scale,
+                           const nb::NativeCharRange353* unit, std::int32_t format) {
+    ++histogram_set_calls353;
+    auto* target = static_cast<FakeImage*>(image);
+    check(dimension == 0 && format == 0 && unit != nullptr && unit->end > unit->begin && scale != 0);
+    target->origin[0] = format == 0 ? -(origin / scale) : origin;
+    target->scale[0] = scale;
+    target->unit[0] = std::wstring(unit->begin, unit->end);
+    if (histogram_fault353 == "axis_origin") target->origin[0] += 0.25f;
+    if (histogram_fault353 == "axis_scale") target->scale[0] = scale * 2;
+    if (histogram_fault353 == "axis_unit") target->unit[0] = L"other";
+}
 void histogram_intensity_fake353(void* image, float* origin, float* scale, void* unit) {
     *origin = static_cast<float>(histogram_intensity_origin353);
     *scale = static_cast<float>(histogram_intensity_scale353);
@@ -75,8 +90,9 @@ void setup_histogram_fake353() {
     fake.pixels.assign(16, 0.0f);
     for (std::size_t i = 0; i < 16; ++i) fake.pixels[i] = static_cast<float>(i);
     expected_summary = {0.0, 15.0, 120.0};
-    histogram_api353 = HistogramApi353{histogram_create_fake353, histogram_intensity_fake353,
-                                       histogram_value_fake353, histogram_calc_fake353};
+    histogram_api353 = HistogramApi353{histogram_create_fake353, histogram_set_fake353,
+                                       histogram_intensity_fake353, histogram_value_fake353,
+                                       histogram_calc_fake353};
 }
 std::uint32_t float_bits353(float value) {
     std::uint32_t bits = 0;
@@ -108,12 +124,14 @@ int main() {
         setup_histogram_fake353();
         const auto result = execute_native(histogram_request353());
         check(nb::valid_json(result));
-        check(histogram_create_calls353 == 1 && histogram_calc_calls353 == 1 && histogram_set_calls353 == 0);
+        check(histogram_create_calls353 == 1 && histogram_calc_calls353 == 1 && histogram_set_calls353 == 1);
         check(result.find("\"operation\":\"HISTOGRAM\"") != std::string::npos);
         check(result.find("\"bins\":4") != std::string::npos && result.find("\"counts_sum\":16") != std::string::npos);
         check(result.find("\"counts_complete\":true") != std::string::npos);
-        check(result.find("\"axis_mode\":\"bin_index\"") != std::string::npos);
-        check(result.find("\"axis_calibration_is_bin_left_edge\":false") != std::string::npos);
+        check(result.find("\"axis_mode\":\"source_intensity_units\"") != std::string::npos);
+        check(result.find("\"axis_calibration_is_bin_left_edge\":true") != std::string::npos);
+        check(result.find("\"axis_zero_requested\":0") != std::string::npos);
+        check(result.find("\"axis_tolerance\":\"binary32 divide/multiply round trip") != std::string::npos);
         check(result.find("\"shape\":[4]") != std::string::npos && result.find("\"dtype\":\"uint32\"") != std::string::npos);
         check(result.find("\"raw_bytes\":32") != std::string::npos && result.find("\"output_bytes\":16") != std::string::npos);
         check(result.find("\"retention\":{") != std::string::npos);
@@ -122,7 +140,7 @@ int main() {
         check(counts.bytes == 16 && counts.operation == "HISTOGRAM" && counts.data_type_code == 11);
         const auto output_id = retained_results.begin()->first;
         const auto output_image = registry.at(output_id);
-        check(output_image->unit[0].empty() && output_image->scale[0] == 1.0f && output_image->origin[0] == 0.0f);
+        check(output_image->unit[0] == L"counts" && output_image->scale[0] == 4.0f && output_image->origin[0] == 0.0f);
         // A rank-one counter image is delivered through its own group and keeps
         // its true [bins] shape instead of a fabricated 2D raster.
         const auto shown = execute_native({"show-histogram", "SHOW", {output_id}});
@@ -136,8 +154,31 @@ int main() {
         // complete source intensity calibration.
         setup_histogram_fake353();
         histogram_intensity_unit353 = L"";
-        check(execute_native(histogram_request353()).find("\"axis_mode\":\"bin_index\"") != std::string::npos);
-        check(histogram_set_calls353 == 0);
+        const auto index_axis = execute_native(histogram_request353());
+        check(index_axis.find("\"axis_mode\":\"bin_index\"") != std::string::npos);
+        check(index_axis.find("\"axis_calibration_is_bin_left_edge\":false") != std::string::npos);
+        for (const auto& item : std::vector<std::pair<const char*, const char*>>{
+                 {"axis_origin", "native_histogram_axis_origin_mismatch"},
+                 {"axis_scale", "native_histogram_axis_scale_mismatch"},
+                 {"axis_unit", "native_histogram_axis_unit_mismatch"}}) {
+            setup_histogram_fake353();
+            histogram_fault353 = item.first;
+            try { execute_native(histogram_request353()); check(false); }
+            catch (const std::runtime_error& error) { check(std::string(error.what()) == item.second); }
+            check(retained_results.empty() && retained_result_bytes == 0);
+            histogram_counts353.clear();
+        }
+        // A value whose binary32 round trip is not exact still passes the bound.
+        setup_histogram_fake353();
+        const auto round_low = float_bits353(-15.5f), round_high = float_bits353(16.9f);
+        const auto roundtrip = execute_native({"histogram-roundtrip", "HISTOGRAM", {17, 11, round_low, round_high}});
+        check(roundtrip.find("\"axis_mode\":\"source_intensity_units\"") != std::string::npos);
+        const auto error_at = roundtrip.find("\"axis_roundtrip_error\":");
+        check(error_at != std::string::npos);
+        const auto roundtrip_error = std::stod(roundtrip.substr(error_at + 23));
+        // The vendor round trip is not bit-exact, so an exact-equality guard would
+        // have rejected a correct write.
+        check(roundtrip_error > 0 && roundtrip_error < 1e-4);
         histogram_counts353.clear();
 
         // Rejections that must not create or fill any native image.
@@ -186,7 +227,17 @@ int main() {
             check(retained_results.empty() && retained_result_bytes == 0);
             histogram_counts353.clear();
         }
-        check(histogram_set_calls353 == 0);
+        for (const auto& item : std::vector<std::pair<const char*, const char*>>{
+                 {"axis_origin", "native_histogram_axis_origin_mismatch"},
+                 {"axis_scale", "native_histogram_axis_scale_mismatch"},
+                 {"axis_unit", "native_histogram_axis_unit_mismatch"}}) {
+            setup_histogram_fake353();
+            histogram_fault353 = item.first;
+            try { execute_native(histogram_request353()); check(false); }
+            catch (const std::runtime_error& error) { check(std::string(error.what()) == item.second); }
+            check(retained_results.empty() && retained_result_bytes == 0);
+            histogram_counts353.clear();
+        }
         // A retained Fourier result has no raw-intensity meaning for binning.
         setup_histogram_fake353();
         {

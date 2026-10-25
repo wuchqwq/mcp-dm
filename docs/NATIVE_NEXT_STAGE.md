@@ -59,3 +59,29 @@
 ## 当前 feature 的收尾进展
 
 结果引用释放和确定性有界分块交接已实现，并有独立合成实机证据；原始 READ 及算子尺寸限制保持不变。明确 GUI 矩形及宽度 1 的水平/竖直原生剖面已完成限定合成实机验收，后者保留真实一维 float64 数值、原生轴标定和源采样轨迹，见[线剖面契约](NATIVE_LINE_PROFILE.md)。真一维结果现在可以经 `dm_native_show` 进入可见文档（`native_profile_display` / `native_histogram_display` 两个独立准入组）。原生强度直方图已接通，见[直方图契约](NATIVE_HISTOGRAM.md)。更一般的剖面（斜线/宽条带/小数端点）、原生强度横轴以及原生工作区枚举/切换尚未通过资格确认。手动切换工作区已用于验证显式 image_id 和 SHOW 的行为；SHOW 不保证激活结果所在标签页。参见[生命周期与分块交接](NATIVE_LIFECYCLE_HANDOFF.md)。
+
+## 第三轮：轴标定已闭环，其余两个方向的真实阻塞
+
+**A. 直方图强度轴：已实现并实机通过。** `Image::SetDimensionCalibration` 的
+调用约定由反汇编确定（XMM2=按 format 解释的 origin，XMM3=scale，栈上第 6 个
+参数=format），`format=0` 内部存的是 `-(origin/scale)` 的索引原点，读回必然要再
+乘一次 scale，所以物理零不可能逐位相等。DM Python 独立 oracle 对同样写入读回
+`-15.499999046325684`，与本机原生读回完全一致。守卫因此改为 binary32 往返界
+（8 ulp），scale 与 unit 仍要求精确相等，并在回执里公开 requested/observed/
+roundtrip/tolerance 五个字段。见[直方图契约](NATIVE_HISTOGRAM.md)。
+
+**B. 一般线剖面：仍未准入，但阻塞点已定位。** `LiveProfile_ExtractLineProfile`
+接受 double 端点与宽度，宽度>1 会先构造条带再走 `Project(axis1,true)`，归一化
+语义未闭合；斜线的取样/插值规则既没有静态契约，也没有可用的独立 oracle——
+本机 GMS Python 只暴露 `LinePlotImageDisplay` 类，没有 `NewLiveProfile`。下一轮
+的入口条件是**一次可复现的取样测量**（合成梯度图 + 斜线 + 双线性/最近邻两条
+候选真值），在此之前不放宽只允许轴对齐整数端点的限制。
+
+**C. 注释、文档/工作区激活、一维曲线样式：本版本只有脚本层。** 这些功能都挂在
+脚本注册函数上，例如 `LinePlotImageDisplaySetHistogramStyle(display, bool)` 会
+先用 0x3e9940 把参数解析成脚本对象句柄，再调用内部 setter 0x220cd0；而我们通过
+ROI 路径拿到的是内部 display 指针，不是那个句柄。DM Python 侧同样只暴露
+`NewArrowAnnotation/NewBoxAnnotation/NewTextAnnotation/...` 与
+`WorkspaceCountWindows/WorkspaceGetWindow`，没有任何导出的原生类型化接口。
+不做猜地址调用：下一轮要么闭合「脚本句柄 ↔ 内部对象」的转换契约，要么放弃这条
+路。GMS.dll 的导出表里确实没有 ROI/ImageDisplay/annotation 成员函数。

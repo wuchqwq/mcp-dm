@@ -486,3 +486,15 @@ the bridge.
 Not qualified by this round: diagonal/wide/fractional profiles, uint32 or complex
 histogram sources, non-covering ranges, other builds, file saving, model-side
 visual review and concurrent host use.
+
+## Histogram intensity axis (2026-10-25, third round)
+
+| Scope | Result |
+|---|---|
+| `SetDimensionCalibration` call convention from machine code (XMM2=origin-in-format, XMM3=scale, stack arg 6=format) | STATIC, closed |
+| DM-Python oracle writing the same axis and reading it back | PASS, `-15.499999046325684` for a requested `-15.5`, scale `2.796875` |
+| Native write + read-back on a created count image | PASS, identical value, scale exact, unit `arb`, round-trip error `9.5e-07` within the 8 ulp bound |
+| Counts against an independent NumPy binning, same run | PASS, `[15,64,133,167,179,139,60,11]`, total 768 |
+| Delivered document of the calibrated count image | PASS, rank one, display type 3 |
+| Source pixels/calibration/document | PASS, unchanged |
+| Exact-equality guard | FAIL (impossible by construction), replaced by the binary32 round-trip bound and recorded here |

@@ -5,18 +5,37 @@
 struct HistogramApi353 {
     NativeRef* (*create_image)(NativeRef*, const nb::NativeDataSize353*, std::uint32_t,
                               const nb::NativeCharRange353*) = nullptr;
+    // Disassembly of the pinned build: XMM2 carries the "origin" expressed in the
+    // requested format and XMM3 the scale; the trailing int32 is the format. For
+    // format 0 the vendor divides by the scale and stores the index origin, so a
+    // later physical read re-multiplies and cannot be bit-exact.
+    void (*set_dimension_calibration)(void*, std::uint32_t, float, float,
+                                      const nb::NativeCharRange353*, std::int32_t) = nullptr;
     void (*intensity_calibration)(void*, float*, float*, void*) = nullptr;
     double (*real_value)(const void*, const nb::NativeDataIndex1D353*) = nullptr;
     void (*calc_histogram)(const NativeRef*, const NativeRef*, double, double) = nullptr;
     bool ready() const {
-        return create_image && intensity_calibration && real_value && calc_histogram;
+        return create_image && set_dimension_calibration && intensity_calibration && real_value && calc_histogram;
     }
 } histogram_api353;
+// Bounded local UTF-16 conversion for the vendor unit range; no vendor
+// allocation is created or freed here.
+bool histogram_wide353(const std::string& utf8, std::wstring& out) {
+    if (utf8.empty() || utf8.size() > 256) return false;
+    const int needed = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(),
+                                           static_cast<int>(utf8.size()), nullptr, 0);
+    if (needed <= 0 || needed > 128) return false;
+    out.assign(static_cast<std::size_t>(needed), L'\0');
+    return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()),
+                               &out[0], needed) == needed;
+}
 void initialize_histogram353(HMODULE image, HMODULE processing) noexcept {
     try {
         HistogramApi353 next;
         next.create_image = symbol<decltype(next.create_image)>(image,
             "?CreateImage@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSize@Imaging@4@KAEBV?$char_range_t@_WU?$char_traits@_W@std@@@4@@Z");
+        next.set_dimension_calibration = symbol<decltype(next.set_dimension_calibration)>(image,
+            "?SetDimensionCalibration@Image@GMS@@QEAAXKMMAEBV?$char_range_t@_WU?$char_traits@_W@std@@@Gatan@@J@Z");
         next.intensity_calibration = symbol<decltype(next.intensity_calibration)>(image,
             "?GetIntensityCalibration@Image@GMS@@QEAAXAEAM0AEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z");
         next.real_value = symbol<decltype(next.real_value)>(image,
@@ -127,10 +146,12 @@ std::string execute_histogram353(const NativeRequest& request) {
     }
     if (total != pixels) throw std::runtime_error("native_histogram_counts_incomplete");
     if (count_bytes != static_cast<std::uint64_t>(bins) * 8) throw std::runtime_error("native_histogram_count_bytes_invalid");
-    // The native count image keeps an uncalibrated index axis. DM's
-    // SetDimensionCalibration exists, but its live read-back did not match the
-    // documented left-edge convention on this build, so v1 neither writes nor
-    // claims an intensity axis: the caller gets explicit bin geometry instead.
+    // Intensity axis. DM's own histogram example calibrates the count image with
+    // the left bin edge as origin and the bin width as scale, so the same values
+    // are written with format 0 ("calibrated value at pixel index 0"). The vendor
+    // stores the index origin, therefore a format-0 read reconstructs the value by
+    // multiplication and cannot be bit-exact; the guard below is a binary32
+    // round-trip bound, not a scientific tolerance.
     float intensity_origin = 0, intensity_scale = 0;
     std::string intensity_unit;
     {
@@ -139,7 +160,35 @@ std::string execute_histogram353(const NativeRequest& request) {
         require_ready();
         intensity_unit = unit.utf8(256);
     }
-    const std::string axis_mode = "bin_index";
+    std::string axis_mode = "bin_index";
+    float axis_zero_requested = 0, axis_zero_observed = 0, axis_scale_observed = 0, axis_roundtrip = 0;
+    if (std::isfinite(intensity_origin) && std::isfinite(intensity_scale) && !intensity_unit.empty()) {
+        const auto width_float = static_cast<float>(width_value);
+        std::wstring wide_unit;
+        if (!histogram_wide353(intensity_unit, wide_unit))
+            throw std::runtime_error("native_histogram_axis_unit_not_convertible");
+        nb::NativeCharRange353 unit_range{wide_unit.c_str(), wide_unit.c_str() + wide_unit.size()};
+        histogram_api353.set_dimension_calibration(output.value.image, 0, range_min, width_float, &unit_range, 0);
+        require_ready();
+        const auto read_back = crop_axis_calibration(output.value.image, 0);
+        axis_zero_requested = range_min;
+        axis_zero_observed = read_back.zero;
+        axis_scale_observed = read_back.scale;
+        // Two binary32 operations are involved (divide on write, multiply on
+        // read), so 8 ulp of the larger magnitude is the honest bound.
+        const double magnitude = std::max({std::fabs(static_cast<double>(range_min)),
+                                           std::fabs(static_cast<double>(width_float)), 1.0});
+        const double roundtrip_bound = 8.0 * 1.1920928955078125e-07 * magnitude;
+        if (!std::isfinite(read_back.zero)) throw std::runtime_error("native_histogram_axis_origin_not_finite");
+        axis_roundtrip = std::fabs(static_cast<double>(read_back.zero) - range_min);
+        if (axis_roundtrip > roundtrip_bound)
+            throw std::runtime_error("native_histogram_axis_origin_mismatch");
+        if (read_back.scale != width_float)
+            throw std::runtime_error("native_histogram_axis_scale_mismatch");
+        if (read_back.unit != intensity_unit)
+            throw std::runtime_error("native_histogram_axis_unit_mismatch");
+        axis_mode = "source_intensity_units";
+    }
     const auto output_info = metadata(output.value.image, false, "one-dimensional native histogram bins");
     auto out = json_stream();
     out << "{\"backend\":\"digitalmicrograph-native\",\"operation\":\"HISTOGRAM\",\"source_image_id\":" << before.id
@@ -156,8 +205,13 @@ std::string execute_histogram353(const NativeRequest& request) {
         << ",\"values_base64\":" << nb::quote(nb::read_base64_353(raw))
         << ",\"raw_bytes\":" << count_bytes << ",\"output_bytes\":" << bytes
         << ",\"axis_mode\":" << nb::quote(axis_mode)
-        << ",\"axis_calibration_is_bin_left_edge\":false"
+        << ",\"axis_calibration_is_bin_left_edge\":" << (axis_mode == "source_intensity_units" ? "true" : "false")
         << ",\"bin_left_edge\":" << range_min
+        << ",\"axis_zero_requested\":" << axis_zero_requested
+        << ",\"axis_zero_observed\":" << axis_zero_observed
+        << ",\"axis_scale_observed\":" << axis_scale_observed
+        << ",\"axis_roundtrip_error\":" << axis_roundtrip
+        << ",\"axis_tolerance\":\"binary32 divide/multiply round trip: 8 ulp of max(|origin|,|scale|,1)\""
         << ",\"source_intensity_calibration\":{\"origin\":" << intensity_origin << ",\"scale\":" << intensity_scale
         << ",\"unit\":" << (intensity_unit.empty() ? "null" : nb::quote(intensity_unit)) << '}'
         << ",\"image\":" << output_info
