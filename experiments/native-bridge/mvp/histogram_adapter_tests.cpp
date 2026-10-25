@@ -7,7 +7,7 @@
 namespace {
 std::map<const void*, std::vector<double>> histogram_counts353;
 std::string histogram_fault353;
-int histogram_create_calls353 = 0, histogram_calc_calls353 = 0, histogram_set_calls353 = 0;
+int histogram_create_calls353 = 0, histogram_calc_calls353 = 0, histogram_set_calls353 = 0, histogram_read_calls353 = 0;
 double histogram_intensity_origin353 = 2.5, histogram_intensity_scale353 = -3;
 std::wstring histogram_intensity_unit353 = L"counts";
 
@@ -49,6 +49,12 @@ void histogram_calc_fake353(const NativeRef* source, const NativeRef* destinatio
     if (histogram_fault353 == "nonfinite") counts.front() = std::numeric_limits<double>::infinity();
     if (histogram_fault353 == "oversized") counts.front() = 1e9;
     histogram_counts353[destination->image] = counts;
+    auto* output = static_cast<FakeImage*>(destination->image);
+    if (histogram_fault353 == "changed_output_rank") output->dimensions = 2;
+    if (histogram_fault353 == "changed_output_dtype") output->code = 12;
+    if (histogram_fault353 == "changed_output_bins") --output->width;
+    if (histogram_fault353 == "changed_source_calibration") fake.origin[0] += 1;
+    if (histogram_fault353 == "changed_source_intensity") histogram_intensity_scale353 += 1;
 }
 void histogram_intensity_fake353(void* image, float* origin, float* scale, void* unit) {
     *origin = static_cast<float>(histogram_intensity_origin353);
@@ -57,6 +63,7 @@ void histogram_intensity_fake353(void* image, float* origin, float* scale, void*
     (void)image;
 }
 double histogram_value_fake353(const void* image, const nb::NativeDataIndex1D353* index) {
+    ++histogram_read_calls353;
     const auto found = histogram_counts353.find(image);
     check(index && index->dimensions == 1 && index->padding == 0 && found != histogram_counts353.end());
     check(static_cast<std::size_t>(index->x) < found->second.size());
@@ -68,7 +75,7 @@ void setup_histogram_fake353() {
     close_surrogate_documents();
     histogram_counts353.clear();
     histogram_fault353.clear();
-    histogram_create_calls353 = histogram_calc_calls353 = histogram_set_calls353 = 0;
+    histogram_create_calls353 = histogram_calc_calls353 = histogram_set_calls353 = histogram_read_calls353 = 0;
     histogram_intensity_origin353 = 2.5; histogram_intensity_scale353 = -3;
     histogram_intensity_unit353 = L"counts";
     fake.width = 4; fake.height = 4; fake.dimensions = 2; fake.code = 2; fake.packing = 1;
@@ -123,14 +130,62 @@ int main() {
         const auto output_id = retained_results.begin()->first;
         const auto output_image = registry.at(output_id);
         check(output_image->unit[0].empty() && output_image->scale[0] == 1.0f && output_image->origin[0] == 0.0f);
+        // Enumeration keeps the native uint32 counter descriptor, not the f64
+        // transport encoding or a PROFILE label. No numeric reread is needed.
+        const auto read_calls = histogram_read_calls353;
+        const auto count_metadata = metadata(output_image, false, "one-dimensional native histogram bins");
+        check(execute_native({"list-histogram", "DATASETS", {}}).find(count_metadata) != std::string::npos);
+        check(count_metadata.find("\"dtype\":\"uint32\"") != std::string::npos);
+        check(count_metadata.find("\"native_mean_supported\":false") != std::string::npos);
+        check(count_metadata.find("\"native_summary_supported\":false") != std::string::npos);
+        check(histogram_read_calls353 == read_calls);
+        auto& retained = retained_results.at(output_id);
+        const auto original_pointer = retained.value.image;
+        retained.value.image = &fake;
+        check(execute_native({"list-histogram-pointer-mismatch", "DATASETS", {}}).find(metadata(output_image, false)) != std::string::npos);
+        retained.value.image = original_pointer;
         // A rank-one counter image is delivered through its own group and keeps
         // its true [bins] shape instead of a fabricated 2D raster.
         const auto shown = execute_native({"show-histogram", "SHOW", {output_id}});
         check(nb::valid_json(shown) && document_calls == 1);
         check(shown.find("\"rank\":1") != std::string::npos);
         check(shown.find("\"retained_operation\":\"PROFILE\"") == std::string::npos);
+        check(shown.find("\"retained_operation\":\"HISTOGRAM\"") != std::string::npos);
+        check(shown.find("\"dtype\":\"uint32\"") != std::string::npos);
+        check(shown.find("\"image\":{") == std::string::npos);
+        output_image->code = 12;
+        try { execute_native({"show-histogram-type-changed", "SHOW", {output_id}}); check(false); }
+        catch (const std::runtime_error& error) { check(std::string(error.what()) == "native_histogram_display_descriptor_changed"); }
+        check(document_calls == 1);
+        check(execute_native({"list-histogram-type-changed", "DATASETS", {}}).find(metadata(output_image, false)) != std::string::npos);
+        output_image->code = 11;
+        const auto token = retained.retention_token;
+        auto* document = host_documents.at(output_id);
+        check(execute_native({"release-histogram", "RELEASE", {output_id, token}}).find("\"released_now\":true") != std::string::npos);
+        check(retained_results.empty() && registry.count(output_id) == 1 && host_documents.at(output_id) == document);
+        shutdown_native();
+        check(host_documents.at(output_id) == document && document->references == 1);
         close_surrogate_documents();
+        check(registry.count(output_id) == 0);
         histogram_counts353.clear();
+
+        // More bins than source pixels is valid: empty bins do not lose data.
+        for (const auto bins : {2u, 32u, 4096u}) {
+            setup_histogram_fake353();
+            const auto sparse = execute_native(histogram_request353(bins));
+            check(sparse.find("\"bins\":" + std::to_string(bins)) != std::string::npos);
+            check(sparse.find("\"counts_sum\":16") != std::string::npos);
+            check(histogram_read_calls353 == static_cast<int>(bins));
+            check(retained_results.begin()->second.bytes == bins * sizeof(std::uint32_t));
+        }
+        // Histogram availability needs only its actual reductions, not SUM or
+        // MEAN. Losing a required binding must never claim this group ready.
+        setup_histogram_fake353(); api.sum = nullptr; api.mean = nullptr;
+        check(execute_native({"histogram-status-minmax", "STATUS", {}}).find("\"native_histogram\"") != std::string::npos);
+        check(execute_native(histogram_request353()).find("\"counts_sum\":16") != std::string::npos);
+        setup_histogram_fake353(); api.minimum = nullptr;
+        check(execute_native({"histogram-status-no-minimum", "STATUS", {}}).find("\"native_histogram\"") == std::string::npos);
+        expect_histogram_failure353("native_histogram_bindings_unavailable");
 
         // The axis never becomes an intensity axis in v1, with or without a
         // complete source intensity calibration.
@@ -185,6 +240,19 @@ int main() {
             catch (const std::runtime_error& error) { check(std::string(error.what()) == expected); }
             check(retained_results.empty() && retained_result_bytes == 0);
             histogram_counts353.clear();
+        }
+        // Recheck the destination after CalcHistogram, before a rank-one read.
+        for (const auto* fault : {"changed_output_rank", "changed_output_dtype", "changed_output_bins"}) {
+            setup_histogram_fake353(); histogram_fault353 = fault;
+            try { execute_native(histogram_request353()); check(false); }
+            catch (const std::runtime_error& error) { check(std::string(error.what()) == "native_histogram_output_descriptor_mismatch"); }
+            check(histogram_read_calls353 == 0 && retained_results.empty() && registry.size() == 1 && fake.references == 1);
+        }
+        for (const auto* fault : {"changed_source_calibration", "changed_source_intensity"}) {
+            setup_histogram_fake353(); histogram_fault353 = fault;
+            try { execute_native(histogram_request353()); check(false); }
+            catch (const std::runtime_error& error) { check(std::string(error.what()) == "native_histogram_source_metadata_changed"); }
+            check(retained_results.empty() && registry.size() == 1 && fake.references == 1);
         }
         check(histogram_set_calls353 == 0);
         // A retained Fourier result has no raw-intensity meaning for binning.

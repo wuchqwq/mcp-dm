@@ -62,6 +62,7 @@ int main() {
         check(selected.available("native_display") && selected.available("native_datasets"));
         for (const auto* name : {"native_mean", "native_statistics", "native_crop", "native_display", "native_datasets",
                                  "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_line_profile",
+                                 "native_profile_display", "native_histogram", "native_histogram_display",
                                  "native_uint32_mean", "native_uint32_statistics", "native_uint32_crop", "native_uint32_preview", "native_uint32_read",
                                  "native_uint32_display", "native_uint32_image_arithmetic", "native_uint32_filters", "native_uint32_fft"})
             check(selected.available(name));
@@ -70,6 +71,7 @@ int main() {
         }
         // Complete addresses cannot qualify a deliberately unqualified group.
         for (const auto* name : {"native_gui_rois", "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_line_profile",
+                                 "native_profile_display", "native_histogram", "native_histogram_display",
                                  "native_uint32_mean", "native_uint32_statistics", "native_uint32_crop", "native_uint32_preview", "native_uint32_read",
                                  "native_uint32_display", "native_uint32_image_arithmetic", "native_uint32_filters", "native_uint32_fft"}) {
             auto unqualified = nb::gms353::profile();

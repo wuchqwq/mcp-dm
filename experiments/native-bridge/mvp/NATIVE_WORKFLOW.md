@@ -17,7 +17,7 @@ manifest 清理也已通过。当前五组 profile 资格不依赖 preparation �
 manifest 移除。退出后另一次显式外部运行仍能重开保存的 NPY 并得到同一均值，
 原 capture 未变；这些是最终二进制自己的证据。
 
-## 十八个原生工具目录项
+## 十九个原生工具目录项
 
 使用显式 `DM_MCP_BACKEND=native` 和用户启动宿主时记录的 session。
 默认 v0.6 后端是另一条路径，不会作为原生失败的回退。
@@ -76,7 +76,7 @@ fixture 引用后，同一调用栈立即销毁源图的断言 FAIL 保留；脚
 对保存的 PROFILE JSON 可显式运行既有 `tools/native_snapshot_handoff.mjs`，
 生成新的真一维 `<f8` NPY/schema-1 文件，保留原回执、线身份、标定及参数；
 这是数据交接，不是 DM SaveAs。原 PROFILE QUERY 返回冻结字节，即使插件引用
-已释放也不会重算或重读源图。释放仍用创建 ID/token；2D READ/SHOW 不接受一维图。
+已释放也不会重算或重读源图。释放仍用创建 ID/token；READ 仍只接受二维图，SHOW 对 PROFILE/HISTOGRAM 有独立的一维能力门禁。
 
 该链路已通过有限合成 prepared 实机核对；最终合格产物也在独立新会话确认了
 加载身份、提交前 baseline、各方向/边界样本、全源/GUI/标定、原 QUERY、真一维
@@ -269,4 +269,4 @@ READ 单次预算不变。固定的 `tools/native_region_handoff.mjs` 可显式�
 
 完整命令、恢复/预算、独立核对和引用令牌示例见[生命周期与分块交接](../../../docs/NATIVE_LIFECYCLE_HANDOFF.md)。历史创建 QUERY 不会因 RELEASE 被改写；新 RESULT_INFO 记录查询当时的可用性。
 
-原生图像 ID 跨工作区选择同一图像；DATASETS 不是当前标签页列表。SHOW 复用已有文档时可能仍留在另一个工作区，不保证当前页可见。GUI ROI 和原生剖面仅具上文直接源的窄范围资格；其它线/宽度/布局、histogram、工作区枚举/激活和原生注释仍未资格确认，不能靠 Python 或 GUI 点击冒充。
+原生图像 ID 跨工作区选择同一图像；DATASETS 不是当前标签页列表。SHOW 复用已有文档时可能仍留在另一个工作区，不保证当前页可见。GUI ROI 和原生剖面仅具上文直接源的窄范围资格；其它线/宽度/布局、工作区枚举/激活和原生注释仍未资格确认，不能靠 Python 或 GUI 点击冒充。

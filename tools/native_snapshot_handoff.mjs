@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {validateNativeDataSnapshot, validateNativeLineProfile, nativeScientificSemantics, validRequestId} from '../lib/native_bridge.mjs';
+import {validateNativeDataSnapshot, validateNativeLineProfile, validateNativeHistogram, nativeScientificSemantics, validRequestId} from '../lib/native_bridge.mjs';
 
 const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -117,20 +117,52 @@ export function validateSavedSnapshot(raw) {
   requireThat(object(receipt) && receipt.protocol === 'NB2' && typeof receipt.session === 'string' && /^[a-f0-9]{32}$/.test(receipt.session) &&
     validRequestId(receipt.id) && receipt.request_id === receipt.id && receipt.state === 'completed' &&
     ((receipt.original_operation === 'READ' && receipt.result_type === 'native_data_snapshot') ||
-      (receipt.original_operation === 'PROFILE' && receipt.result_type === 'native_line_profile')) && receipt.result_version === 1 &&
+      (receipt.original_operation === 'PROFILE' && receipt.result_type === 'native_line_profile') ||
+      (receipt.original_operation === 'HISTOGRAM' && receipt.result_type === 'native_histogram')) && receipt.result_version === 1 &&
     ['host_pid', 'exec_tid', 'worker_tid'].every(key => Number.isInteger(receipt[key]) && receipt[key] > 0 && receipt[key] <= 0xffffffff) &&
     object(receipt.timings_us) && Object.keys(receipt.timings_us).length === 2 &&
     ['queue', 'execute'].every(key => Number.isSafeInteger(receipt.timings_us[key]) && receipt.timings_us[key] >= 0) &&
-    receipt.exec_tid !== receipt.worker_tid && !['result', 'error', 'code'].some(key => Object.hasOwn(receipt, key)), 'Original completed NB2 READ receipt required');
+    receipt.exec_tid !== receipt.worker_tid && !['result', 'error', 'code'].some(key => Object.hasOwn(receipt, key)), 'Original completed NB2 READ/PROFILE/HISTOGRAM receipt required');
   const {native_receipt: ignored, ...result} = payload; void ignored;
   if (receipt.original_operation === 'PROFILE') validateNativeLineProfile(result, receipt.normalized_args, receipt.id);
+  else if (receipt.original_operation === 'HISTOGRAM') {
+    validateNativeHistogram(result, receipt.normalized_args, receipt.id);
+    requireThat(result.axis_mode === 'bin_index', 'Only the qualified native histogram bin-index axis may be handed off');
+  }
   else {
     validateNativeDataSnapshot(result, receipt.normalized_args);
     nativeScientificSemantics(result, {requireFourierContext: true});
   }
   const values = Buffer.from(result.values_base64, 'base64');
   requireThat(values.length <= 65536, 'Native snapshot byte budget exceeded');
-  return {result, receipt, values, receiptHash: sha(canonical(receipt)), snapshotHash: sha(raw), pixelHash: sha(values)};
+  const nativeValues = receipt.original_operation === 'HISTOGRAM' ? histogramCountBytes(result.shape, values) : values;
+  return {result, receipt, values, ...(receipt.original_operation === 'HISTOGRAM' ? {nativeValues, wireHash:sha(values)} : {}),
+    receiptHash: sha(canonical(receipt)), snapshotHash: sha(raw), pixelHash: sha(nativeValues)};
+}
+
+// This is an exact transport conversion, not a histogram computation. The DM
+// result is uint32 storage read through GetRealValue's binary64 return type.
+// Never write the wire doubles to an NPY advertised as native count storage.
+function histogramCountBytes(shape, values) {
+  requireThat(Array.isArray(shape) && shape.length === 1 && Number.isInteger(shape[0]) && shape[0] >= 2 && shape[0] <= 4096 &&
+    Buffer.isBuffer(values) && values.length === shape[0]*8, 'Bounded true 1D histogram shape/binary64 bytes required');
+  const counts = Buffer.alloc(shape[0]*4);
+  for (let i=0;i<shape[0];++i) {
+    const value = values.readDoubleLE(i*8);
+    requireThat(Number.isFinite(value) && Number.isInteger(value) && value >= 0 && value <= 0xffffffff,
+      'Histogram transport values must be exact uint32 counts');
+    counts.writeUInt32LE(value,i*4);
+  }
+  return counts;
+}
+
+export function encodeHistogramNpy(shape, values) {
+  const counts = histogramCountBytes(shape, values);
+  const dict = `{'descr': '<u4', 'fortran_order': False, 'shape': (${shape[0]},), }`;
+  const padding = (64 - ((10 + Buffer.byteLength(dict) + 1) % 64)) % 64;
+  const header = Buffer.from(dict + ' '.repeat(padding) + '\n', 'ascii');
+  const prefix = Buffer.from([0x93,0x4e,0x55,0x4d,0x50,0x59,1,0,0,0]); prefix.writeUInt16LE(header.length,8);
+  return Buffer.concat([prefix,header,counts]);
 }
 
 export function encodeProfileNpy(shape, values) {
@@ -164,6 +196,34 @@ export function encodeNpyHeader(shape, dtype = 'float32') {
 
 export function packageInfo(snapshot, captureId, npy) {
   const {result, receipt, pixelHash, snapshotHash, receiptHash} = snapshot;
+  if (receipt?.original_operation === 'HISTOGRAM') return {
+    schema_version:1, capture_id:captureId, capture_mode:'native_histogram', shape:result.shape,
+    dtype:'uint32', native_storage_dtype:'uint32', byte_order:'little', array_order:'C',
+    axes:['bin_index'], axis_roles:[{numpy_axis:0,dm_dimension:0,role:'bin_index'}],
+    source_image_id:result.source_image_id, source_shape_yx:result.source.shape,
+    source_metadata:result.source, source_calibration_dm:result.source.calibration,
+    histogram_metadata:result.image, histogram_calibration:result.image.calibration,
+    calibration_complete:result.image.calibration_complete, axis_mode:result.axis_mode,
+    axis_calibration_is_bin_left_edge:false,
+    native_calibration_semantics:'native bin-index axis; explicit bin geometry is not a calibrated native intensity axis',
+    bins:result.bins, bin_left_edge:result.bin_left_edge, bin_width:result.bin_width,
+    requested_range:result.requested_range, binning:result.binning, bin_edge_rule:result.bin_edge_rule,
+    source_min:result.source_min, source_max:result.source_max, source_pixels:result.source_pixels,
+    range_covers_source:result.range_covers_source, counts_sum:result.counts_sum, counts_complete:result.counts_complete,
+    source_intensity_calibration:result.source_intensity_calibration,
+    intensity_calibration_applied:false, intensity_semantics:result.intensity_semantics,
+    computation:'DM native', operator:result.operator,
+    input_file:'input.npy', input_sha256:Buffer.isBuffer(npy)?sha(npy):npy.sha256,
+    input_file_bytes:Buffer.isBuffer(npy)?npy.length:npy.byteLength,
+    raw_bytes:result.output_bytes, native_storage_bytes:result.output_bytes, sample_count:result.bins,
+    pixel_sha256:pixelHash, wire_scalar_dtype:'float64', wire_byte_order:'little',
+    wire_encoding:result.counts_encoding, wire_raw_bytes:result.raw_bytes, wire_values_sha256:snapshot.wireHash,
+    transport_conversion:'exact finite integral binary64 values to uint32; no histogram calculation or rebinning',
+    source_path_included:false, native_receipt:receipt, native_receipt_sha256:receiptHash,
+    saved_snapshot_sha256:snapshotHash, native_histogram_result:result,
+    snapshot_identity_scope:'immutable stored numeric bytes; source image ID and live pixels remain mutable',
+    pixel_capture_atomic:false, dm_file_save:false, external_saved_response_encoding:true,
+  };
   if (receipt?.original_operation === 'PROFILE') return {
     schema_version:1, capture_id:captureId, capture_mode:'native_profile', shape:result.shape, dtype:'float64', byte_order:'little', array_order:'C',
     axes:['native_profile_axis'], axis_roles:[{numpy_axis:0,dm_dimension:0,role:'native_profile_axis'}],
@@ -214,7 +274,10 @@ function verifyCaptured(target, journal, snapshot, npy) {
   requireThat(equal(info, expected) && manifest.state === 'captured' && manifest.capture_id === journal.capture_id &&
     manifest.input_sha256 === info.input_sha256 && manifest.input_metadata_sha256 === sha(canonical(info)) &&
     manifest.source_image_id === info.source_image_id &&
-    (snapshot.receipt.original_operation === 'PROFILE' ? equal(manifest.source_line_xyxy,info.source_line_xyxy) : equal(manifest.source_rect_xyxy, info.source_rect_xyxy)), 'Captured metadata/receipt hash mismatch');
+    (snapshot.receipt.original_operation === 'PROFILE' ? equal(manifest.source_line_xyxy,info.source_line_xyxy) :
+      snapshot.receipt.original_operation === 'HISTOGRAM' ? manifest.native_result_image_id === info.histogram_metadata.id &&
+        manifest.bins === info.bins && manifest.axis_mode === info.axis_mode && manifest.wire_values_sha256 === info.wire_values_sha256 :
+        equal(manifest.source_rect_xyxy, info.source_rect_xyxy)), 'Captured metadata/receipt hash mismatch');
   for (const name of ['input.npy', 'input.json', 'capture.json']) requireThat(sha(bytesAt(path.join(target, name))) === receipt.files_sha256[name], 'Captured file hash mismatch: ' + name);
   requireThat(bytesAt(path.join(target, 'input.npy')).equals(npy), 'Captured NPY bytes changed');
   return receipt;
@@ -226,10 +289,12 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
   const {target, relative} = newTarget(workspace, output);
   const snapshotPath = fs.realpathSync(snapshotFile), snapshot = validateSavedSnapshot(bytesAt(snapshotPath));
   const profile = snapshot.receipt.original_operation === 'PROFILE';
-  const npy = profile ? encodeProfileNpy(snapshot.result.shape,snapshot.values) : encodeNpy(snapshot.result.shape, snapshot.values, snapshot.result.dtype);
+  const histogram = snapshot.receipt.original_operation === 'HISTOGRAM';
+  const npy = profile ? encodeProfileNpy(snapshot.result.shape,snapshot.values) :
+    histogram ? encodeHistogramNpy(snapshot.result.shape,snapshot.values) : encodeNpy(snapshot.result.shape, snapshot.values, snapshot.result.dtype);
   const parameters = {workspace, output: relative, output_requested: output, snapshot_path: snapshotPath,
     snapshot_requested: path.resolve(snapshotFile), saved_snapshot_sha256: snapshot.snapshotHash,
-    native_receipt_sha256: snapshot.receiptHash, native_values_sha256: snapshot.pixelHash,
+    native_receipt_sha256: snapshot.receiptHash, native_values_sha256: snapshot.wireHash ?? snapshot.pixelHash,
     session: snapshot.receipt.session, native_request_id: snapshot.receipt.id, operation: snapshot.receipt.original_operation, normalized_args: snapshot.receipt.normalized_args};
   const requestDirectory = path.join(workspace, 'handoff-requests');
   try { fs.mkdirSync(requestDirectory); } catch (error) { if (error.code !== 'EEXIST') throw error; }
@@ -276,6 +341,16 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
         source_dtype:snapshot.result.source.dtype, output_dtype:info.dtype,
         capture_consistency:'immutable saved profile response bytes; live source was not reobserved by this encoder; native PROFILE is not atomic'});
     }
+    if (histogram) {
+      delete manifest.source_rect_xyxy; delete manifest.source_rect_convention;
+      Object.assign(manifest,{capture_mode:'native_histogram',operation:'bounded 1D native histogram capture',
+        shape:info.shape,axes:info.axes,axis_mode:info.axis_mode,bins:info.bins,native_result_image_id:info.histogram_metadata.id,
+        capture_backend:'saved digitalmicrograph-native HISTOGRAM numeric snapshot',
+        source_dtype:snapshot.result.source.dtype,output_dtype:info.dtype,native_storage_dtype:info.native_storage_dtype,
+        native_storage_bytes:info.native_storage_bytes,wire_scalar_dtype:info.wire_scalar_dtype,wire_byte_order:info.wire_byte_order,
+        wire_encoding:info.wire_encoding,wire_raw_bytes:info.wire_raw_bytes,wire_values_sha256:info.wire_values_sha256,
+        capture_consistency:'immutable saved histogram response bytes; live source was not reobserved by this encoder; native HISTOGRAM is not atomic'});
+    }
     manifestFd = fs.openSync(path.join(target, 'capture.json'), 'wx+'); writeFd(manifestFd, manifest);
     writeNew(path.join(target, 'input.npy'), npy);
     writeNew(path.join(target, 'input.json'), Buffer.from(JSON.stringify(info, null, 2) + '\n'));
@@ -285,6 +360,8 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
       input_metadata_file_sha256: sha(bytesAt(path.join(target, 'input.json'))), pixel_sha256: snapshot.pixelHash,
       descriptor_unchanged: true, descriptor_evidence: 'native READ metadata-before/after contract; no atomic pixel claim', completed_utc: utc()};
     if (profile) manifest.descriptor_evidence = 'native PROFILE source metadata-before/after contract; no atomic pixel claim';
+    if (histogram) Object.assign(manifest,{descriptor_unchanged:null,source_descriptor_reobserved:false,
+      descriptor_evidence:'saved HISTOGRAM v1 has no source-unchanged attestation; current adapter guards metadata/intensity before/after, but this encoder does not reobserve the source or attest historical records'});
     writeFd(manifestFd, manifest);
     const files = Object.fromEntries(['input.npy', 'input.json', 'capture.json'].map(name => [name, sha(bytesAt(path.join(target, name)))]));
     journal.capture_receipt = {state: 'captured', capture_id: captureId, capture_dir: target, shape_yx: info.shape_yx, dtype: info.dtype,
@@ -294,6 +371,12 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
     if (profile) {
       delete journal.capture_receipt.shape_yx; delete journal.capture_receipt.source_rect_xyxy;
       Object.assign(journal.capture_receipt,{capture_mode:'native_profile',shape:info.shape,source_line_xyxy:info.source_line_xyxy});
+    }
+    if (histogram) {
+      delete journal.capture_receipt.shape_yx; delete journal.capture_receipt.source_rect_xyxy;
+      Object.assign(journal.capture_receipt,{capture_mode:'native_histogram',shape:info.shape,axes:info.axes,
+        native_result_image_id:info.histogram_metadata.id,axis_mode:info.axis_mode,bins:info.bins,
+        native_storage_bytes:info.native_storage_bytes,wire_raw_bytes:info.wire_raw_bytes,wire_values_sha256:info.wire_values_sha256});
     }
     verifyCaptured(target, journal, snapshot, npy);
     journal.state = 'CAPTURED'; writeFd(fd, journal); return journal.capture_receipt;

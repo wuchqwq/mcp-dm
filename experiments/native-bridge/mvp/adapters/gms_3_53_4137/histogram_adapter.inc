@@ -38,6 +38,11 @@ void validate_histogram_owned353(void* value) {
         throw std::runtime_error("native_histogram_invalid_owned_reference");
     }
 }
+void validate_histogram_descriptor353(void* image, std::uint32_t output_id, std::uint32_t bins) {
+    if (api.id(image) != output_id || api.ndim(image) != 1 || api.dtype(image) != nb::kHistogramUint32Code353 ||
+        packing_style(image) != 1 || api.dimension(image, 0) != bins)
+        throw std::runtime_error("native_histogram_output_descriptor_mismatch");
+}
 std::string execute_histogram353(const NativeRequest& request) {
     require_ready();
     if (request.args.size() != 4) throw std::runtime_error("native_histogram_requires_id_bins_and_float32_range");
@@ -79,6 +84,14 @@ std::string execute_histogram353(const NativeRequest& request) {
         bytes > nb::kCropRetainedBytes - retained_result_bytes)
         throw std::runtime_error("native_result_retention_capacity");
     const auto source_info = metadata(source.value.image);
+    float intensity_origin = 0, intensity_scale = 0;
+    std::string intensity_unit;
+    {
+        VendorString unit;
+        histogram_api353.intensity_calibration(source.value.image, &intensity_origin, &intensity_scale, &unit.value);
+        require_ready();
+        intensity_unit = unit.utf8(256);
+    }
     const auto width_value = (static_cast<double>(range_max) - range_min) / bins;
     if (!std::isfinite(width_value) || width_value <= 0)
         throw std::runtime_error("native_histogram_bin_width_invalid");
@@ -100,13 +113,14 @@ std::string execute_histogram353(const NativeRequest& request) {
     const auto output_id = api.id(output.value.image);
     if (!output_id || output.value.image == source.value.image || output_id == before.id || retained_results.count(output_id))
         throw std::runtime_error("native_histogram_output_identity_invalid");
-    if (api.ndim(output.value.image) != 1 || api.dtype(output.value.image) != nb::kHistogramUint32Code353 ||
-        packing_style(output.value.image) != 1 || api.dimension(output.value.image, 0) != bins)
-        throw std::runtime_error("native_histogram_output_descriptor_mismatch");
+    validate_histogram_descriptor353(output.value.image, output_id, bins);
     require_ready();
     histogram_api353.calc_histogram(&source.value, &output.value, static_cast<double>(range_min),
                                     static_cast<double>(range_max));
     require_ready();
+    // A vendor call must not turn the typed rank-one read into a different
+    // object or a shorter/incompatible descriptor before the first sample.
+    validate_histogram_descriptor353(output.value.image, output_id, bins);
     // Counts are read as native doubles: every uint32 count is exact in binary64.
     // The complete-source-range admission makes the total exact, so a vendor
     // edge-rule surprise fails closed instead of being reported as a histogram.
@@ -131,13 +145,15 @@ std::string execute_histogram353(const NativeRequest& request) {
     // SetDimensionCalibration exists, but its live read-back did not match the
     // documented left-edge convention on this build, so v1 neither writes nor
     // claims an intensity axis: the caller gets explicit bin geometry instead.
-    float intensity_origin = 0, intensity_scale = 0;
-    std::string intensity_unit;
+    validate_histogram_descriptor353(output.value.image, output_id, bins);
     {
+        float after_origin = 0, after_scale = 0;
         VendorString unit;
-        histogram_api353.intensity_calibration(source.value.image, &intensity_origin, &intensity_scale, &unit.value);
+        histogram_api353.intensity_calibration(source.value.image, &after_origin, &after_scale, &unit.value);
         require_ready();
-        intensity_unit = unit.utf8(256);
+        if (after_origin != intensity_origin || after_scale != intensity_scale || unit.utf8(256) != intensity_unit ||
+            metadata(source.value.image) != source_info)
+            throw std::runtime_error("native_histogram_source_metadata_changed");
     }
     const std::string axis_mode = "bin_index";
     const auto output_info = metadata(output.value.image, false, "one-dimensional native histogram bins");

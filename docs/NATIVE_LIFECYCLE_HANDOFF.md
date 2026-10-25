@@ -2,8 +2,11 @@
 
 This feature checkout adds explicit reference release and a thin chunked READ
 runner. It keeps the default v0.6 backend, exact GMS adapter gates, scientific
-operators and size/type limits. Native SaveAs, native profile/histogram and workspace activation remain
-unavailable. The separately qualified [GUI rectangle reader](NATIVE_GUI_ROI.md)
+operators and size/type limits. Native SaveAs and workspace activation remain
+unavailable. The separately qualified [1D profile](NATIVE_LINE_PROFILE.md) and
+[histogram](NATIVE_HISTOGRAM.md) paths reuse these ownership rules with their own
+saved-response NPY contracts; the chunked runner below remains 2D READ only.
+The separately qualified [GUI rectangle reader](NATIVE_GUI_ROI.md)
 can now provide an explicit ROI for this existing handoff workflow.
 
 ## Release an intermediate without losing its history

@@ -58,6 +58,19 @@ server.listen(pipe, () => process.stdout.write('ready\n'));
 
 
 class NativeStrictClientTests(unittest.TestCase):
+    def test_histogram_identity_and_float32_arguments_remain_distinct_from_profile(self):
+        args = [77, 64, accept.native_float32_bits(-2.0), accept.native_float32_bits(2.0)]
+        receipt = {"protocol": "NB2", "state": "completed", "original_operation": "HISTOGRAM",
+                   "normalized_args": args, "result_type": "native_histogram", "result_version": 1}
+        accept.validate_operation_identity(receipt, "HISTOGRAM", args)
+        for key, value in (("result_type", "native_line_profile"), ("result_version", 2),
+                           ("normalized_args", args[:2])):
+            with self.assertRaises(ValueError):
+                accept.validate_operation_identity(dict(receipt, **{key: value}), "HISTOGRAM", args)
+        self.assertEqual(accept.native_float32_bits(-0.0), 0x80000000)
+        self.assertEqual(accept.native_float32_bits(1e300), 0x7f800000)
+        self.assertEqual(accept.native_float32_bits(-1e300), 0xff800000)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="native-accept-offline-")
         self.addCleanup(self.temp.cleanup)
@@ -160,6 +173,7 @@ class NativeStrictClientTests(unittest.TestCase):
         cases = [
             ("dm_native_rois", {"image_id": 77}, "ROIS", [77], "native_gui_rois"),
             ("dm_native_profile", {"image_id":77,"document_id":31,"display_id":9,"roi_id":4,"expected_line":[2,1,5,1],"width":1,"request_id":"saved"}, "PROFILE", [77,31,9,4,2,1,5,1,1], "native_line_profile"),
+            ("dm_native_histogram", {"image_id":77,"bins":64,"min":-2.0,"max":2.0,"request_id":"saved"}, "HISTOGRAM", [77,64,accept.native_float32_bits(-2.0),accept.native_float32_bits(2.0)], "native_histogram"),
             ("dm_native_read", {"image_id": 77, "rect": [1, 1, 4, 3]}, "READ", [77, 1, 1, 4, 3], "native_data_snapshot"),
             ("dm_native_fft", {"image_id": 77, "direction": "forward"}, "FFT", [77], "native_fourier_operation"),
             ("dm_native_complex", {"image_id": 77, "component": "power"}, "VENDOR_NORM", [77], "native_fourier_operation"),

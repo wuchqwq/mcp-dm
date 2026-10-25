@@ -11,6 +11,7 @@ import {NativeBridge} from "../lib/native_bridge.mjs";
 import {operationFixture, readFixture, imageMetadata, uint32BinaryFixture, uint32OperationFixture} from "./fixtures/native-operations.mjs";
 import {guiRoisFixture} from './fixtures/native-rois.mjs';
 import {profileFixture,profileArgs} from './fixtures/native-profile.mjs';
+import {histogramFixture,histogramArgs} from './fixtures/native-histogram.mjs';
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -213,6 +214,73 @@ async function nativeHost(handler) {
 
 const profileToolArgs = (request_id = 'saved-profile') => ({image_id:77,document_id:31,display_id:9,roi_id:4,
   expected_line:[2,1,5,1],width:1,request_id});
+
+test('HISTOGRAM MCP publishes bin-index semantics and rejects missing saved IDs before dispatch',async()=>{
+  const host=await nativeHost(()=>assert.fail('invalid histogram reached host'));
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session});
+  try {
+    await client.init();const tool=(await client.rpc('tools/list')).result.tools.find(t=>t.name==='dm_native_histogram');
+    assert.deepEqual(tool.inputSchema.required,['image_id','bins','min','max','request_id']);
+    assert.match(tool.description,/bin_index/);assert.match(tool.description,/uint32.*binary64/);
+    assert.doesNotMatch(tool.description,/则原生一维轴按/);
+    const args={image_id:77,bins:8,min:-4,max:4,request_id:'histogram-saved'};
+    const missing={...args};delete missing.request_id;
+    for(const invalid of [missing,{...args,request_id:''},{...args,bins:1},{...args,bins:4097},{...args,bins:2.5},
+      {...args,image_id:'front'},{...args,script:'noop'}]) assert.equal((await client.tool('dm_native_histogram',invalid)).error.code,-32602);
+    assert.equal(host.requests.length,0);
+  } finally {await client.close();await host.close();}
+});
+
+test('accepted sparse HISTOGRAM cancellation recovers original uint32/f64 receipt in a fresh MCP client',async()=>{
+  const savedId='saved-before-histogram-cancel',result=histogramFixture(histogramArgs,savedId);
+  let accepted,completed=false,creations=0;const observed=new Promise(resolve=>accepted=resolve);
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.operation==='HISTOGRAM') {
+      if(JSON.stringify(request.args.map(Number))!==JSON.stringify(histogramArgs)) {
+        socket.end(JSON.stringify(reply('failed',undefined,{code:'id_conflict',error:'saved ID has different original parameters'}))+'\n');return;
+      }
+      assert.equal(creations,0);creations++;socket.end(JSON.stringify(reply('queued'))+'\n');accepted();
+    } else socket.end(JSON.stringify(completed?reply('completed',result):reply('running'))+'\n');
+  });
+  const env={DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_MCP_TIMEOUT_MS:'1000',DM_ANALYSIS_PYTHON:'must-not-start.exe'};
+  const first=mcpClient(env);let recovered;
+  try {
+    await first.init();first.send({id:901,method:'tools/call',params:{name:'dm_native_histogram',arguments:{image_id:77,bins:8,min:-4,max:4,request_id:savedId}}});
+    await observed;first.send({method:'notifications/cancelled',params:{requestId:901}});await first.rpc('ping');
+    assert.equal(first.messages.some(message=>message.id===901),false);await first.close();completed=true;
+    recovered=mcpClient(env);await recovered.init();
+    const original=toolOutput(await recovered.tool('dm_native_result',{request_id:savedId}));
+    assert.equal(original.dtype,'uint32');assert.equal(original.raw_bytes,64);assert.equal(original.output_bytes,32);
+    assert.equal(original.bins>original.source_pixels,true);assert.equal(original.axis_mode,'bin_index');
+    const conflict=toolOutput(await recovered.tool('dm_native_histogram',{image_id:77,bins:16,min:-4,max:4,request_id:savedId}),true);
+    assert.equal(conflict.native_receipt.code,'id_conflict');
+    assert.deepEqual(toolOutput(await recovered.tool('dm_native_result',{request_id:savedId})),original);
+    assert.equal(creations,1);assert.equal(host.requests.filter(r=>r.operation==='HISTOGRAM'&&JSON.stringify(r.args.map(Number))===JSON.stringify(histogramArgs)).length,1);
+  } finally {await first.close();if(recovered)await recovered.close();await host.close();}
+});
+
+test('malformed histogram creation and original QUERY never turn native counts into a false success',async()=>{
+  const records=new Map();
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(!records.has(request.id)) {
+      const result=histogramFixture(histogramArgs,request.id);
+      if(request.id==='zero-image') result.image_id=result.image.id=0;
+      if(request.id==='wrong-wire') result.counts_encoding='uint32 little-endian';
+      if(request.id==='fake-axis') result.axis_mode='source_intensity_units';
+      if(request.id==='source-size') result.source_pixels++;
+      if(request.id==='foreign-creation') result.retention.creation_request_id='another-id';
+      records.set(request.id,result);
+    }
+    socket.end(JSON.stringify(reply('completed',records.get(request.id)))+'\n');
+  });
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_ANALYSIS_PYTHON:'must-not-start.exe'});
+  try {
+    await client.init();for(const request_id of ['zero-image','wrong-wire','fake-axis','source-size','foreign-creation']) {
+      assert.equal(toolOutput(await client.tool('dm_native_histogram',{image_id:77,bins:8,min:-4,max:4,request_id}),true).code,'NATIVE_PROTOCOL');
+      assert.equal(toolOutput(await client.tool('dm_native_result',{request_id}),true).code,'NATIVE_PROTOCOL');
+    }
+  } finally {await client.close();await host.close();}
+});
 
 test('PROFILE validates saved ID, full explicit GUI identity and finite bounded line before dispatch',async()=>{
   const host=await nativeHost(()=>assert.fail('invalid parameters reached host'));

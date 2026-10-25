@@ -83,7 +83,7 @@ int main(int argc,char** argv) {
         auto* profile_image=registry.at(id);
         const auto pixels_read_before_listing=profile_value_calls353;
         const auto references_before_listing=profile_image->references;
-        const auto expected_profile_metadata=metadata(profile_image,false,true);
+        const auto expected_profile_metadata=metadata(profile_image,false,"one-dimensional native profile samples");
         const auto listed=execute_native({"list-profile","DATASETS",{}});
         const bool complete_profile_metadata=listed.find(expected_profile_metadata)!=std::string::npos;
         if(!complete_profile_metadata)std::cerr<<"REGRESSION: DATASETS lost owned PROFILE float64 metadata\n";
@@ -108,6 +108,15 @@ int main(int argc,char** argv) {
         check(execute_native({"list-profile-pointer-mismatch","DATASETS",{}}).find(unmatched_metadata)!=std::string::npos);
         retained.value.image=original_pointer;
         check(profile_value_calls353==pixels_read_before_listing && profile_image->references==references_before_listing);
+        // A changed live dtype/shape or corrupted creator record must not retain
+        // the special float64 PROFILE interpretation while enumerating.
+        profile_image->code=11;
+        check(execute_native({"list-profile-dtype-changed","DATASETS",{}}).find(metadata(profile_image,false))!=std::string::npos);
+        profile_image->code=12;++profile_image->width;
+        check(execute_native({"list-profile-size-changed","DATASETS",{}}).find(metadata(profile_image,false))!=std::string::npos);
+        --profile_image->width;retained.data_type_code=11;
+        check(execute_native({"list-profile-creator-dtype-changed","DATASETS",{}}).find(metadata(profile_image,false))!=std::string::npos);
+        retained.data_type_code=12;
         // The true rank-one result now has its own delivery group. The document
         // call shape is the already qualified one; only the descriptor admission
         // differs, and the reply must never carry a fabricated 2D descriptor.

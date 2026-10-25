@@ -69,7 +69,7 @@ ABI, scientific, source-protection and lifecycle qualification before admission.
 | `dm_native_summary` | DM's minimum, maximum, sum and mean within the same dtype/pixel limits; raw intensity, no stddev/variance |
 | `dm_native_result` | Query the retained receipt using its original operation ID |
 | `dm_crop` | Explicit-ID half-open crop into a separate same-dtype plugin-retained image with full spatial calibration; uint32 source at most 4,194,304 pixels, output at most 4 MiB (1,048,576 pixels) |
-| `dm_native_show` | Exact qualified 2D plugin-result delivery to a visible DM document; saved request ID required; uint32 admits qualified crop/filter results, not 1D profiles; document lifetime is separate from file persistence |
+| `dm_native_show` | Exact qualified plugin-result delivery to a DM document; separate 1D PROFILE float64 and HISTOGRAM uint32 groups preserve true rank/type; saved request ID required; document lifetime is separate from file persistence |
 | `dm_native_unary` | Native negate, absolute value and square of qualified float32/uint32 2D inputs; actual output dtype is explicit |
 | `dm_native_binary` | Native add, subtract and multiply; same shape and calibration, no broadcasting |
 | `dm_native_fft` | Small real forward FFT and paired inverse of the retained full-complex result; explicit Fourier v2 conventions |
@@ -81,6 +81,7 @@ ABI, scientific, source-protection and lifecycle qualification before admission.
 | `dm_native_release` | Saved-request-ID release of only the exact plugin result reference; no document closure or mutation of old records |
 | `dm_native_rois` | Explicit image → document/display/ROI identity; new v2 replies preserve rectangle and line geometry with eligibility diagnostics |
 | `dm_native_profile` | Saved-ID native extraction from an explicitly identified width-one integer horizontal/vertical GUI line; true 1D float64 image and frozen numeric snapshot |
+| `dm_native_histogram` | Saved-ID DM-native histogram of an explicit bounded float32 2D source; 2..4096 bins including sparse bins, full caller range, uint32 counts, exact binary64 snapshot and explicit bin-index axis |
 
 The profile path has limited synthetic-host qualification, including separate
 fresh-host confirmation of the final qualified artifact and its exact loaded
@@ -92,7 +93,9 @@ the qualified direct 2D source layout. Known Fourier lineage is refused. Native
 profile samples include both ordered endpoints, at most 4096 samples; raw
 intensity remains unapplied despite copied intensity calibration. The explicit
 saved-response encoder writes actual `[N]` `<f8` NPY/schema-1 files, not a row
-image or DM SaveAs. Existing 2D READ/SHOW still reject these 1D objects. See
+image or DM SaveAs. READ and 2D processing still reject these 1D objects; SHOW
+has separately gated true-1D delivery. Histogram NPY preserves native `<u4`
+counts separately from binary64 transport; see [histogram contract](../../../docs/NATIVE_HISTOGRAM.md). See
 [profile acceptance and delivery](../../../docs/NATIVE_LINE_PROFILE.md) and
 [the current handoff](HANDOFF.md) for preserved failures and artifact status.
 

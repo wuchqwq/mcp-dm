@@ -61,8 +61,17 @@ The result contains a true 1D float64 image and immutable numeric bytes; QUERY
 recovers the original result without another extraction. Use the existing
 saved-response encoder for real `shape:[N]` NPY and calibrated sidecar, preserving
 native signed axis coordinates separately from ordered source trajectory/path
-distance. This is data handoff, not DM SaveAs. Native READ/SHOW remain 2D and do
-not accept the profile image. See [line/profile use and limits](docs/NATIVE_LINE_PROFILE.md).
+distance. This is data handoff, not DM SaveAs. Native READ remains 2D; SHOW admits
+retained PROFILE/HISTOGRAM results through separate qualified 1D groups, preserving
+their actual rank and dtype. See [line/profile use and limits](docs/NATIVE_LINE_PROFILE.md).
+
+`dm_native_histogram` admits bounded ordinary float32 2D sources and 2..4096 bins,
+including more bins than pixels. Save the request ID and binary32 range before
+submission; the range must cover the whole source. DM computes the counts.
+The native image and NPY use uint32; the immutable wire payload uses exact
+binary64 values. Its axis is always `bin_index`, with raw bin edges/range stored
+separately and source intensity calibration unapplied. Do not claim an intensity
+axis setter or a DM SaveAs call. See [histogram handoff](docs/NATIVE_HISTOGRAM.md).
 Reference release was verified after the one-shot returned to an idle host;
 the earlier immediate same-stack destruction assertion failed and is preserved.
 Do not turn a completed QUERY or a local wrapper release into a promise that
@@ -88,7 +97,7 @@ Other integer types, native 4D and model-client acceptance remain outside this e
 
 New complete-region exports persist a per-capture request namespace before dispatch. Resume only the original journal in its original workspace; incomplete legacy unscoped journals are refused, never migrated or replayed. Completed old packages remain offline evidence, not newly verified source reads.
 
-Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. MCP SHOW/QUERY adds `display_context` with active-workspace visibility explicitly unknown; this does not probe or activate a workspace. GUI rectangle ROI and limited line profiles are the separately gated work above; diagonal/wide profiles, histogram and native workspace enumeration/activation remain unqualified. [Fourier precision attribution](docs/NATIVE_FFT_PRECISION.md) distinguishes direct DM agreement from a retained numerical accuracy FAIL; it does not promise lossless integer round trips.
+Native DATASETS includes images across workspaces. Use an explicit image ID, never infer it from the active tab. SHOW does not target/activate a workspace: an existing result may remain on an inactive tab. Its receipt does not prove active-workspace visibility or model viewing. MCP SHOW/QUERY adds `display_context` with active-workspace visibility explicitly unknown; this does not probe or activate a workspace. GUI rectangle ROI and limited line profiles are the separately gated work above; diagonal/wide profiles and native workspace enumeration/activation remain unqualified. [Fourier precision attribution](docs/NATIVE_FFT_PRECISION.md) distinguishes direct DM agreement from a retained numerical accuracy FAIL; it does not promise lossless integer round trips.
 
 Native main targets Windows x64 GMS 3.53.4137.0 with exact binary gates. Do not relax a fingerprint check or reuse an unqualified ABI for another build. A missing optional feature is not an instruction to enable arbitrary scripts.
 

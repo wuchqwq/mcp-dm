@@ -1035,9 +1035,9 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("fourier_uint32_small_2d", available("native_uint32_fft", fourier));
         capability("release_plugin_result_reference", available("native_result_release", true));
         capability("native_line_profile", available("native_line_profile", line_api353.ready() && roi_api353.ready()));
-        capability("show_profile_float64_1d_visible_document", available("native_profile_display", display));
-        capability("show_histogram_uint32_1d_visible_document", available("native_histogram_display", display));
-        capability("native_histogram", available("native_histogram", histogram_api353.ready() && finite_checks));
+        capability("show_profile_float64_1d_visible_document", available("native_profile_display", display && api.packing));
+        capability("show_histogram_uint32_1d_visible_document", available("native_histogram_display", display && api.packing));
+        capability("native_histogram", available("native_histogram", api.packing && histogram_api353.ready() && api.minimum && api.maximum));
         capability("read_gui_rectangle_rois", available("native_gui_rois", roi_api353.ready() && api.packing));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
@@ -1078,13 +1078,24 @@ static std::string execute_operation(const NativeRequest& request) {
             auto id = api.id(image.value.image);
             if (!ids.insert(id).second) throw std::runtime_error("dataset_enumeration_changed");
             if (i) s << ',';
-            // PROFILE already qualified this exact owned object as rank-one
-            // float64. Preserve that descriptor when the Agent lists results;
-            // an arbitrary code-12 image or a reused ID is not that evidence.
+            // Only an exact retained creator and live descriptor qualify the
+            // special rank-one label. Numeric ID reuse, edits, or another dtype
+            // must not borrow a PROFILE/HISTOGRAM creation-time qualification.
             const auto owned = retained_results.find(id);
-            const bool owned_profile = owned != retained_results.end() &&
-                owned->second.operation == "PROFILE" && owned->second.value.image == image.value.image;
-            s << metadata(image.value.image, false, owned_profile);
+            const char* rank1_label = nullptr;
+            if (owned != retained_results.end() && owned->second.kind == ResultKind::NativeOperation &&
+                owned->second.value.image == image.value.image && api.ndim(image.value.image) == 1 &&
+                api.dtype(image.value.image) == owned->second.data_type_code && api.packing &&
+                packing_style(image.value.image) == 1) {
+                const auto& retained = owned->second;
+                if (retained.operation == "PROFILE" && retained.data_type_code == nb::kProfileFloat64Code353 &&
+                    retained.bytes == static_cast<std::uint64_t>(api.dimension(image.value.image, 0)) * sizeof(double))
+                    rank1_label = "one-dimensional native profile samples";
+                if (retained.operation == "HISTOGRAM" && retained.data_type_code == nb::kHistogramUint32Code353 &&
+                    retained.bytes == static_cast<std::uint64_t>(api.dimension(image.value.image, 0)) * sizeof(std::uint32_t))
+                    rank1_label = "one-dimensional native histogram bins";
+            }
+            s << metadata(image.value.image, false, rank1_label);
             require_ready();
         }
         require_ready();

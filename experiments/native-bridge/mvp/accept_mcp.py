@@ -12,6 +12,7 @@ from pathlib import Path
 import queue
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -26,7 +27,7 @@ RESULT_CONTRACTS = {
     "MEAN": (1, "native_mean"), "SUMMARY": (1, "native_summary"), "CROP": (5, "image_crop"),
     "SHOW": (1, "image_delivery"), "STOP": (0, "ipc_stop"),
     "RELEASE": (2, "native_result_release"), "RESULT_INFO": (2, "native_result_availability"),
-    "ROIS": (1, "native_gui_rois"), "PROFILE": (9, "native_line_profile"),
+    "ROIS": (1, "native_gui_rois"), "PROFILE": (9, "native_line_profile"), "HISTOGRAM": (4, "native_histogram"),
     "UNARY": (2, "native_image_operation"), "BINARY": (3, "native_image_operation"),
     "FILTER": (2, "native_image_operation"), "FFT": (1, "native_fourier_operation"),
     "PREVIEW": (3, "native_preview"), "READ": (5, "native_data_snapshot"),
@@ -68,6 +69,16 @@ def integer(value, minimum=0, maximum=MAX_SAFE_INTEGER):
 
 def finite(value):
     return type(value) in (int, float) and math.isfinite(value)
+
+
+def native_float32_bits(value):
+    # Match the Node facade's binary32 parameter transfer, including overflow;
+    # the native finite-range guard then rejects an infinite caller bound.
+    try:
+        raw = struct.pack("<f", value)
+    except OverflowError:
+        raw = struct.pack("<f", math.copysign(float("inf"), value))
+    return struct.unpack("<I", raw)[0]
 
 
 def unique_object(pairs):
@@ -175,6 +186,9 @@ class StdioClient:
                         "dm_native_filter": ("FILTER", [args.get("image_id"), {"smooth": 1, "sobel": 2, "laplace": 3, "sharpen": 4}.get(args.get("operation"))]),
                         "dm_native_fft": ({"forward": "FFT", "inverse": "IFFT"}.get(args.get("direction")), [args.get("image_id")]),
                         "dm_native_complex": ({"real": "REAL", "imaginary": "IMAG", "phase": "VENDOR_ARG", "power": "VENDOR_NORM"}.get(args.get("component")), [args.get("image_id")])}
+                    if name == "dm_native_histogram":
+                        operations[name] = ("HISTOGRAM", [args.get("image_id"), args.get("bins"),
+                            native_float32_bits(args.get("min")), native_float32_bits(args.get("max"))])
                     operation, native_args = operations.get(name, (None, None))
                     validate_operation_identity(output["native_receipt"], operation, native_args)
         return response
