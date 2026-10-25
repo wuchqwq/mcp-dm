@@ -172,6 +172,6 @@ def measure_geometry(center_xy, spots, mapping, center_sigma_px=None):
             "center_xy": centre.tolist(), "center_sigma_px": None if c_sigma is None else c_sigma.tolist(),
             "calibration": mapping, "spots": items, "angles": angles,
             "uncertainty_model": "Independent spot positions and independent x/y scale errors; centre and scales shared across spots. No distortion model or fitted covariance inferred.",
-            "limitations": ["No automatic peak localization or centre estimation",
+            "limitations": ["Geometry consumes supplied centre/spot coordinates; optional automatic localization is documented separately in detection evidence",
                             "Pixel/scale uncertainty is user supplied; missing terms remain unknown",
                             "Single-pattern geometry is not unique chemical phase evidence; dynamical scattering may produce forbidden reflections"]}
