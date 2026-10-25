@@ -13,6 +13,7 @@ from functools import lru_cache
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from .geometry import _require_noncollinear
 
 MAX_SEARCH_SEEDS = 50000
 
@@ -160,9 +161,6 @@ def index_cubic(vectors, *, calibrated, max_index=3, centerings=("F", "I", "P"),
     np.fill_diagonal(distances, np.inf)
     if np.min(distances) <= np.max(norms) * 1e-10:
         raise ValueError("duplicate reciprocal observations")
-    singular_values = np.linalg.svd(observed, compute_uv=False)
-    if singular_values[-1] <= singular_values[0] * 1e-8:
-        raise ValueError("noncollinear reciprocal observations are required")
     max_unmatched = _integer(max_unmatched, "max_unmatched", 0, len(observed) - 3)
     if not isinstance(centerings, (list, tuple)) or not centerings or any(
             c not in ("F", "I", "P") for c in centerings) or len(set(centerings)) != len(centerings):
@@ -177,6 +175,7 @@ def index_cubic(vectors, *, calibrated, max_index=3, centerings=("F", "I", "P"),
         raise ValueError("fixed lattice parameters require absolute reciprocal calibration")
     fixed = {c: _number(v, "candidate lattice nm", 1e-6, 1e6)
              for c, v in candidate_lattice_nm.items()}
+    _require_noncollinear(observed)
     found = {}
     stats = {"anchor_pairs_considered": 0, "anchor_seeds_after_geometric_pruning": 0,
              "joint_fits_evaluated": 0}

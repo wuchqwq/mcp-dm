@@ -21,7 +21,7 @@ import ase
 
 from . import __version__
 from .capture import load_capture
-from .geometry import calibration_map, measure_geometry, require
+from .geometry import calibration_map, measure_geometry, require, NonIdentifiableGeometry
 from .indexing import index_cubic
 
 
@@ -70,6 +70,7 @@ def _index(vectors, calibrated, spec, reference=None):
     common = {key: spec[key] for key in ("max_index", "relative_tolerance", "angle_tolerance_deg", "max_candidates", "max_unmatched") if key in spec}
     cubic = {"FCC": "F", "BCC": "I", "P": "P"}
     result = []
+    non_identifiable = None
     for model in models:
         if model == "HCP":
             from .hexagonal import index_hcp
@@ -81,14 +82,26 @@ def _index(vectors, calibrated, spec, reference=None):
                                                    1.65, 1.70, 1.75, 1.80, 1.85, 1.90]
             else:
                 kw.update(lattice_parameter_a_nm=reference["lattice_parameter_a_nm"], c_over_a=reference["c_over_a"])
-            record = index_hcp(vectors, calibrated=calibrated, **kw)
+            try:
+                record = index_hcp(vectors, calibrated=calibrated, **kw)
+            except NonIdentifiableGeometry as error:
+                non_identifiable = error
+                continue
         else:
             kw = dict(common, centerings=[cubic[model]])
             if reference is not None:
                 kw["candidate_lattice_nm"] = {cubic[model]: reference["lattice_parameter_nm"]}
-            record = index_cubic(vectors, calibrated=calibrated, **kw)
+            try:
+                record = index_cubic(vectors, calibrated=calibrated, **kw)
+            except NonIdentifiableGeometry as error:
+                non_identifiable = error
+                continue
         record["requested_model"] = model
         result.append(record)
+    if non_identifiable is not None:
+        # Validate every requested model's options before preserving a review
+        # result. A malformed later model must still fail the whole request.
+        raise non_identifiable
     return {"model_results": result, "chemical_phase_identified": False,
             "compatible_models": [r["requested_model"] for r in result if r["candidates"]],
             "comparison_policy": "Same frozen measured vectors and declared tolerance for every model; intensity/absence not scored; finite geometry candidates only"}
@@ -196,21 +209,34 @@ def analyse(request, base):
     indexed = None
     references, reference_results = [], []
     insufficient = spec.get("enabled", True) and not 3 <= len(selected) <= 12
+    review_reason = "Joint indexing needs 3..12 noncollinear reflections; measured table remains available" if insufficient else None
     if spec.get("enabled", True) and not insufficient:
         require(mapping["geometry_usable"], "Cannot index physical geometry without calibration or explicit isotropic relative-geometry confirmation")
         vectors = [spot["g_xy_cycles_per_nm"] if mapping["calibrated"] else spot["relative_vector_xy"] for spot in measurement["spots"]]
-        indexed = _index(vectors, mapping["calibrated"], spec)
         entries = request.get("references", [])
         require(type(entries) is list and len(entries) <= 8, "At most eight explicit CIF references")
         for entry in entries:
             from .structures import load_reference
             reference = load_reference(_path(base, entry.get("cif")), label=entry.get("label"), model=entry.get("model"))
             require(mapping["calibrated"], "Fixed CIF lattice comparison requires absolute calibration; no scale fitting allowed")
-            reference_results.append({"reference": reference, "comparison": _index(vectors, True, spec, reference)})
             references.append(reference)
+        try:
+            indexed = _index(vectors, mapping["calibrated"], spec)
+        except NonIdentifiableGeometry as error:
+            insufficient = True
+            review_reason = str(error) + "; measured table remains available"
+        for reference in references:
+            try:
+                comparison = _index(vectors, True, spec, reference)
+            except NonIdentifiableGeometry as error:
+                insufficient = True
+                review_reason = str(error) + "; measured table remains available"
+                reference_results.append({"reference": reference, "comparison": None, "review_reason": str(error)})
+            else:
+                reference_results.append({"reference": reference, "comparison": comparison})
     capture.assert_unchanged()
     return {"state": "NEEDS_REVIEW" if insufficient else "COMPLETE", "computation_source": "explicit_external_python_crystallography",
-            "review_reason": "Joint indexing needs 3..12 noncollinear reflections; measured table remains available" if insufficient else None,
+            "review_reason": review_reason,
             "source": capture.provenance, "saved_source_metadata": capture.metadata,
             "measurement": measurement, "indexing": indexed, "reference_comparisons": reference_results,
             "detection": detection, "chemical_phase_identified": False, "dm_called": False,

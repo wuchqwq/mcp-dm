@@ -16,6 +16,7 @@ from ase.cell import Cell
 
 from .indexing import (_assign, _fit, _integer, _joint_angle_error, _number,
                        _primitive_zone)
+from .geometry import _require_noncollinear
 
 IDEAL_C_OVER_A = math.sqrt(8. / 3.)
 MAX_HCP_SEARCH_SEEDS = 50000
@@ -110,9 +111,6 @@ def _input_vectors(vectors):
     np.fill_diagonal(distances, np.inf)
     if np.min(distances) <= np.max(norms) * 1e-10:
         raise ValueError("duplicate reciprocal observations")
-    singular = np.linalg.svd(values, compute_uv=False)
-    if singular[-1] <= singular[0] * 1e-8:
-        raise ValueError("noncollinear reciprocal observations required")
     return values, norms
 
 
@@ -160,6 +158,7 @@ def index_hcp(vectors, *, calibrated, max_index=3, relative_tolerance=.03,
     else:
         ratios = [IDEAL_C_OVER_A]
         ratio_source = "assumed_ideal_hcp_sqrt_8_over_3"
+    _require_noncollinear(observed)
     all_hkl, anchors = _indices(max_index)
     fixed_scale = None if fixed_a is None else 1. / fixed_a
     found = {}

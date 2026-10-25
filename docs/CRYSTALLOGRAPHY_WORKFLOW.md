@@ -85,6 +85,12 @@ C:\analysis\crystal-env\Scripts\python -m crystallography verify --output C:\ana
 索引需要 3..12 个非共线反射，单纯测量最多 128 点，使用 `indexing.enabled:false`。
 自动索引的 `detection.max_spots` 为 3..12。自动定位的误差目前未知，不用拟合残差冒充误差。
 
+有效测量点共线、无法约束二维索引时，返回 `NEEDS_REVIEW`（退出码 2），保留
+已完成的间距/夹角表、标定、叠加图及具体原因，不丢弃仍可用的测量结果。
+这只处理已识别的几何不可辨识性；身份错误、非有限数值、损坏输入和预算超限
+仍是错误，不能被降为复核状态。可预先声明的搜索条件与安全边界见
+[限制与分析设置](CRYSTALLOGRAPHY_GATES.md)。
+
 ## 标定和 FFT
 
 - `capture_axes` 使用记录的 XY signed scale 和物理零点；nm 与 angstrom 显式换算。

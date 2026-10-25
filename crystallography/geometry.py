@@ -12,6 +12,18 @@ class GeometryError(ValueError):
     pass
 
 
+class NonIdentifiableGeometry(ValueError):
+    """Valid measured vectors cannot constrain a two-dimensional index frame."""
+
+
+def _require_noncollinear(vectors):
+    # Keep the existing indexer conditioning threshold; this is a typed cause,
+    # not a relaxed measurement, fit tolerance or substitute indexing method.
+    singular = np.linalg.svd(vectors, compute_uv=False)
+    if singular[-1] <= singular[0] * 1e-8:
+        raise NonIdentifiableGeometry("noncollinear reciprocal observations are required")
+
+
 def require(condition, message):
     if not condition:
         raise GeometryError(message)
