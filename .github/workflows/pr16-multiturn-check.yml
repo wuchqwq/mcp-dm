@@ -1,0 +1,97 @@
+name: PR16 multi-turn review qualification
+on:
+  push:
+    branches: [validation/pr16-fix-check-20261026]
+    paths: ['.github/workflows/pr16-multiturn-check.yml']
+permissions:
+  contents: write
+jobs:
+  external-image-only:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Preserve LF source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: e1ab9cd788dba9f637b7edf6a8a20738a583e184
+          path: source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply reviewed source and verify all five local-tested blob identities
+        run: |
+          set -o pipefail
+          python payload/.review/apply_multiturn.py source 2>&1 | tee "$RUNNER_TEMP/pr16-fix-source.log"
+          cd source
+          git diff --check
+      - name: Install independent external dependencies only
+        working-directory: source
+        run: python -m pip install -r requirements-images.txt
+      - name: Full external-image Python tests
+        working-directory: source
+        run: |
+          set -o pipefail
+          python -B -m unittest discover -s tests -p 'test_image_workspace*.py' -v 2>&1 | tee "$RUNNER_TEMP/pr16-fix-python.log"
+      - name: Actual stdio MCP and worker lifecycle tests
+        working-directory: source
+        env:
+          DM_IMAGE_PYTHON: python
+        run: |
+          set -o pipefail
+          node --test tests/image-workspace-mcp.test.mjs tests/image-worker-lifecycle.test.mjs 2>&1 | tee "$RUNNER_TEMP/pr16-fix-node.log"
+      - name: Default backend synthetic selftest
+        working-directory: source
+        run: |
+          set -o pipefail
+          node selftest.mjs 2>&1 | tee "$RUNNER_TEMP/pr16-fix-default.log"
+      - name: Publish only the five checked files to the isolated review branch
+        working-directory: source
+        run: |
+          set -euo pipefail
+          branch=review/pr16-multiturn-fixes-20261026
+          expected=e1ab9cd788dba9f637b7edf6a8a20738a583e184
+          actual=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          test "$actual" = "$expected"
+          git add -- docs/PIXEL_IMAGE_WORKFLOW.md lib/image_workspace.mjs tools/image_workspace.py tests/image-workspace-mcp.test.mjs tests/test_image_workspace_revisions.py
+          git diff --cached --check
+          python - <<'PY'
+          import hashlib, pathlib, subprocess
+          expected = {
+            'tools/image_workspace.py': '518b7eea6a968985f8d0f8eb7989a78ed360afe3',
+            'lib/image_workspace.mjs': 'b25cdf0c8753f0d560605d9855b9bee9071b2ce1',
+            'tests/image-workspace-mcp.test.mjs': 'be42e44a4c9d1cc89a2d36cf3dfcf0db95e00edd',
+            'tests/test_image_workspace_revisions.py': '8f2b92f3d42ba7aea261d70b601eb1e021a1392d',
+            'docs/PIXEL_IMAGE_WORKFLOW.md': '95573a0aacbeb44355fc9c12a8605a23606bb3e9',
+          }
+          changed = set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert changed == set(expected), changed
+          for name, wanted in expected.items():
+            raw = pathlib.Path(name).read_bytes()
+            assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == wanted, name
+          assert not subprocess.check_output(['git','diff','--name-only']).strip()
+          PY
+          git config user.name 'mcp-dm review'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(images): preserve multi-turn context and re-render saved FFT views'
+          git push origin "HEAD:refs/heads/$branch"
+          git rev-parse HEAD | tee "$RUNNER_TEMP/pr16-fix-commit.log"
+          git archive --format=zip HEAD -o "$RUNNER_TEMP/pr16-fixed-source.zip"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr16-multiturn-review-evidence
+          path: |
+            ${{ runner.temp }}/pr16-fix-*.log
+            ${{ runner.temp }}/pr16-fixed-source.zip
+          retention-days: 7
