@@ -18,8 +18,24 @@ static_assert(sizeof(NativePacking353) == 4 && alignof(NativePacking353) == 4);
 static_assert(offsetof(NativePacking353, value) == 0);
 
 enum class FftOperation353 { RealForward, ComplexInverse, Real, Imag, VendorArg, VendorNorm };
-constexpr std::uint32_t kFftMaximumDimension353 = 256;
-constexpr std::uint64_t kFftMaximumPixels353 = 65536;
+constexpr std::uint32_t kFftLegacyMaximumDimension353 = 256;
+constexpr std::uint32_t kFftMaximumDimension353 = 1024;
+constexpr std::uint64_t kFftMaximumPixels353 = 1048576;
+// Fourier-only single-result allowance. All producers still share the original
+// 16 MiB/32-image retained pool; unrelated operators keep their 4 MiB limit.
+constexpr std::uint64_t kFftOutputBytes353 = 8ull * 1024 * 1024;
+
+inline const char* fft_large_capability353(FftOperation353 operation, bool uint32_lineage) {
+    switch (operation) {
+    case FftOperation353::RealForward: return uint32_lineage ? "native_uint32_fft_large" : "native_fft_large";
+    case FftOperation353::ComplexInverse: return uint32_lineage ? "native_uint32_ifft_large" : "native_ifft_large";
+    case FftOperation353::Real: return uint32_lineage ? "native_uint32_real_large" : "native_real_large";
+    case FftOperation353::Imag: return uint32_lineage ? "native_uint32_imag_large" : "native_imag_large";
+    case FftOperation353::VendorArg: return uint32_lineage ? "native_uint32_phase_large" : "native_phase_large";
+    case FftOperation353::VendorNorm: return uint32_lineage ? "native_uint32_power_large" : "native_power_large";
+    }
+    throw std::runtime_error("native_fft_unknown_operation");
+}
 
 inline bool is_fft_operation353(std::string_view operation) noexcept {
     return operation == "FFT" || operation == "IFFT" || operation == "REAL" ||
@@ -115,7 +131,7 @@ inline FftPlan353 fft_plan353(FftOperation353 operation, const FftImage353& sour
         pixels > kFftMaximumPixels353)
         throw std::runtime_error("native_fft_input_over_budget");
     if (!fft_dimension_supported353(source.width) || !fft_dimension_supported353(source.height))
-        throw std::runtime_error("native_fft_requires_power_of_two_dimensions_4_to_256");
+        throw std::runtime_error("native_fft_requires_power_of_two_dimensions_4_to_1024");
     const auto output_type = operation == FftOperation353::RealForward ||
                              operation == FftOperation353::ComplexInverse ? 3u : 2u;
     // Code3 ordinary complex has two binary32 components; this is byte accounting,
@@ -127,7 +143,7 @@ inline FftPlan353 fft_plan353(FftOperation353 operation, const FftImage353& sour
     // is allocated, so their maximum is one real image rather than an addition.
     const auto peak_bytes = bytes + (output_type == 3 ? pixels * 4ull : 0ull);
     const std::size_t peak_images = output_type == 3 ? 2u : 1u;
-    if (bytes > kCropOutputBytes)
+    if (bytes > kFftOutputBytes353)
         throw std::runtime_error("native_fft_output_over_budget");
     if (retained_count > kCropRetainedCount || peak_images > kCropRetainedCount - retained_count)
         throw std::runtime_error("native_fft_retention_capacity");
@@ -143,7 +159,11 @@ inline void validate_fft_output353(const FftPlan353& plan, const FftImage353& so
         output.width != plan.width || output.height != plan.height)
         throw std::runtime_error("native_fft_output_descriptor_mismatch");
 }
-// The small-input policy does not bound native temporary workspace or qualify
+// This policy accounts for known retained outputs and bridge-requested native
+// validation images only. Vendor internal workspaces/conversions are unknown;
+// it is not a bound on total process memory. In particular, a retained 1024^2
+// FFT plus a paired inverse and its validation image exceeds the unchanged pool.
+// The bounded-input policy does not bound native temporary workspace or qualify
 // arbitrary-size numerical accuracy, source nonmutation or pixel independence.
 // The v2 conventions were independently checked on the small prepared fixture;
 // accepted IFFT inputs are plugin-retained FFTs, never arbitrary complex images.

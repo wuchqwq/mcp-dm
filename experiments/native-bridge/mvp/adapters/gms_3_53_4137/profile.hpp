@@ -27,6 +27,20 @@ inline CapabilityProfile operation_capability(const char* name, bool qualified, 
         finite_reductions ? "GMSImageProcessing.dll" : "GMSImage.dll", symbol});
     return capability;
 }
+// Shape expansion is qualified separately for every operator and source dtype
+// lineage. Existing <=256-axis qualification never admits a larger operation.
+// Dependencies are the same already bound functions, including the sequential
+// Real/Imag finite checks; this introduces no additional ABI assumption.
+inline CapabilityProfile large_fourier_capability(const char* name, bool qualified) {
+    return operation_capability(name, qualified,
+        "per-operation/dtype qualification; ordinary 2D power-of-two axes4..1024 with an axis>256; own Fourier lineage; <=8MiB complex output; unchanged16MiB shared pool; known validation images only, vendor workspace not bounded", {
+            "?Real_FFT@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+            "?IFFT@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+            "?Real@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+            "?Imag@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+            "?Arg@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
+            "?Norm@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z"});
+}
 inline const AdapterProfile& profile() {
     static const AdapterProfile value{
         "gms-3.53.4137.0-windows-x64", {{3, 53, 4137, 0}}, "x64",
@@ -163,6 +177,18 @@ inline const AdapterProfile& profile() {
                 "?Imag@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
                 "?Arg@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z",
                 "?Norm@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z"}),
+            large_fourier_capability("native_fft_large", true),
+            large_fourier_capability("native_ifft_large", true),
+            large_fourier_capability("native_real_large", true),
+            large_fourier_capability("native_imag_large", true),
+            large_fourier_capability("native_phase_large", true),
+            large_fourier_capability("native_power_large", true),
+            large_fourier_capability("native_uint32_fft_large", true),
+            large_fourier_capability("native_uint32_ifft_large", false),
+            large_fourier_capability("native_uint32_real_large", true),
+            large_fourier_capability("native_uint32_imag_large", true),
+            large_fourier_capability("native_uint32_phase_large", true),
+            large_fourier_capability("native_uint32_power_large", true),
             {"native_save", false, "NOT_QUALIFIED", {}, {}},
         },
         {

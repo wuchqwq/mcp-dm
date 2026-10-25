@@ -242,9 +242,21 @@ remain errors, without silent conversion or a backend fallback.
   operations share the bounded retained-result pool; they do not edit sources.
 - New FFT/complex submissions require native_fourier_operation version 2;
   version 1 remains explicitly recognizable for historical QUERY only.
-  The qualified real-input scope admits float32 or separately qualified uint32,
-  limited to ordinary-packing power-of-two dimensions
-  4..256, full-complex output and complete spatial calibration. Forward uses
+  The base real-input scope remains ordinary-packed float32 or separately
+  qualified uint32, power-of-two dimensions 4..256 and complete spatial
+  calibration. Version 2 can admit dimensions 4..1024 and at most 1,048,576
+  pixels; an axis above 256 requires the matching per-operation,
+  source-dtype-lineage large capability. Inspect native_fft_large,
+  native_ifft_large, native_real_large, native_imag_large, native_phase_large,
+  native_power_large and their native_uint32_*_large counterparts individually;
+  forward admission does not qualify inverse or components. Large uint32 IFFT
+  remains unqualified. Historical v1 records retain the old 256/65,536 bounds.
+  Fourier complex outputs may use 8 MiB, scalar outputs 4 MiB; the common pool
+  remains 16 MiB/32 objects, including known validation temporaries on admission.
+  A retained 1024-square spectrum plus IFFT output/validation needs 20 MiB and
+  must fail before native allocation, even when inverse is otherwise qualified.
+  RESULT_INFO/RELEASE accept the bounded Fourier retention descriptor without
+  increasing other operators' limits. Forward uses
   positive exponent, no normalization and fftshift data; inverse uses negative
   exponent divided by width*height and resets spatial origin to zero. Inverse
   accepts only this plugin's retained FFT, and components only its retained

@@ -1,5 +1,34 @@
 # Native bridge validation matrix
 
+## Bounded larger Fourier operations
+
+| Scope | Result |
+|---|---|
+| Exact-build synthetic forward FFT, real/imaginary/phase/power and budget-admitted float32 inverse | PASS within the per-operation/dtype large-window capability scope |
+| Actual Node MCP, original-ID QUERY, explicit SHOW/RELEASE and fresh availability | PASS in that synthetic scope |
+| Independent same-host arrays, signed calibration, unchanged synthetic sources, complete scientific NPY reopening and mathematical frequency grid | PASS in that synthetic scope |
+| Precise owned-document closure followed by a separate idle observation | PASS in that synthetic scope |
+| Large uint32-lineage inverse | NOT_QUALIFIED; fixed inverse accuracy failures remain preserved |
+| Maximum-square inverse above the shared retained/validation budget | Explicit refusal; no result creation |
+| Larger FILTER windows, other GMS builds and ordinary model clients | NOT_QUALIFIED / NOT_TESTED |
+
+Admission is v2, power-of-two axes through 1024, at most 1,048,576 pixels,
+8 MiB for complex outputs and the unchanged 16 MiB/32-object shared pool.
+Scalar results retain their 4 MiB allowance. This extension does not enlarge
+FILTER admission or individual READ blocks. Separate numeric and metadata
+verdicts retain differences between native component functions and DM-Script
+expression materialization; expression display/calibration is not a substitute
+for the native function contract.
+
+The external companion preserves valid measurements when indexing is
+geometrically indeterminate, and checks the larger saved mathematical grids.
+Offline regression and mock/surrogate tests establish their own bounded scopes;
+they do not prove experimental phase identity or source state after a terminated
+host. Detailed numerical, failed and interrupted evidence stays private. See
+[FFT readiness](mvp/FFT_READINESS.md),
+[precision](../../docs/NATIVE_FFT_PRECISION.md) and
+[crystallographic limits](../../docs/CRYSTALLOGRAPHY_GATES.md).
+
 ## Current continuation: GUI line and true native 1D profile
 
 The native catalog has nineteen entries. `dm_native_profile` and ROIS v2 line

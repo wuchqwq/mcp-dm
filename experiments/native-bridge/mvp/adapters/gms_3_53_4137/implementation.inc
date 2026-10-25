@@ -359,11 +359,20 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
                           const std::vector<std::string>& source_metadata,
                           const std::string& output_metadata, const std::string& semantics,
                           bool uint32_lineage = false,
-                          const std::string& scientific_result = "null") {
+                          const std::string& scientific_result = "null",
+                          std::uint64_t maximum_output_bytes = nb::kCropOutputBytes) {
     require_ready();
     if (!output.value.image || !output_id || api.id(output.value.image) != output_id || retained_results.count(output_id))
         throw std::runtime_error("native_result_output_identity_invalid");
-    if (!bytes || bytes > nb::kCropOutputBytes) throw std::runtime_error("native_result_output_over_budget");
+    // Only the validated full-complex Fourier producer can opt into 8 MiB.
+    // No other operation, scalar component or arbitrary retained image inherits
+    // this exception; the shared pool and its transactional checks are unchanged.
+    if (maximum_output_bytes != nb::kCropOutputBytes &&
+        !(maximum_output_bytes == nb::kFftOutputBytes353 &&
+          (request.op == "FFT" || request.op == "IFFT") && api.dtype(output.value.image) == 3 &&
+          scientific_result != "null" && nb::valid_json(scientific_result)))
+        throw std::runtime_error("native_result_output_limit_invalid");
+    if (!bytes || bytes > maximum_output_bytes) throw std::runtime_error("native_result_output_over_budget");
     if (retained_results.size() >= nb::kCropRetainedCount) throw std::runtime_error("native_result_retention_capacity");
     if (retained_result_bytes > nb::kCropRetainedBytes || bytes > nb::kCropRetainedBytes - retained_result_bytes)
         throw std::runtime_error("native_result_retained_bytes_over_budget");
@@ -1084,6 +1093,15 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("binary_uint32_to_float32_2d", available("native_uint32_image_arithmetic", arithmetic));
         capability("filter_small_uint32_2d", available("native_uint32_filters", filters));
         capability("fourier_uint32_small_2d", available("native_uint32_fft", fourier));
+        for (const auto operation : {nb::FftOperation353::RealForward, nb::FftOperation353::ComplexInverse,
+             nb::FftOperation353::Real, nb::FftOperation353::Imag,
+             nb::FftOperation353::VendorArg, nb::FftOperation353::VendorNorm}) {
+            for (const auto uint32_lineage : {false, true}) {
+                const auto* group = nb::fft_large_capability353(operation, uint32_lineage);
+                capability(group, available(group, fourier &&
+                    (!uint32_lineage || qualified_capability353("native_uint32_fft"))));
+            }
+        }
         capability("release_plugin_result_reference", available("native_result_release", true));
         capability("native_line_profile", available("native_line_profile", line_api353.ready() && roi_api353.ready()));
         capability("show_profile_float64_1d_visible_document", available("native_profile_display", display && api.packing));

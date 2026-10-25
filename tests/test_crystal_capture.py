@@ -42,6 +42,15 @@ function save(name,read,args){const p=path.join(dir,name+'.json');fs.writeFileSy
 handoff({workspace:dir,output:name,requestId:'encode-'+name,snapshot:p});}
 const rawArgs=[77,1,1,4,3];save('raw',readFixture(rawArgs),rawArgs);
 save('unsigned',readFixture(rawArgs,{source:imageMetadata(77,{unsigned:true})}),rawArgs);
+for(const shape of [[512,1024],[1024,1024]]){
+ const producer=fourierFixture('VENDOR_NORM',77,{shape}),source=structuredClone(producer.image);
+ const args=[source.id,shape[1]/2-3,shape[0]/2-2,shape[1]/2+3,shape[0]/2+2];
+ const read=readFixture(args,{source,provenance:{operation:'VENDOR_NORM',request_id:'component-large',source_image_ids:[77],semantics:'synthetic contract only'}});
+ read.scientific_context={schema_version:1,status:'tracked_fourier',original_operation:'VENDOR_NORM',request_id:'component-large',normalized_args:[77],result_version:2,
+ result:producer,source_offset_xy:[0,0],postprocessing:[]};
+ const values=Buffer.alloc(read.raw_bytes);for(let i=0;i<read.sample_count;i++)values.writeFloatLE(i+.25,i*4);read.values_base64=values.toString('base64');
+ save('fft-large-'+shape.join('x'),read,args);
+}
 for(const op of ['REAL','VENDOR_NORM']){
  const producer=fourierFixture(op,77),source=structuredClone(producer.image);source.id=101;source.shape=[3,6];source.dm_dimensions=[6,3];source.pixels=18;
  source.calibration.forEach((axis)=>{axis.size=source.dm_dimensions[axis.dm_dimension];axis.origin-=1;axis.calibrated_value_at_pixel_zero+=axis.scale;});
@@ -138,6 +147,39 @@ await handoffRegion({workspace:dir,output:'chunked',requestId:'synthetic-region'
         self.assertEqual(capture.array.tolist(), [[.25, 1.25, 2.25], [3.25, 4.25, 5.25]])
         self.assertEqual(capture.provenance["scientific_semantics"]["representation"], "squared_magnitude")
         self.assertFalse(capture.provenance["source_intensity_calibration_applied"])
+
+    def test_large_v2_fourier_grid_keeps_bounded_values_signed_axes_and_true_dc(self):
+        for shape in ([512, 1024], [1024, 1024]):
+            with self.subTest(shape=shape):
+                capture = load_capture(self.capture("fft-large-" + "x".join(map(str, shape))), "fft",
+                                       expected_session="a"*32, expected_host_pid=1234)
+                self.assertEqual(capture.array.shape, (4, 6))
+                np.testing.assert_array_equal(capture.array, np.arange(24, dtype=np.float32).reshape(4, 6) + .25)
+                axes = capture.frequency_axes_cycles_per_nm()
+                self.assertEqual([axis["transform_size"] for axis in axes], shape[::-1])
+                self.assertEqual([axis["dc_index_in_roi"] for axis in axes], [3, 2])
+                self.assertLess(axes[0]["scale"], 0)
+                self.assertGreater(axes[1]["scale"], 0)
+                for dim, axis in enumerate(axes):
+                    self.assertEqual(axis["calibrated_value_at_pixel_zero"] + [3, 2][dim]*axis["scale"], 0)
+                    self.assertEqual(axis["native_minus_mathematical_zero"], -.5*axis["scale"])
+                self.assertIsNone(capture.provenance["actual_dm"])
+                capture.assert_unchanged()
+
+    def test_large_fourier_record_cannot_launder_legacy_version_or_grid_size(self):
+        changes = {
+            "legacy": lambda info, manifest: info["scientific_context"].update(result_version=1),
+            "oversized": lambda info, manifest: info["scientific_context"]["result"]["image"]["dm_dimensions"].__setitem__(0, 2048),
+            "nondyadic": lambda info, manifest: info["scientific_context"]["result"]["image"]["dm_dimensions"].__setitem__(0, 1000),
+            "false-dc": lambda info, manifest: info["scientific_semantics"]["coordinate_axes"][0].update(dc_index_in_roi=4),
+        }
+        for name, change in changes.items():
+            with self.subTest(name=name):
+                path = self.directory / name
+                shutil.copytree(self.fixtures / "fft-large-1024x1024", path)
+                self.edit(path, change)
+                with self.assertRaises(CaptureError):
+                    load_capture(path, "fft")
 
     def test_fft_dc_outside_capture_is_not_clamped_to_a_pixel(self):
         capture = load_capture(self.capture("fft-outside"), "fft")

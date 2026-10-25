@@ -202,7 +202,10 @@ def _fourier(info):
         _require(provenance.get("operation") == "CROP", "Unprocessed FFT descendant must be an explicit crop")
     for dim, axis in enumerate(grid["axes"]):
         native, size = image["calibration"][dim], image["dm_dimensions"][dim]
-        _require(type(size) is int and 4 <= size <= 256 and size & (size - 1) == 0 and
+        # Only explicit v2 Fourier records reach here. Historical v1 records
+        # remain ineligible; an enlarged mathematical grid never proves a live
+        # operator or host qualification by itself.
+        _require(type(size) is int and 4 <= size <= 1024 and size & (size - 1) == 0 and
                  axis.get("size") == native.get("size") == size and axis.get("dm_dimension") == dim and
                  axis.get("dc_index") == size // 2 and axis.get("cycles_per_pixel_step") == 1 / size and
                  _finite(axis.get("physical_frequency_step")) and axis["physical_frequency_step"] != 0 and

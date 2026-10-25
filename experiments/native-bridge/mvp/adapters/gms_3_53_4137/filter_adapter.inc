@@ -1,6 +1,8 @@
 // Include inside the adapter's anonymous namespace after fft_adapter.inc.
 // FILTER selects a reviewed named DM filter; no coefficients or pixel kernel
 // are implemented here. Exact-profile qualification controls admission.
+constexpr std::uint32_t kFilterMaximumDimension353 = 256;
+constexpr std::uint64_t kFilterMaximumPixels353 = 65536;
 std::string execute_filter(const NativeRequest& request) {
     require_ready();
     if (request.args.size() != 2) throw std::runtime_error("native_filter_requires_image_id_and_kind");
@@ -29,8 +31,8 @@ std::string execute_filter(const NativeRequest& request) {
     if (source_descriptor.width < 5 || source_descriptor.height < 5)
         throw std::runtime_error("native_filter_requires_dimensions_at_least_5");
     const auto pixels = static_cast<std::uint64_t>(source_descriptor.width) * source_descriptor.height;
-    if (source_descriptor.width > nb::kFftMaximumDimension353 ||
-        source_descriptor.height > nb::kFftMaximumDimension353 || pixels > nb::kFftMaximumPixels353)
+    if (source_descriptor.width > kFilterMaximumDimension353 ||
+        source_descriptor.height > kFilterMaximumDimension353 || pixels > kFilterMaximumPixels353)
         throw std::runtime_error("native_filter_input_over_budget");
     const auto bytes = pixels * sizeof(float);
     // Sobel's reviewed wrapper keeps one extra convolution image alive while

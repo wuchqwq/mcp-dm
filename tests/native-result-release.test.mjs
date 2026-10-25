@@ -5,6 +5,18 @@ import {validateNativeRetention,validateNativeResultAvailability} from '../lib/n
 const scope='plugin reference only; shown document may still hold the image; old creation receipt is unchanged';
 function result(retained=false) {return {backend:'digitalmicrograph-native',image_id:88,retention_token:3,creation_request_id:'created',plugin_retained:retained,available_for_native_processing:retained,released:!retained,released_now:!retained,result_bytes:24,retained_result_count:retained?1:0,retained_result_bytes:retained?24:0,document_closed:false,source_write_requested:false,native_object_existence:'not_probed',scope};}
 
+test('large Fourier lifecycle allows exactly8MiB results while keeping the16MiB aggregate bound and coherent retained state',()=>{
+  const live={...result(true),released_now:false,result_bytes:8*1024*1024,retained_result_count:2,retained_result_bytes:16*1024*1024};
+  validateNativeResultAvailability(live,'RESULT_INFO',[88,3]);
+  const released={...result(),result_bytes:8*1024*1024};
+  validateNativeResultAvailability(released,'RELEASE',[88,3]);
+  for(const change of [{result_bytes:8*1024*1024+1},{retained_result_bytes:16*1024*1024+1},
+    {retained_result_bytes:8*1024*1024-1},{retained_result_count:0},{retained_result_bytes:0},{retained_result_count:33}])
+    assert.throws(()=>validateNativeResultAvailability({...live,...change},'RESULT_INFO',[88,3]),JSON.stringify(change));
+  assert.throws(()=>validateNativeResultAvailability({...released,retained_result_count:1},'RELEASE',[88,3]));
+  assert.throws(()=>validateNativeResultAvailability({...released,retained_result_bytes:1},'RELEASE',[88,3]));
+});
+
 test('release/current availability preserve explicit token identity and document boundary',()=>{
   validateNativeResultAvailability(result(),'RELEASE',[88,3]);
   const live=result(true);live.released_now=false;

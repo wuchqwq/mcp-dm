@@ -5,6 +5,36 @@ It does not cast the input pixels, replace the transform with NumPy, or promise
 a lossless integer round trip. The supported build and fingerprint gates remain
 unchanged; see [Fourier contracts](../experiments/native-bridge/mvp/FFT_READINESS.md).
 
+## Size, operation and memory admission
+
+The base scope remains power-of-two axes 4..256, at most 65,536 pixels.
+Version 2 has a bounded extension to power-of-two axes 4..1024 and at most
+1,048,576 pixels. An axis above 256 requires the matching available large
+capability for each operation and original float32/uint32 lineage. Forward,
+inverse, real, imaginary, phase and power have separate groups; a complex64
+storage dtype does not erase uint32 lineage. Large uint32 inverse remains
+unqualified. Historical v1 QUERY records keep their original smaller contract.
+Consult actual `dm_status.native_capabilities`; a transport validator accepting
+a descriptor is not scientific qualification of that operation or loaded DLL.
+
+Fourier complex results are bounded to 8 MiB and scalar results to 4 MiB. The
+shared retained-result pool stays at 16 MiB/32 objects, with known validation
+temporaries included in admission. Inverting a retained 1024-square spectrum
+needs 20 MiB of accounted images and must fail before the native transform.
+A permitted dimension does not promise sufficient remaining pool capacity.
+Vendor-private workspaces are not a bounded total-process-memory guarantee.
+FILTER remains independently limited to axes 5..256; scalar READ still admits
+at most 16,384 samples per block. Larger scalar handoffs use the existing
+chunked NPY/schema-1 path, without changing Fourier values or frequency axes.
+
+Persist the request ID, session and exact arguments before every producing
+call. Cancellation/timeout stops waiting, not the DM operation: query the
+original ID, never resubmit an unknown operation. SHOW then RELEASE can leave
+an exact result held by its document; RELEASE drops only plugin ownership.
+Creation QUERY stays immutable, while fresh RESULT_INFO checks availability.
+Records are volatile across STOP/host exit; file persistence is a separate
+validated handoff, not a side effect of receiving an image ID.
+
 ## What the comparison separates
 
 The acceptance tools compare the same explicit input through two paths:
@@ -67,8 +97,10 @@ original-file acquisition or provenance check. Source pixels and metadata were
 checked unchanged in the test host. Owned hidden results, documents and normal
 host exit were checked separately. Historical FAIL records were preserved.
 
-This evidence does not qualify another GMS build, arbitrary complex input,
-larger transforms, concurrent editing, or an ordinary model/client workflow.
+These historical small-input comparisons do not qualify the larger-size
+extension, another GMS build, arbitrary complex input, concurrent editing, or
+an ordinary model/client workflow. Any larger operation requires its own
+numerical and lifecycle evidence, with the original accuracy policy retained.
 No numerical algorithm or tolerance was changed to make the failure disappear.
 
 ## Reproduce the fixed synthetic comparison

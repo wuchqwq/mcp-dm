@@ -69,6 +69,32 @@ int main() {
         for (const auto* name : {"native_save", "invented"}) {
             check(!selected.available(name)); attempt(selected, name); check(vendor_calls == 0);
         }
+        // Large Fourier admission is independent for each operation/dtype.
+        // Complete addresses alone never enable an unqualified size expansion.
+        for (const auto* name : {"native_fft_large", "native_ifft_large", "native_real_large", "native_imag_large",
+             "native_phase_large", "native_power_large", "native_uint32_fft_large", "native_uint32_ifft_large",
+             "native_uint32_real_large", "native_uint32_imag_large", "native_uint32_phase_large", "native_uint32_power_large"}) {
+            auto unqualified = nb::gms353::profile();
+            for (auto& capability : unqualified.capabilities)
+                if (std::string(capability.name) == name) capability.qualified = false;
+            const auto blocked = nb::select_adapter(good, {&unqualified});
+            check(blocked.safe() && !blocked.available(name));
+            attempt(blocked, name); check(vendor_calls == 0);
+            auto qualified = unqualified;
+            for (auto& capability : qualified.capabilities)
+                if (std::string(capability.name) == name) capability.qualified = true;
+            check(nb::select_adapter(good, {&qualified}).available(name));
+            for (const auto& capability : qualified.capabilities) if (std::string(capability.name) == name) {
+                for (const auto& dependency : capability.symbols) {
+                    auto missing = good;
+                    for (auto& module : missing.modules)
+                        if (module.name == dependency.module) module.symbols.erase(dependency.name);
+                    const auto unavailable = nb::select_adapter(missing, {&qualified});
+                    check(unavailable.safe() && !unavailable.available(name));
+                    attempt(unavailable, name); check(vendor_calls == 0);
+                }
+            }
+        }
         // Complete addresses cannot qualify a deliberately unqualified group.
         for (const auto* name : {"native_gui_rois", "native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_line_profile",
                                  "native_profile_display", "native_histogram", "native_histogram_display",

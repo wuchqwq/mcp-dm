@@ -12,8 +12,8 @@ export function imageMetadata(id, {complex = false, unsigned = false, shape = [4
     ]};
 }
 
-function frequencyMetadata(id, complex) {
-  const source = imageMetadata(77), image = imageMetadata(id, {complex});
+function frequencyMetadata(id, complex, shape = [4, 8]) {
+  const source = imageMetadata(77, {shape}), image = imageMetadata(id, {complex, shape});
   image.calibration.forEach((axis, index) => {
     axis.scale = Math.fround(1 / Math.fround(axis.size * source.calibration[index].scale));
     axis.origin = (axis.size + 1) / 2;
@@ -23,11 +23,11 @@ function frequencyMetadata(id, complex) {
   return image;
 }
 
-export function fourierFixture(operation, sourceId = 77, {spatial = false} = {}) {
+export function fourierFixture(operation, sourceId = 77, {spatial = false, shape = [4, 8]} = {}) {
   const inverse = operation === "IFFT", forward = operation === "FFT", component = !inverse && !forward;
   const complex = forward || inverse, centered = forward || (component && !spatial);
-  const source = forward ? imageMetadata(sourceId) : component && spatial ? imageMetadata(sourceId, {complex: true}) : frequencyMetadata(sourceId, true);
-  const image = centered ? frequencyMetadata(99, complex) : imageMetadata(99, {complex});
+  const source = forward ? imageMetadata(sourceId, {shape}) : component && spatial ? imageMetadata(sourceId, {complex: true, shape}) : frequencyMetadata(sourceId, true, shape);
+  const image = centered ? frequencyMetadata(99, complex, shape) : imageMetadata(99, {complex, shape});
   if (!centered) {
     image.calibration.forEach((axis, index) => {
       axis.origin = 0; axis.calibrated_value_at_pixel_zero = 0;

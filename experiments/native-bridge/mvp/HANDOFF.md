@@ -1,5 +1,36 @@
 # Native MVP continuation handoff
 
+## Current bounded Fourier continuation
+
+The explicit native backend admits larger v2 Fourier records through separate
+operation/dtype capability groups. Qualified forward FFT and scalar components
+use power-of-two axes 4..1024; complex outputs have an 8 MiB allowance while
+scalar/other outputs keep their existing 4 MiB limit. The shared 16 MiB/32-object
+pool and known validation-image accounting remain enforced. Large uint32-lineage
+IFFT is unqualified; a 1024-square inverse also exceeds the known shared budget.
+Historical integer inverse precision failures remain unchanged.
+
+Limited synthetic real-host checks cover native numerical outputs, calibration,
+explicit document delivery, original-ID QUERY, released references, complete
+scientific NPY reopening and separate after-idle invalidity. This is not blanket
+qualification for experimental data, other builds or an ordinary model client.
+FILTER retains its separate 5..256 admission and READ retains 16,384-sample
+blocks. See [FFT readiness](FFT_READINESS.md) and
+[precision boundaries](../../../docs/NATIVE_FFT_PRECISION.md).
+
+The external crystallography companion accepts the corresponding v2 mathematical
+grids. Valid collinear observations retain measurements/overlays with
+`NEEDS_REVIEW`; malformed identities, options, references and search-budget
+failures still reject. Index limits and finite point selection are explained in
+[the gate guide](../../../docs/CRYSTALLOGRAPHY_GATES.md). No scientific tolerance
+is enlarged to obtain a desired phase.
+
+Host/session termination ends live recovery. Keep incomplete source-after,
+reference cleanup and normal-exit evidence separate from saved-file verification;
+never reconstruct it from a new process. Reopen original files read-only and
+start new operations with fresh caller-known identities when continuing in an
+explicitly prepared new session.
+
 ## Current integration: GUI measurement, display and scientific files
 
 The independent `integration/native-gui-measurements-20261025` branch retains

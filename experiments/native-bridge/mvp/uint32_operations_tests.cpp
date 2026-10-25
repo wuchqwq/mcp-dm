@@ -16,7 +16,10 @@ NativeRef* u32_binary(NativeRef* out,const NativeRef* a,const NativeRef* b) {
 }
 void rejected(const NativeRequest& request,const char* error) {
     const auto count=retained_results.size();const auto bytes=retained_result_bytes;
-    try{execute_native(request);check(false);}catch(const std::runtime_error& e){check(e.what()==std::string(error));}
+    std::string actual;
+    try{execute_native(request);}catch(const std::runtime_error& e){actual=e.what();}
+    if(actual!=error)throw std::runtime_error(std::string("request ")+request.id+" expected "+error+", received "+actual);
+    check(actual==error);
     check(count==retained_results.size() && bytes==retained_result_bytes && fake.references==1);
 }
 void contains(const std::string& text,const char* fragment){check(text.find(fragment)!=std::string::npos);}
@@ -72,9 +75,11 @@ int main(){
         contains(execute_native({"inverse-real","REAL",{inverse_id}}),"uint32 ancestry");
         const auto before=operation_calls;
         fake.width=257;rejected({"large","FILTER",{17,1}},"native_filter_input_over_budget");
+        rejected({"non-power-two","FFT",{17}},"native_fft_requires_power_of_two_dimensions_4_to_1024");
+        fake.width=2048;
         rejected({"large","FFT",{17}},"native_fft_input_over_budget");fake.width=8;
         check(before==operation_calls);
-        fake.width=fake.height=3;rejected({"small","FFT",{17}},"native_fft_requires_power_of_two_dimensions_4_to_256");
+        fake.width=fake.height=3;rejected({"small","FFT",{17}},"native_fft_requires_power_of_two_dimensions_4_to_1024");
         fake.width=fake.height=8;check(before==operation_calls);
         const auto saved=retained_result_bytes;retained_result_bytes=nb::kCropRetainedBytes;
         rejected({"budget","UNARY",{17,1}},"native_result_retained_bytes_over_budget");

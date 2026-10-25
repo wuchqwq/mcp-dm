@@ -7,6 +7,11 @@ This is the entry point for an agent helping a researcher install or use the MCP
 For Fourier-derived READ/NPY data, preserve both native DM calibration and
 `scientific_semantics.coordinate_axes`; see [scientific handoff](docs/SCIENTIFIC_HANDOFF.md).
 Unknown context is not permission to guess the frequency origin or phase units.
+Native Fourier keeps its base 4..256 scope; v2 extension up to power-of-two
+axes 1024/1,048,576 pixels requires per-operation/source-lineage large
+capabilities and the unchanged 16 MiB shared pool (1024² IFFT exceeds it;
+large uint32 IFFT remains unqualified). FILTER stays 5..256 and READ stays
+16,384 samples per block; see [Fourier limits](experiments/native-bridge/mvp/FFT_READINESS.md).
 
 ## 1. User goal and division of work
 
