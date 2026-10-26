@@ -1,0 +1,116 @@
+name: PR28 exact-source validation closeout
+on:
+  push:
+    branches: [validation/pr28-closeout-20261027]
+    paths: [.github/workflows/pr28-finish.yml]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  finish:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      DM_IMAGE_PYTHON: python
+      DM_STRUCTURE_PYTHON: python
+      DM_TEST_PYTHON: python
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+    defaults:
+      run:
+        working-directory: product
+    steps:
+      - name: Preserve LF source bytes
+        working-directory: .
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: b7ad3d56bb5ec0955505d04d58402379ab216249
+          path: product
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr28-closeout-evidence
+          run-id: 40403815739
+          github-token: ${{ github.token }}
+          path: prior-evidence
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install independent scientific test dependencies
+        run: |
+          python -m pip install -r requirements-dev.txt -r requirements-structure-tools.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Reconstruct unchanged tested source and bind previous Python evidence
+        shell: python
+        run: |
+          import subprocess,pathlib,json,hashlib,shutil
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()=='b7ad3d56bb5ec0955505d04d58402379ab216249'
+          source=pathlib.Path('../payload/.review/test_pr26_closeout.py').read_text(encoding='utf-8')
+          pathlib.Path('tests/test_pr26_closeout.py').write_text(source,encoding='utf-8',newline='\n')
+          subprocess.run(['python','../payload/.review/pr28-apply.py','.'],check=True)
+          prior=pathlib.Path('../prior-evidence');out=pathlib.Path('../evidence');out.mkdir()
+          passed=json.loads((prior/'full-python.json').read_text(encoding='utf-8'))
+          assert passed=={'tests':991,'failures':0,'errors':0,'skips':0},passed
+          baseline=json.loads((prior/'baseline.json').read_text(encoding='utf-8'))
+          assert baseline=={'tests':7,'failures':3,'errors':3,'skips':0},baseline
+          expected=json.loads((prior/'expected-changes.json').read_text(encoding='utf-8'))
+          all_hashes=json.loads((prior/'all-source-hashes.json').read_text(encoding='utf-8'))
+          for p,h in all_hashes.items():assert hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()==h,p
+          for p,h in expected.items():assert hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()==h,p
+          subprocess.run(['git','diff','--check'],check=True)
+          shutil.copytree(prior,out/'previous-run-40403815739')
+          (out/'source-binding.json').write_text(json.dumps({'previous_full_python_run':40403815739,'previous_tests':passed,'all_source_file_count':len(all_hashes),'all_source_hashes_match':True,'scope':'Prior complete Python PASS is retained, not re-executed here. New Node/default checks execute the identical product source. Prior job failed only when the review runner printed a Unicode arrow to a cp1252 console.'},indent=2),encoding='utf-8')
+          print('Identical product source bound to prior 991-test Python PASS:',len(all_hashes),'files')
+      - name: Actual Node MCP regression and default compatibility
+        shell: python
+        run: |
+          import subprocess,pathlib,json
+          commands={
+          'node-related':['node','--test','--test-concurrency=1','tests/image-centre-revisions-mcp.test.mjs','tests/revisable-diffraction-mcp.test.mjs','tests/structure-workspace-mcp.test.mjs','tests/image-workspace-mcp.test.mjs','tests/image-panel-reciprocal.test.mjs'],
+          'default-mock':['node','selftest.mjs']}
+          results={}
+          for name,cmd in commands.items():
+              p=pathlib.Path('../evidence')/(name+'.log')
+              with p.open('w',encoding='utf-8') as stream:r=subprocess.run(cmd,stdout=stream,stderr=subprocess.STDOUT)
+              text=p.read_text(encoding='utf-8');results[name]={'returncode':r.returncode,'command':cmd}
+              pathlib.Path('../evidence/command-results.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
+              print(name,ascii(text[-6000:]))
+              assert r.returncode==0,(name,r.returncode)
+              if name=='node-related':assert '# tests 21' in text and '# pass 21' in text and '# fail 0' in text and '# skipped 0' in text
+      - name: Publish only reviewed unchanged source to PR28
+        shell: python
+        run: |
+          import subprocess,pathlib,json,hashlib
+          prior=pathlib.Path('../prior-evidence')
+          expected=json.loads((prior/'expected-changes.json').read_text(encoding='utf-8'))
+          all_hashes=json.loads((prior/'all-source-hashes.json').read_text(encoding='utf-8'))
+          for p,h in all_hashes.items():assert hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()==h,p
+          branch='review/pr26-closeout-20261027'
+          remote=subprocess.check_output(['git','ls-remote','origin','refs/heads/'+branch],text=True).split()[0]
+          assert remote=='b7ad3d56bb5ec0955505d04d58402379ab216249','Review branch changed; do not overwrite it'
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          assert changed==set(expected)-{'tests/test_pr26_closeout.py'},changed
+          subprocess.run(['git','config','user.name','mcp-dm review'],check=True)
+          subprocess.run(['git','config','user.email','41898282+github-actions[bot]@users.noreply.github.com'],check=True)
+          subprocess.run(['git','add','--',*expected],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','commit','-m','fix(analysis): bind scientific grids across views and preserve reciprocal context'],check=True)
+          assert not subprocess.check_output(['git','status','--porcelain'],text=True).strip()
+          subprocess.run(['git','push','origin','HEAD:refs/heads/'+branch],check=True)
+          sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip();print('TESTED_PUBLISHED_COMMIT',sha)
+          pathlib.Path('../evidence/commit.txt').write_text(sha,encoding='utf-8')
+          subprocess.run(['git','archive','--format=zip','-o','../evidence/tested-source.zip','HEAD'],check=True)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr28-final-evidence
+          path: evidence
+          retention-days: 14
