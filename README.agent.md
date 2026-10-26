@@ -25,6 +25,29 @@ physical units or a crystallographic classification. Select external tools
 explicitly; never present them as an automatic native fallback. The default
 catalog/configuration is unchanged. Other TIFF dtypes are not yet supported.
 
+Use `image_calibrate` when the user states a real-space XY scale. Bind it to one
+explicit image or TIFF sequence, keep the actual `source_text`, signed X/Y
+values, length unit and unknown/supplied uncertainty. Do not substitute the
+documentation's example numbers for experimental calibration. The resulting
+immutable wrapper is the input for later frame/view/FFT/measurement calls.
+An older saved FFT can explicitly attach the same record using
+`calibration_object_id`; exact source/scope checks prevent cross-image reuse.
+Physical frequency divides the original cycles/pixel by each signed axis
+scale, without a `2π` factor; `image_measure` can return a reciprocal period.
+After revising/withdrawing calibration, preview the new wrapper to redraw
+scale bars or frequency axes and remeasure; interpretations require review.
+Old exported versions remain immutable. Legacy `image_context.xy_scale` is
+descriptive only, never silently promoted to operational calibration.
+User calibration does not imply a phase unit, frame depth, axial resolution
+or unique phase identification. See [the calibrated interaction contract](docs/IMAGE_ANNOTATIONS.md#user-stated-xy-calibration).
+
+For a combined trial checkout and client configuration, use
+[the unified trial guide](docs/UNIFIED_IMAGE_TRIAL.md). The optional
+[loopback panel](docs/LOCAL_IMAGE_PANEL.md) lets the researcher point, draw and
+drag using the same saved IDs/anchors. Its explicit selection-file handoff does
+not automatically start an Agent turn. For one mark correction, prefer
+`image_annotate(updates:[...])` over rebuilding the whole annotation list.
+
 For multi-turn overlays, use exact source IDs and source/frequency coordinates,
 then preview the annotated object directly to revise the display. Lines, arrows
 and polygons retain anchors across resizing. FFT previews can explicitly apply

@@ -32,6 +32,9 @@ edit annotations anchored to image/frequency coordinates. Spectrum display
 recipes, local frequency zoom and small arrows preserve the full raw spectrum. See
 [multi-turn figures and overlays](docs/IMAGE_ANNOTATIONS.md). The default backend
 is unchanged.
+For versioned user-stated XY calibration, partial mark edits and optional local
+point/drag interaction, see the [unified trial guide](docs/UNIFIED_IMAGE_TRIAL.md).
+These additions are on the trial branch and have not been merged into main.
 
 ## Product direction: iterative microscopy analysis (planned)
 

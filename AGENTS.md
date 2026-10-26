@@ -11,7 +11,15 @@ pixel-domain display/FFT/measurement, with immutable source/frame/ROI and
 software provenance. They are never a fallback for a failed `dm_*` call.
 Missing physical calibration does not block pixel exploration; do not invent
 physical spacings, phase units, frame depth or square physical pixels. Keep
-user-supplied interpretation/calibration separate and revisable. Preserve
+user-supplied interpretation/calibration separate and revisable. The independent
+image_calibrate record binds signed real-space XY to an exact image/sequence;
+legacy context scale notes are not operational calibration. Retain its source,
+scope, revision and unknown uncertainty through measurements, physical bars and
+saved-FFT axes without rewriting scientific arrays. Changing or withdrawing
+that record requires a fresh render before annotation/export; old objects stay
+historical. The optional loopback panel invokes these same MCP tools and uses
+the same anchors/IDs, never a second image-state database. See
+docs/UNIFIED_IMAGE_TRIAL.md. Preserve
 native qualification gates. The three native pixel groups have limited
 synthetic real-host qualification on the exact pinned build; a new operator,
 dtype or build still needs its own qualification, regardless of tool schema.

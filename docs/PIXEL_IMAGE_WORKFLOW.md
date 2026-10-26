@@ -30,7 +30,7 @@ python -m venv .venv-images
 
 For independent TIFF work, use the separate [configuration example](../mcp.images.json.example):
 `DM_MCP_BACKEND=images`, an absolute `DM_IMAGE_WORKSPACE` and the external
-`DM_IMAGE_PYTHON`. Only the eleven image tools are exposed; DM is not contacted.
+`DM_IMAGE_PYTHON`. Only the twelve image tools are exposed; DM is not contacted.
 Alternatively, an explicit `DM_IMAGE_WORKSPACE` adds these tools alongside the
 chosen Python/native catalog. It does not change how any `dm_*` tool executes.
 No installer or client configuration is silently changed.
@@ -45,9 +45,10 @@ No installer or client configuration is silently changed.
 | `image_preview` | Render a scalar plane/ROI, or re-render a saved external FFT without recomputing it |
 | `image_compare` | Compare 2..4 same-grid planes/ROIs with one shared gray range |
 | `image_fft` | Explicit external FFT, with optional mean subtraction/Hann window |
-| `image_measure` | Pixel-centre displacement, pixel distance and image-coordinate angle |
-| `image_context` | Create a revision of sourced user interpretation/calibration |
-| `image_annotate` | Create a new overlay revision; replace or retract annotations |
+| `image_measure` | Pixel/frequency geometry; physical geometry with an active versioned XY record |
+| `image_calibrate` | Create, revise, withdraw or explicitly attach an exact-scope user XY calibration |
+| `image_context` | Create a revision of user interpretation; legacy scale notes remain descriptive |
+| `image_annotate` | Replace an overlay or update existing stable IDs, including retraction |
 | `image_export` | Exclusively create scientific NPY, available PNG and provenance |
 
 Every write action requires a request ID saved before submission. Same ID and
@@ -82,8 +83,16 @@ User context keeps reconstruction type, data meaning, value unit, XY scale and
 frame meaning/scale separate. User-provided calibration carries a source and
 creates a new context revision; it never rewrites original metadata or applies
 an intensity conversion. A uint16 value does not become radians. A frame scale
-does not prove resolved depth. These first tools report pixel measurements;
-applying supplied physical scales to measurements is a separate future feature.
+does not prove resolved depth. Operational real-space XY scale uses
+`image_calibrate`, separately from descriptive context. It binds an immutable
+record to one image or one exact opened sequence, with user statement, signed
+X/Y scales, normalized length unit and unknown uncertainty unless supplied.
+Distances use signed axis scales; saved FFT physical frequencies use the
+original cycles/pixel divided by those scales, with no 2π. Scalar values and
+complex arrays never change. Revised/withdrawn calibration requires a new
+preview before exporting changed scale bars/axes; earlier exports remain
+historical. See [the unified trial guide](UNIFIED_IMAGE_TRIAL.md) and
+[coordinate/measurement contracts](IMAGE_ANNOTATIONS.md).
 
 ## Multi-turn example
 
@@ -110,7 +119,8 @@ Context attached to a frame, scalar view, FFT or FFT view is inherited by later
 partial `image_context` updates. An omitted field retains its current value;
 an explicit `null` withdraws that field, including after a preview. Original
 objects and requests remain immutable. This is user-supplied interpretation,
-not permission to invent or apply physical calibration.
+not permission to invent physical calibration. Use the separate operational
+record when the user has provided actual XY values and an explicit scope.
 
 `image_preview` now accepts the `fft` object returned by `image_fft`, or a prior
 `fft_view`. It reads the saved complex128 NPY rather than executing FFT again.
