@@ -37,7 +37,14 @@ report platform or hardware-control/4D expansion as a side effect of scope clean
 **Owner-approved architecture migration:** a deterministic ToolRegistry,
 execution coordinator and revision-aware AnalysisContext plus optional
 microscopy Skills are now explicitly in scope; follow
-docs/ORCHESTRATION_SKILLS_RFC.md. This runtime organizes existing tool execution,
+docs/ORCHESTRATION_SKILLS_RFC.md.
+**Future repository boundary:** after Runtime rationalization, the scientific
+Agent/Skills/cross-provider orchestration will move to a separate repository;
+this repository remains an independently usable DigitalMicrograph MCP provider
+with verified GMS adapters and native capability gates. Keep generic runtime
+modules DM-independent and protect old MCP APIs throughout migration. Do not
+create or move the new repository as part of the first registry PR; no multi-Agent
+management is authorized. This runtime organizes existing tool execution,
 not scientific conclusions, and must preserve legacy tool names, backend gates,
 request recovery, explicit data identity and direct invocation without Skills.
 Scope decisions predating this approval remain in docs/SCOPE_AUDIT.md.
