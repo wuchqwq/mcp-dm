@@ -72,6 +72,27 @@ class AnalysisRevisionTests(unittest.TestCase):
                               current_image_object_id=(current or self.fft)["object_id"], registration_object_id=registration["object_id"],
                               experimental_kind="real_space_fft", max_residual_inv_angstrom=1e-12, **kwargs)
 
+    def test_display_revisions_share_registration_and_saved_proposal_without_recomputing(self):
+        view = self.image("view", "display-gamma", object_id=self.fft["object_id"], gamma=.8)
+        zoom = self.image("view", "display-zoom", object_id=view["object_id"],
+                          gamma=1.1, frequency_rect=[16, 0, 32, 32])
+        mixed = [self.image("measure", "display-peak-"+str(i), object_id=obj["object_id"], points=row["points"])
+                 for i, (obj, row) in enumerate(zip((self.fft, view, zoom, view), self.measures))]
+        self.assertEqual(len({row["source_object_id"] for row in mixed}), 3)
+        registered = self.register("display-register", mixed, zoom)
+        self.assertTrue(registered["held_out_validation_passed"])
+        self.assertEqual(registered["experimental_geometry_binding"]["binding_version"], 2)
+        comparison = self.compare("display-compare", registered, mixed, zoom)
+        self.assertTrue(comparison["all_experimental_reflections_matched_within_tolerance"])
+        # Display-only remeasurement preserves the semantic binding despite
+        # new measurement/view IDs; it is not new independent validation.
+        same = [self.image("remeasure", "display-remeasure-"+str(i), object_id=zoom["object_id"],
+                           measurement_object_id=row["object_id"]) for i, row in enumerate(mixed)]
+        repeated = self.compare("display-compare-again", registered, same, zoom)
+        self.assertTrue(repeated["comparison_is_not_new_independent_validation"])
+        self.assertTrue(repeated["all_experimental_reflections_matched_within_tolerance"])
+        self.assertEqual(self.sha(Path(self.fft["array_path"])), self.fft_hash)
+
     def test_current_scale_revision_reuses_points_and_fft_but_not_old_physical_results(self):
         registration = self.register("fit-original")
         comparison = self.compare("compare-original", registration)

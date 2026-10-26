@@ -521,8 +521,12 @@ class Workspace:
     def require_unknown_reciprocal_frame(self, frame, directory):
         need(not frame.get("xy_calibration"), "Existing physical calibration cannot be replaced by a domain declaration")
         context = frame.get("user_context") or {}
-        need(not any(context.get(field) for field in ("reconstruction_type", "data_meaning")),
-             "Domain declaration cannot override an existing reconstruction/data-meaning statement")
+        # Free-text data_meaning is retained context, not an established
+        # coordinate domain. The explicit sourced declaration owns that choice;
+        # reconstruction_type and typed native/scale evidence still forbid a
+        # silent reinterpretation. Do not parse or delete the user's text.
+        need(not context.get("reconstruction_type"),
+             "Domain declaration cannot override an existing reconstruction-type statement")
         semantics = frame.get("scientific_semantics") or {}
         need(semantics.get("domain") not in ("spatial", "real_space"),
              "Known real-space native lineage cannot become reciprocal by calibration")
@@ -567,8 +571,8 @@ class Workspace:
         if declared:
             need(old is None and domain == "reciprocal_space" and scope == "image" and request.get("xy_scale") is not None,
                  "A reciprocal declaration requires a previously unknown scalar image, inverse-length XY scale and image scope")
-            need(not any((context or {}).get(field) for field in ("reconstruction_type", "data_meaning")),
-                 "Domain declaration cannot silently replace an existing user reconstruction/data-meaning statement")
+            need(not (context or {}).get("reconstruction_type"),
+                 "Domain declaration cannot silently replace an existing user reconstruction-type statement")
         target = self.calibration_scope(request["object_id"], scope, domain,
                                         allow_unknown_reciprocal=declared or bool(old and old.get("domain_declaration")))
         source = request.get("source_text")

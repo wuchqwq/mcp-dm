@@ -79,7 +79,14 @@ phase identity and alternative structures/orientations are not uniquely proved.
 ## Correct continuation and history
 
 All measurements must share one immutable scientific source plane/frame/ROI,
-coordinate space, active calibration record and exact centre version. The
+coordinate space, active calibration record and exact centre version. Current
+records use a version-2 binding of their verified `scientific_grid_identity`:
+changing gamma, annotations or a display-only frequency window does not change
+that identity. Original view IDs remain in each observation's provenance.
+Different captures/frames/FFT producers, array hashes or scientific ROI extents
+still reject. Historical records without a grid use the old strict source-ID
+contract; they cannot be mixed with grid-bound records. An old saved proposal
+remains historical; make a new proposal before continuing with the v2 binding. The
 proposal records `experimental_geometry_binding`, including the ordered point
 geometry and a hash. A scale, centre, source or point revision needs fresh
 measurements and a new proposal; the old proposal remains historical.

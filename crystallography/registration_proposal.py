@@ -38,14 +38,34 @@ def geometry_binding(measurements):
     require(len({row["measurement_object_id"] for row in observations}) == len(observations),
             "Duplicate measurement identities cannot establish independent evidence")
     first = observations[0]
-    source = first["source_object_id"]
+    # A display wrapper is provenance, not the scientific producer. Current
+    # callers have already checked these grids against committed workspace
+    # objects in bind_geometry(). Historical records without grids retain the
+    # old exact-source contract; never mix the two evidence generations.
+    with_grid = ["scientific_grid_identity" in row for row in measurements]
+    require(all(with_grid) or not any(with_grid),
+            "Cannot mix grid-bound and historical measurements; remeasure on the selected grid")
+    grid = measurements[0].get("scientific_grid_identity") if all(with_grid) else None
+    if all(with_grid):
+        require(type(grid) is dict and set(grid) == {
+                    "source_grid_object_id", "shape_yx", "dtype", "array_sha256",
+                    "source_rect_xyxy", "coordinate_space"} and
+                type(grid.get("source_grid_object_id")) is str and
+                OBJECT_ID.fullmatch(grid["source_grid_object_id"]) and
+                grid.get("coordinate_space") == first["coordinate_space"],
+                "A complete committed scientific grid identity is required")
+        require(all(type(row.get("scientific_grid_identity")) is dict and
+                    canonical(row["scientific_grid_identity"]) == canonical(grid)
+                    for row in measurements),
+                "Registration measurements must share the exact scientific grid, not merely equal pixels")
+    source = grid["source_grid_object_id"] if grid is not None else first["source_object_id"]
     require(type(source) is str and OBJECT_ID.fullmatch(source),
             "An exact immutable source science object is required")
     record = canonical(first["calibration_record"])
     centre = first["original_points"][first["dc_reference_point_index"]]
     point_rows = []
     for row, original in zip(observations, measurements):
-        require(row["source_object_id"] == source and row["coordinate_space"] == first["coordinate_space"] and
+        require((grid is not None or row["source_object_id"] == source) and row["coordinate_space"] == first["coordinate_space"] and
                 canonical(row["calibration_dependency"]) == canonical(first["calibration_dependency"]) and
                 canonical(row["calibration_record"]) == record and
                 row["original_points"][row["dc_reference_point_index"]] == centre,
@@ -55,7 +75,8 @@ def geometry_binding(measurements):
         point_rows.append({"points": row["original_points"],
                            "dc_reference_point_index": row["dc_reference_point_index"],
                            "q_xy_inv_angstrom": row["q_xy_inv_angstrom"]})
-    value = {"binding_version": 1, "source_object_id": source,
+    value = {"binding_version": 2 if grid is not None else 1, "source_object_id": source,
+             **({"scientific_grid_identity": grid} if grid is not None else {}),
              "coordinate_space": first["coordinate_space"], "dc_point": centre,
              "source_rect_xyxy": measurements[0].get("source_rect_xyxy"),
              "calibration_dependency": first["calibration_dependency"],

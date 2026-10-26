@@ -1,5 +1,14 @@
 # mcp-dm scope and roadmap
 
+## Next active milestone
+
+See [可探索、可修订的显微分析工具](docs/NEXT_ANALYSIS_DEVELOPMENT.md) for the
+post-PR26 priorities and Codex handoff: actionable failure diagnostics, honestly
+unconfirmed Agent hypotheses, and a real multi-turn scientific task. GUI work
+is limited to actual blockers. The older implementation milestones below are
+context, not instructions to rebuild completed features. The independent
+GMS-compatibility work in PR #27 is reviewed separately.
+
 ## 当前优先级：交互式显微分析，不追求单轮自动判相
 
 用户日常工作包括在 DM 中观察/调整 HRTEM、STEM-ADF 和衍射图像，生成清晰的局部 FFT/衍射出图，测间距与方向，并逐轮修正标注、孪晶/层错/多相等**候选**解释。研究者希望 Agent 能**真正取回并看到 DM 图像、做非破坏式出图、标注并继续对话**。ROI、画线、直方图和索引均是基础能力，不是独立终点。
