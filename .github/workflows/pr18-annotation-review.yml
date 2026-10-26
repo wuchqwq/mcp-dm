@@ -1,0 +1,28 @@
+name: PR18 isolated annotation review
+on:
+  push:
+    branches: [validation/pr18-annotation-edit-20261026]
+    paths: ['.github/workflows/pr18-annotation-review.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Preserve LF bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: 6ecda05d7715bdd41347d1575721c6c1f1182ef7
+          persist-credentials: false
+      - name: Archive only tracked pinned source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 6ecda05d7715bdd41347d1575721c6c1f1182ef7
+          git archive --format=zip HEAD -o "$RUNNER_TEMP/pr18-source-6ecda05.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr18-source-6ecda05
+          path: ${{ runner.temp }}/pr18-source-6ecda05.zip
+          retention-days: 7
