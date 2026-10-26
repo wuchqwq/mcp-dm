@@ -1,0 +1,16 @@
+
+test('measurement summary prefers valid physical lengths and never prints null as a distance',async()=>{
+ const f=fixture();f.last_operation={physical_distance:2.5,physical_unit:'nm',distance_pixels:10};
+ const h=await harness(f);assert.match(h.$('measurement-summary').textContent,/2.5 nm/);
+ f.last_operation={physical_distance:null,period:null,d_spacing:null,distance_pixels:10};h.setServer(f);await h.click('reload');
+ assert.match(h.$('measurement-summary').textContent,/10 px/);assert.doesNotMatch(h.$('measurement-summary').textContent,/null/);
+ f.last_operation={physical_distance:null,period:2.5,period_unit:'nm',d_spacing:2.5,d_spacing_unit:'nm',distance_pixels:10};h.setServer(f);await h.click('reload');
+ assert.match(h.$('measurement-summary').textContent,/晶面间距.*2.5 nm/);
+});
+
+test('reciprocal calibration form uses the current domain and signed scale, not a real-space default',async()=>{
+ const f=fixture();f.tools=[{name:'image_calibrate'}];f.object.xy_calibration={status:'active',scope:'image',coordinate_domain:'reciprocal_space',xy_scale:{x:.2,y:-.4,unit:'1/nm'}};
+ const h=await harness(f);assert.equal(Number(h.$('scale-x').value),.2);assert.equal(Number(h.$('scale-y').value),-.4);assert.equal(h.$('unit').value,'1/nm');assert.equal(h.$('scope').value,'image');
+ h.$('source').value='Explicit synthetic calibration correction';await h.click('calibrate');
+ assert.equal(h.calls.at(-1).params.coordinate_domain,'reciprocal_space');assert.deepEqual(h.calls.at(-1).params.xy_scale,{x:.2,y:-.4,unit:'1/nm'});
+});
