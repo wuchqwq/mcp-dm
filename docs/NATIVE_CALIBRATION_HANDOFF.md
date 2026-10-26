@@ -31,14 +31,18 @@ units to correct reciprocal scalar axes; a real-space nm/pixel statement cannot
 relabel them. Scale revisions cannot change an established native or user
 coordinate domain, including after withdrawal; this is not an array
 reinterpretation interface. Unknown-domain input does not acquire a reciprocal
-domain merely from an inverse-unit scale. Native and earlier user records remain immutable and exportable.
+domain merely from an inverse-unit scale; the separately sourced, bounded
+`declare_reciprocal` path is described in [centre revisions](CENTRE_REVISIONS.md#previously-unknown-scalar-input).
+Native and earlier user records remain immutable and exportable.
 A same-scope scale-only correction inherits its established coordinate domain
 when omitted. On reciprocal captures it retains the recorded pixel DC and its
 source; physical zero is recalculated as `-dc_index * new_signed_scale` in the
 new unit, rather than copying an old unit value. Withdrawal retains the pixel
 centre as historical geometry but disables physical measurements. Restoring a
-scale can reuse that centre. An absent centre is never inferred, and this does
-not provide independent beam-centre verification or a centre-editing tool.
+scale can reuse that centre. An absent centre is never inferred. Scale revision
+does not edit or independently verify the centre; use the explicit sourced
+`image_center` tool for an eligible scalar image, then `image_remeasure` with
+the returned wrapper. See [continuation and history](CONTINUING_DIFFRACTION.md).
 
 Scale uncertainty remains unknown unless supplied. Intensity, phase units,
 frame depth and phase identification are not inferred from XY metadata.

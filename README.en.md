@@ -46,6 +46,7 @@ without another scale entry; unknown scales retain pixel-domain exploration.
 The [bounded numerical DM relay](docs/DM_NUMERIC_RELAY.md) now creates independent
 small 2D float32 work images with real-space `nm` or reciprocal-space `1/nm` axes.
 It never overwrites sources or treats geometric agreement as unique phase proof.
+After centre, scale or point corrections, [continue measurements and comparison](docs/CONTINUING_DIFFRACTION.md) while retaining history and independent held-out reflections.
 
 ## Product direction: iterative microscopy analysis (planned)
 

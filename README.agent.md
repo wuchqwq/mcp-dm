@@ -24,7 +24,10 @@ They are composable with the image tools and never required for viewing a TIFF.
 Use `structure_orient` for a sourced three-index UVW direction in the actual
 cell; share its `orientation_id` between view and simulation instead of guessing
 Euler angles. `structure_compare` accepts committed reciprocal `image_measure`
-records and explicit registration. It does not identify a unique phase or
+or `image_remeasure` records with explicit registration or a saved constrained
+proposal. Use [continuing diffraction analysis](docs/CONTINUING_DIFFRACTION.md)
+for centre/scale/point corrections, selected current wrappers, held-out
+reflections and historical review. It does not identify a unique phase or
 compare HRTEM/ptychography FFT intensities with SAED. Equivalent interactive
 views reuse their helper; recover `structure_viewer_close` with that same tool's
 original ID, separately from scientific `structure_result` requests.

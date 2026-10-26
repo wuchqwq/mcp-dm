@@ -44,7 +44,9 @@ FIELDS = {
     "fft": {"object_id", "rect", "window", "subtract_mean", "max_size"},
     "annotate": {"object_id", "annotations", "updates"}, "context": {"object_id", "metadata"},
     "measure": {"object_id", "points", "coordinate_space"}, "export": {"object_id", "output_dir"},
-    "calibrate": {"object_id", "scope", "xy_scale", "source_text", "calibration_object_id", "coordinate_domain"},
+    "centre": {"object_id", "center_xy", "coordinate_space", "source_text"},
+    "remeasure": {"object_id", "measurement_object_id", "points", "source_text"},
+    "calibrate": {"object_id", "scope", "xy_scale", "source_text", "calibration_object_id", "coordinate_domain", "declare_reciprocal"},
     "get": {"object_id"}, "result": {"query_request_id"},
 }
 
@@ -464,6 +466,9 @@ class Workspace:
                 if context is None:
                     context = metadata.get("user_context")
                 result = {**metadata, **({"xy_calibration": xy_record} if xy_record else {})}
+                if xy_record and xy_record.get("domain_declaration"):
+                    result["array_domain"] = "reciprocal"
+                    result["domain_declaration"] = xy_record["domain_declaration"]
                 if calibration_review:
                     result["calibration_review"] = calibration_review
                 dependency = metadata.get("calibration_dependency")
@@ -474,7 +479,7 @@ class Workspace:
                 context = metadata.get("user_context")
             ident = metadata["base_object_id"]
 
-    def calibration_scope(self, ident, scope, coordinate_domain="real_space"):
+    def calibration_scope(self, ident, scope, coordinate_domain="real_space", allow_unknown_reciprocal=False):
         """Exact immutable source/frame identity, never filename/latest matching."""
         need(scope in ("image", "sequence"), "scope must explicitly be image or sequence")
         pending, seen, frames, sequences = [ident], set(), {}, {}
@@ -484,7 +489,7 @@ class Workspace:
                 continue
             need(len(seen) < 64, "Calibration source ancestry exceeds budget", "BUDGET_EXCEEDED")
             seen.add(current)
-            metadata, _ = self.object(current)
+            metadata, directory = self.object(current)
             if metadata["kind"] == "tiff_source":
                 sequences[current] = metadata
             elif metadata["kind"] == "frame":
@@ -493,8 +498,10 @@ class Workspace:
                 need(metadata.get("array_domain") != "spatial" or coordinate_domain == "real_space",
                      "Reciprocal-space XY calibration cannot relabel a known spatial image; calibration revises scale, not the scientific array domain")
                 if coordinate_domain == "reciprocal_space":
-                    need(metadata.get("array_domain") in ("frequency", "reciprocal"),
-                         "Reciprocal-space calibration requires an established reciprocal array domain; unknown inputs remain pixel-only")
+                    if metadata.get("array_domain") not in ("frequency", "reciprocal"):
+                        need(allow_unknown_reciprocal and metadata.get("array_domain") in (None, "unspecified_image"),
+                             "Unknown inputs require an explicit declare_reciprocal user statement; known spatial inputs cannot be reinterpreted")
+                        self.require_unknown_reciprocal_frame(metadata, directory)
                 frames[current] = metadata
             for key in ("base_object_id", "parent_object_id", "source_object_id", "render_base_object_id", "spectrum_object_id"):
                 target = metadata.get(key)
@@ -511,29 +518,63 @@ class Workspace:
                 "frame_index": target.get("frame_index"),
                 "source_capture_files_sha256": target.get("source_capture_files_sha256")}
 
+    def require_unknown_reciprocal_frame(self, frame, directory):
+        need(not frame.get("xy_calibration"), "Existing physical calibration cannot be replaced by a domain declaration")
+        context = frame.get("user_context") or {}
+        # Free-text data_meaning is retained context, not an established
+        # coordinate domain. The explicit sourced declaration owns that choice;
+        # reconstruction_type and typed native/scale evidence still forbid a
+        # silent reinterpretation. Do not parse or delete the user's text.
+        need(not context.get("reconstruction_type"),
+             "Domain declaration cannot override an existing reconstruction-type statement")
+        semantics = frame.get("scientific_semantics") or {}
+        need(semantics.get("domain") not in ("spatial", "real_space"),
+             "Known real-space native lineage cannot become reciprocal by calibration")
+        upstream = directory / "upstream-metadata.json"
+        if upstream.is_file():
+            original = read_json(upstream)["input"]
+            history = original.get("native_external_import") or {}
+            need(history.get("coordinate_domain") != "real_space",
+                 "Known native real-space creation lineage cannot become reciprocal by calibration")
+            for axis in original.get("working_calibration_xy", []) or []:
+                kind = calibration.unit_kind(axis.get("unit"))
+                need(kind is None or kind[0] != "real_space",
+                     "Known native real-space axis units cannot become reciprocal by calibration")
+
     def new_calibration(self, request, ident):
         previous, _, context = self.resolved(request.get("object_id"))
         old = previous.get("xy_calibration")
         if "calibration_object_id" in request:
-            need(not any(key in request for key in ("scope", "xy_scale", "source_text", "coordinate_domain")),
+            need(not any(key in request for key in ("scope", "xy_scale", "source_text", "coordinate_domain", "declare_reciprocal")),
                  "Attach an existing calibration OR provide a new statement; do not combine modes")
             reference, _ = self.object(request["calibration_object_id"])
             record = reference.get("xy_calibration")
             need(type(record) is dict and (reference["kind"] == "calibration" or
                  reference["kind"] == "frame" and record.get("source") == "native_dm_capture"),
                  "calibration_object_id must be an explicit calibration result or its validated native-capture frame")
-            target = self.calibration_scope(request["object_id"], record["scope"], record.get("coordinate_domain", "real_space"))
+            target = self.calibration_scope(request["object_id"], record["scope"], record.get("coordinate_domain", "real_space"),
+                                            allow_unknown_reciprocal=bool(record.get("domain_declaration")))
             need(target == record["applies_to"], "Calibration belongs to a different immutable image/sequence", "CALIBRATION_SCOPE_MISMATCH")
             return previous, context, dict(record), {"attached_existing_calibration": True,
                                                      "calibration_object_id": request["calibration_object_id"]}
         scope = request.get("scope")
+        need(not (old and old.get("domain_declaration")) or scope == "image",
+             "A user reciprocal domain declaration remains image-scoped; other frames require their own explicit declaration")
         domain = request.get("coordinate_domain", old.get("coordinate_domain", "real_space") if old else "real_space")
         need(domain in ("real_space", "reciprocal_space"), "coordinate_domain must be real_space or reciprocal_space")
         need(old is None or domain == old.get("coordinate_domain", "real_space"),
              "Calibration revisions cannot change an established real-space/reciprocal-space domain; this is not an array reinterpretation interface")
         need(previous["kind"] not in ("fft", "fft_view") or domain == "real_space",
              "Saved external FFT calibration uses its source real-space pixel scale, never a reciprocal scale on the complex array")
-        target = self.calibration_scope(request["object_id"], scope, domain)
+        declared = request.get("declare_reciprocal", False)
+        need(type(declared) is bool, "declare_reciprocal must be an explicit boolean")
+        if declared:
+            need(old is None and domain == "reciprocal_space" and scope == "image" and request.get("xy_scale") is not None,
+                 "A reciprocal declaration requires a previously unknown scalar image, inverse-length XY scale and image scope")
+            need(not (context or {}).get("reconstruction_type"),
+                 "Domain declaration cannot silently replace an existing user reconstruction-type statement")
+        target = self.calibration_scope(request["object_id"], scope, domain,
+                                        allow_unknown_reciprocal=declared or bool(old and old.get("domain_declaration")))
         source = request.get("source_text")
         need(type(source) is str and 1 <= len(source) <= 4000 and source.strip(),
              "A new or withdrawn calibration requires the actual user source_text")
@@ -554,12 +595,148 @@ class Workspace:
                   "value_unit_or_frame_depth_inferred": False}
         if same_scope:
             record.update(calibration.revised_reciprocal_origin(old, scale))
+            if old.get("domain_declaration"):
+                record["domain_declaration"] = old["domain_declaration"]
+        if declared:
+            record["domain_declaration"] = {"coordinate_domain": "reciprocal_space", "source": "user_statement_not_independently_verified",
+                                            "source_text": source, "declared_for": target, "declaration_object_id": ident,
+                                            "scope": "previously unknown scalar image only; source metadata/pixels unchanged"}
         return previous, context, record, {"attached_existing_calibration": False}
 
     def scalar(self, ident):
         metadata, directory, context = self.resolved(ident)
         need(metadata["kind"] in ("frame", "view"), "Operation requires a scalar frame/view object, not a TIFF source, composite or complex spectrum")
         return metadata, directory, context, load_array(directory / "data.npy")
+
+    def measurement_operand(self, ident):
+        """Resolve a selected revision without resurrecting an old measure's scale."""
+        parent, directory, context = self.resolved(ident)
+        selected_record = parent.get("xy_calibration")
+        visited = set()
+        while parent["kind"] in ("measure", "annotate"):
+            need(parent["object_id"] not in visited and len(visited) < 32,
+                 "Measurement ancestry cycle or depth exceeded", "CORRUPT_OBJECT")
+            visited.add(parent["object_id"])
+            target = parent["parent_object_id"] if parent["kind"] == "measure" else parent["render_base_object_id"]
+            parent, directory, older_context = self.resolved(target)
+            if context is None:
+                context = older_context
+        if selected_record is not None:
+            parent = {**parent, "xy_calibration": selected_record}
+            if selected_record.get("domain_declaration"):
+                parent["array_domain"] = "reciprocal"
+        return parent, directory, context
+
+    def measurement_grid(self, ident):
+        parent, directory, _ = self.measurement_operand(ident)
+        spectral = parent["kind"] in ("fft", "fft_view")
+        need(parent["kind"] in ("frame", "view", "fft", "fft_view"),
+             "Measurement requires one scalar frame/view or saved external FFT")
+        values = load_array(directory / "data.npy", allow_complex=spectral)
+        if spectral:
+            source = parent.get("spectrum_object_id", parent["object_id"])
+            bounds = None
+        else:
+            current = spatial_panel(parent, [0, 0, values.shape[1], values.shape[0]], [0, 0, values.shape[1], values.shape[0]])
+            source, bounds = current["source_object_id"], current["source_rect_xyxy"]
+        reciprocal = not spectral and parent.get("array_domain") in ("frequency", "reciprocal")
+        return {"source_grid_object_id": source, "shape_yx": list(values.shape), "dtype": str(values.dtype),
+                "array_sha256": sha_file(directory / "data.npy"), "source_rect_xyxy": bounds,
+                "coordinate_space": "frequency_cycles_per_pixel" if spectral else "source_array_indices" if reciprocal else "source_pixels"}
+
+    def measurement_grid_identity(self, ident):
+        """Shared exact scientific grid contract for revision-aware consumers."""
+        return self.measurement_grid(ident)
+
+    def new_centre(self, request, ident):
+        parent, directory, context = self.measurement_operand(request.get("object_id"))
+        need(parent["kind"] in ("frame", "view") and parent.get("array_domain") in ("frequency", "reciprocal"),
+             "Centre correction is only for an established reciprocal scalar array; saved external FFT mathematical DC is fixed")
+        need((parent.get("scientific_semantics") or {}).get("status") != "tracked_fourier" and
+             (parent.get("scientific_context") or {}).get("status") != "tracked_fourier",
+             "A tracked native Fourier scalar also has fixed mathematical DC; it is not a movable diffraction centre")
+        need(request.get("coordinate_space") == "source_array_indices",
+             "Centre must use original source_array_indices, never PNG or FFT coordinates")
+        old = parent.get("xy_calibration")
+        need(type(old) is dict and old.get("coordinate_domain") == "reciprocal_space" and old.get("scope") == "image",
+             "Centre correction requires an existing image-scoped reciprocal calibration; unknown input must be declared first")
+        text = request.get("source_text")
+        need(type(text) is str and 1 <= len(text) <= 4000 and text.strip(),
+             "Centre correction requires the actual user source_text")
+        values = load_array(directory / "data.npy")
+        grid = self.measurement_grid(request["object_id"])
+        bounds = grid["source_rect_xyxy"]
+        centre = request.get("center_xy")
+        need(type(centre) is list and len(centre) == 2 and all(number(v) for v in centre) and
+             bounds[0] <= centre[0] <= bounds[2]-1 and bounds[1] <= centre[1] <= bounds[3]-1,
+             "Centre must lie within the selected original array-index extent; no clipping")
+        record = calibration.revised_centre(old, centre, ident, text)
+        return parent, context, record, {"attached_existing_calibration": False,
+                                        "centre_revision": {"center_xy": centre, "coordinate_space": "source_array_indices",
+                                                            "scientific_grid_identity": grid, "source_text": text}}
+
+    def committed_measurement(self, ident, depth=0):
+        """Bind saved points to their exact original request, including revisions."""
+        need(depth < 16, "Measurement revision depth exceeded", "BUDGET_EXCEEDED")
+        previous, previous_directory = self.object(ident)
+        need(previous.get("kind") == "measure", "measurement_object_id must identify a committed image_measure result")
+        journal = read_json(self.root / "requests" / (previous["request_id"] + ".json"))
+        parameters = journal.get("parameters")
+        need(type(parameters) is dict and parameters.get("action") in ("measure", "remeasure") and
+             set(parameters) <= FIELDS[parameters["action"]] | {"workspace", "action", "request_id"} and
+             parameters.get("workspace") == str(self.root) and parameters.get("request_id") == previous["request_id"] and
+             parameters.get("object_id") == previous.get("parent_object_id") and
+             journal.get("parameters_sha256") == hashlib.sha256(canonical(parameters)).hexdigest(),
+             "Saved measurement original request identity or parameters changed", "CORRUPT_OBJECT")
+        if parameters["action"] == "measure":
+            need(parameters.get("points") == previous.get("points") and
+                 parameters.get("coordinate_space", previous.get("coordinate_space")) == previous.get("coordinate_space"),
+                 "Saved measurement points/coordinate space contradict its original request", "CORRUPT_OBJECT")
+        else:
+            effective, revision = self.remeasurement(parameters, depth + 1)
+            need(previous.get("points") == effective["points"] and previous.get("coordinate_space") == effective["coordinate_space"] and
+                 previous.get("remeasurement") == revision,
+                 "Saved remeasurement differs from its original points/centre revision", "CORRUPT_OBJECT")
+        grid = self.measurement_grid(parameters["object_id"])
+        need("scientific_grid_identity" not in previous or previous["scientific_grid_identity"] == grid,
+             "Saved measurement scientific grid differs from its original input", "CORRUPT_OBJECT")
+        return previous, previous_directory
+
+    def remeasurement(self, request, depth=0):
+        previous, previous_directory = self.committed_measurement(request.get("measurement_object_id"), depth)
+        before = self.measurement_grid(previous["parent_object_id"])
+        current = self.measurement_grid(request.get("object_id"))
+        need(before == current, "Saved points belong to a different source/frame/ROI/FFT grid", "MEASUREMENT_SCOPE_MISMATCH")
+        parent, _, _ = self.measurement_operand(request["object_id"])
+        current_record = parent.get("xy_calibration")
+        old_record = previous.get("xy_calibration")
+        explicit = "points" in request
+        text = request.get("source_text")
+        if explicit:
+            need(type(text) is str and 1 <= len(text) <= 4000 and text.strip(),
+                 "Explicit corrected points require actual user source_text")
+            points = request["points"]
+        else:
+            need(text is None or type(text) is str and len(text) <= 4000,
+                 "source_text must be bounded text")
+            points = [list(p) for p in previous["points"]]
+        dc_index = previous.get("dc_reference_point_index")
+        old_dc = old_record.get("dc_index_xy") if old_record else None
+        new_dc = current_record.get("dc_index_xy") if current_record else None
+        move_dc = not explicit and current["coordinate_space"] == "source_array_indices" and type(dc_index) is int and dc_index in (0, 1)
+        if move_dc:
+            need(type(old_dc) is list and previous["points"][dc_index] == old_dc and type(new_dc) is list,
+                 "Original/current explicit DC identity required to update a centre-referenced measurement")
+            points[dc_index] = list(new_dc)
+        revision = {"previous_measurement_object_id": previous["object_id"],
+                    "previous_manifest_sha256": sha_file(previous_directory / "object.json"),
+                    "previous_parent_object_id": previous["parent_object_id"], "previous_points": previous["points"],
+                    "reused_saved_points": not explicit, "dc_endpoint_updated": bool(move_dc and old_dc != new_dc),
+                    "previous_dc_reference_point_index": dc_index, "previous_dc_index_xy": old_dc,
+                    "current_dc_index_xy": new_dc, "source_text": text, "scientific_grid_identity": current}
+        effective = {"object_id": request["object_id"], "points": points, "coordinate_space": current["coordinate_space"],
+                     "request_id": request["request_id"]}
+        return effective, revision
 
     def export_provenance(self, ident):
         """Bounded immutable parent metadata, not a mutable analysis registry."""
@@ -610,10 +787,16 @@ class Workspace:
         return metadata
 
     def action(self, action, request, ident):
+        remeasurement = None
+        if action == "remeasure":
+            request, remeasurement = self.remeasurement(request)
+            action = "measure"
         directory = self.root / "objects" / ident
         directory.mkdir()
         metadata = {"object_id": ident, "kind": action, "created_utc": datetime.now(timezone.utc).isoformat(),
                     "request_id": request["request_id"]}
+        if remeasurement is not None:
+            metadata["remeasurement"] = remeasurement
         if "object_id" in request:
             inherited, _, _ = self.resolved(request["object_id"])
             if inherited.get("xy_calibration"):
@@ -709,8 +892,8 @@ class Workspace:
             else:
                 metadata["calibration_admission"] = {"status": "pixel_only", "source": "unknown",
                     "reason": "generic schema-1 metadata is preserved but is not validated native READ calibration; use an explicit user calibration"}
-        elif action == "calibrate":
-            previous, context, record, extra = self.new_calibration(request, ident)
+        elif action in ("calibrate", "centre"):
+            previous, context, record, extra = (self.new_centre(request, ident) if action == "centre" else self.new_calibration(request, ident))
             old = previous.get("xy_calibration")
             changed = old is not None and old["calibration_id"] != record["calibration_id"]
             metadata.update(kind="calibration", parent_object_id=request["object_id"], base_object_id=previous["object_id"],
@@ -721,14 +904,15 @@ class Workspace:
                                                 "physical_measurements": "stale; recompute using this revision" if changed else "record dependency when measured",
                                                 "candidate_interpretations": "review_required_after_calibration_change" if changed else "not automatically confirmed",
                                                 "old_measurement_object_id": previous["object_id"] if changed and previous["kind"] == "measure" else None,
-                                                "pixel_anchors_changed": False,
+                                                "pixel_anchors_changed": action == "centre",
+                                                "pixel_anchor_policy": ("new centre reference; saved peak anchors and old measurements remain unchanged; remeasure the explicit DC endpoint" if action == "centre" else "scale-only revision preserves saved point coordinates"),
                                                 "old_exports_immutable": True},
                             next_step="image_preview on this wrapper to redraw physical scale/axes; image_measure to calculate geometry with the selected record")
         elif action in ("view", "fft", "measure"):
             spectral_view = False
             inherited_annotations = []
             if action == "view" or action == "measure":
-                parent, parent_directory, context = self.resolved(request.get("object_id"))
+                parent, parent_directory, context = (self.measurement_operand(request.get("object_id")) if action == "measure" else self.resolved(request.get("object_id")))
                 inherited_annotations = parent.get("annotations", [])
                 if parent["kind"] == "annotate":
                     parent, parent_directory = self.object(parent["render_base_object_id"])
@@ -758,6 +942,7 @@ class Workspace:
                             source_object_id=parent["object_id"])
             record = metadata.get("xy_calibration")
             if action == "measure":
+                metadata["scientific_grid_identity"] = self.measurement_grid(request["object_id"])
                 points = request.get("points")
                 need(type(points) is list and len(points) == 2 and all(type(p) is list and len(p) == 2 and all(number(v) for v in p) for p in points),
                      "measure requires two explicit [x,y] coordinates")
@@ -805,7 +990,10 @@ class Workspace:
                     if reciprocal_array:
                         # A frequency difference is a geometric period; d-spacing
                         # requires one endpoint at the actual calibrated DC.
-                        at_dc = physical is not None and record.get("dc_index_xy") in points
+                        # A recorded centre is a pixel/index identity even when
+                        # its physical scale is withdrawn. Keep the endpoint
+                        # role for later remeasurement, without a physical claim.
+                        at_dc = record is not None and record.get("dc_index_xy") in points
                         metadata.update(d_spacing=measured.get("period") if at_dc else None,
                                         d_spacing_unit=measured.get("period_unit") if at_dc else None,
                                         dc_reference_point_index=points.index(record["dc_index_xy"]) if at_dc else None,

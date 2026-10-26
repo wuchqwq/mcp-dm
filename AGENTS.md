@@ -69,6 +69,12 @@ see docs/REFLECTION_COMPARISON.md. These are geometric comparisons, not unique
 phase or intensity proofs. See docs/STRUCTURE_DIFFRACTION_TOOLS.md and
 docs/STRUCTURE_VIEWER_LIFECYCLE.md for partial-cell viewing and owned helper
 reuse/closure.
+Explicit centre/point revisions and current-versus-historical comparison use
+the existing immutable image records; see docs/CONTINUING_DIFFRACTION.md.
+Never call an old request query a fresh DM capture. Constrained registration
+fixes independent scale and screen parity, and separates fit from held-out
+evidence. Correspondence confirmation is a recorded caller assertion, not a
+tool-authenticated scientific fact; keep unconfirmed real hypotheses separate.
 It is not a native fallback, and an experimental FFT is not a simulated SAED
 intensity image. Preserve generic cells, cell-free XYZ observation, source
 snapshots, software/approximation parameters and candidate uncertainty.
