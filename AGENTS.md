@@ -32,8 +32,15 @@ execute explicit post-acquisition operations and return calibrated results.
 Do not require every task to capture, compute every operator or produce a report.
 Reports/replay are optional examples retained for compatibility, not the core
 acceptance gate. Keep native APIs, coordinate contracts, source protection and
-honest errors. Do not add an agent framework, scheduler, report platform or
-4D features as part of scope cleanup. Scope decisions are in docs/SCOPE_AUDIT.md.
+honest errors. Do not add a general Agent framework, multi-Agent manager,
+report platform or hardware-control/4D expansion as a side effect of scope cleanup.
+**Owner-approved architecture migration:** a deterministic ToolRegistry,
+execution coordinator and revision-aware AnalysisContext plus optional
+microscopy Skills are now explicitly in scope; follow
+docs/ORCHESTRATION_SKILLS_RFC.md. This runtime organizes existing tool execution,
+not scientific conclusions, and must preserve legacy tool names, backend gates,
+request recovery, explicit data identity and direct invocation without Skills.
+Scope decisions predating this approval remain in docs/SCOPE_AUDIT.md.
 Current product direction is [the interactive microscopy workflow](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md): make a verified DM image viewable to the Agent, support explicit non-destructive display recipes, local FFT visualization, revisable annotations and multi-turn researcher corrections. This is a proposed user workflow, not permission to claim unimplemented native display controls, a model-visible image or arbitrary DM write-back. Preserve source pixels and calibration; distinguish presentation mapping from scientific derived data and external computation.
 
 For future native operations, DigitalMicrograph is the processing engine.
