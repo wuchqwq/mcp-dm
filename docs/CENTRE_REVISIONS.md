@@ -67,7 +67,10 @@ separate sourced evidence; source pixels and file metadata are unchanged.
 It is not automatic inference from a filename, contrast or intensity value.
 
 No flag overrides known real-space/native units or Fourier lineage, an existing
-calibration domain, or an existing reconstruction/data-meaning statement. The
+calibration domain, or an existing reconstruction-type statement. Free-text
+`data_meaning` is retained as background, not parsed or used as a blanket veto:
+the new explicit declaration and its user source establish the domain only for
+an otherwise unknown input. This is not implicit inference from that text. The
 declaration applies to one exact frame and cannot implicitly expand to its
 sequence or another capture. Without this explicit declaration, unknown input
 continues in pixel mode; descriptive context alone never enables physical

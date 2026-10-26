@@ -29,10 +29,16 @@ test('current diffraction revisions preserve source numbers, separate fit/heldou
   const bad=await c.raw('structure_register',{object_id:'a'.repeat(32),request_id:'missing-current'});assert.equal(bad.error.code,-32602);assert.equal(existsSync(path.join(workspace,'structures')),false);
   const source=(await c.tool('image_open',{source_path:tiff,source_kind:'tiff',request_id:'source'})).data;
   const frame=(await c.tool('image_frame',{object_id:source.object_id,frame_index:0,request_id:'frame'})).data;
-  const declared=(await c.tool('image_calibrate',{object_id:frame.object_id,scope:'image',coordinate_domain:'reciprocal_space',declare_reciprocal:true,xy_scale:{x:1.25,y:-2.5,unit:'1/nm'},source_text:'Independent synthetic diffraction-coordinate fixture',request_id:'scale'})).data;
+  const described=(await c.tool('image_context',{object_id:frame.object_id,metadata:{data_meaning:'SAED diffraction intensity supplied by the researcher'},request_id:'describe-before-scale'})).data;
+  const declared=(await c.tool('image_calibrate',{object_id:described.object_id,scope:'image',coordinate_domain:'reciprocal_space',declare_reciprocal:true,xy_scale:{x:1.25,y:-2.5,unit:'1/nm'},source_text:'Independent synthetic diffraction-coordinate fixture',request_id:'scale'})).data;
   const centre=(await c.tool('image_center',{object_id:declared.object_id,center_xy:[16,16],coordinate_space:'source_array_indices',source_text:'Literal synthetic DC',request_id:'centre'})).data;
   const peaks=[[20,16],[16,14],[20,14],[20,18]],measures=[];
-  for(let i=0;i<peaks.length;i++)measures.push((await c.tool('image_measure',{object_id:centre.object_id,points:[[16,16],peaks[i]],coordinate_space:'source_array_indices',request_id:'peak-'+i})).data);
+  const displayA=(await c.tool('image_preview',{object_id:centre.object_id,gamma:.8,request_id:'display-a'})).data;
+  const displayB=(await c.tool('image_preview',{object_id:displayA.object_id,gamma:1.1,request_id:'display-b'})).data;
+  const measurementViews=[centre,displayA,displayB,displayA];
+  for(let i=0;i<peaks.length;i++)measures.push((await c.tool('image_measure',{object_id:measurementViews[i].object_id,points:[[16,16],peaks[i]],coordinate_space:'source_array_indices',request_id:'peak-'+i})).data);
+  assert.equal(new Set(measures.map(m=>m.source_object_id)).size,3);
+  assert.equal(displayB.user_context.data_meaning,'SAED diffraction intensity supplied by the researcher');
   const structure=(await c.tool('structure_open',{source_path:cif,request_id:'cif'})).data;
   const oriented=(await c.tool('structure_orient',{object_id:structure.object_id,zone_axis_uvw:[0,0,1],in_plane_direction_uvw:[1,0,0],request_id:'orientation'})).data;
   const sim=(await c.tool('structure_simulate',{object_id:structure.object_id,orientation_id:oriented.object_id,voltage_kv:200,reciprocal_radius_inv_angstrom:1.3,max_excitation_error_inv_angstrom:.02,size:64,request_id:'simulate'})).data;
