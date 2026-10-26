@@ -108,8 +108,31 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
   else if(body.action==='roi'||body.action==='fft'){fields(p,body.action==='fft'?['selection','window','subtract_mean']:['selection']);if(body.action==='fft'&&(p.window!==undefined&&!['hann','none'].includes(p.window)||p.subtract_mean!==undefined&&typeof p.subtract_mean!=='boolean'))fail('Invalid explicit FFT preprocessing');const selected=checkSelection(p.selection),rect=selectionRectangle(selected);if(selected.panel.domain==='frequency'){if(body.action==='fft')fail('FFT needs a spatial ROI, not a frequency crop');r=await journalCall('image_preview',{object_id:current.object_id,frequency_rect:rect});}else {if(selected.panel.domain!=='spatial_pixels')fail('Imported frequency arrays have no spatial ROI mapping');const target=await withCurrentContext(selected.source_object_id),recipe=Object.fromEntries(['gamma','display_range','max_size','upscale','interpolation'].filter(key=>effectiveDisplay?.[key]!==undefined).map(key=>[key,effectiveDisplay[key]]));r=await journalCall(body.action==='fft'?'image_fft':'image_preview',{object_id:target,rect,...(body.action==='fft'?{window:p.window??'hann',subtract_mean:p.subtract_mean??true}:recipe)});}}
   else if(body.action==='mark'){fields(p,['selection','annotation_id','text','color','status']);const selected=checkSelection(p.selection);if(p.annotation_id===undefined)p.annotation_id=`mark-${randomBytes(8).toString('hex')}`;if(!safeId.test(p.annotation_id))fail('Invalid annotation_id');const old=current.annotations??[];if(old.some(m=>m.annotation_id===p.annotation_id))fail('annotation_id already exists; choose it in the edit list');const {panel,...anchor}=selected;r=await journalCall('image_annotate',{object_id:current.object_id,annotations:[...old.map(originalMark),{...anchor,annotation_id:p.annotation_id,text:p.text??'',color:p.color??'cyan',status:p.status??'hypothesized'}]});}
   else if(body.action==='edit'){fields(p,['updates']);if(!Array.isArray(p.updates)||p.updates.length!==1)fail('Edit exactly one existing annotation per gesture');const u=p.updates[0];fields(u,['annotation_id','coordinates','text','color','status','note']);if(!(current.annotations??[]).some(m=>m.annotation_id===u.annotation_id))fail('Unknown annotation_id');r=await journalCall('image_annotate',{object_id:current.object_id,updates:p.updates});}
-  else if(body.action==='measure'){fields(p,['selection']);const selected=checkSelection(p.selection),peak=selected.kind==='point'&&selected.panel.domain==='frequency';if(!peak&&(selected.coordinates.length!==4||!['line','arrow'].includes(selected.kind)))fail('Draw a two-point line, or select an FFT peak relative to mathematical DC');const target=selected.panel.domain==='frequency'?current.object_id:await withCurrentContext(selected.source_object_id);const args={object_id:target,points:peak?[[0,0],selected.coordinates]:[selected.coordinates.slice(0,2),selected.coordinates.slice(2)]};if(selected.panel.domain==='frequency')args.coordinate_space='frequency_cycles_per_pixel';else if(selected.panel.domain!=='spatial_pixels')fail('Array-index physical measurement unavailable');r=await journalCall('image_measure',args);lastOperation={...publicObject(r.data),...(peak?{reference:'mathematical DC [0,0]; geometric period, not phase identification'}:{})};selection=selected;saveSelection();return state();}
-  else if(body.action==='calibrate'){fields(p,['scope','xy_scale','source_text']);r=await displayObject(await journalCall('image_calibrate',{object_id:current.object_id,...p}));}
+  else if(body.action==='measure'){
+   fields(p,['selection']);const selected=checkSelection(p.selection),domain=selected.panel.domain;
+   const spectral=domain==='frequency',scalar=domain==='source_array_indices',peak=selected.kind==='point';
+   if(!['frequency','source_array_indices','spatial_pixels'].includes(domain))fail('Unsupported measurement domain');
+   let dc=null;
+   if(peak){
+    if(spectral)dc=[0,0];
+    else if(scalar){
+     const record=current.xy_calibration;
+     if(record?.status!=='active'||record.coordinate_domain!=='reciprocal_space'||
+        !Array.isArray(record.dc_index_xy)||record.dc_index_xy.length!==2||!record.dc_index_xy.every(Number.isFinite))
+       fail('A reciprocal peak requires an active calibration with an explicit DC; draw a two-point line for pixel geometry');
+     dc=record.dc_index_xy;
+    }else fail('Draw a two-point spatial line, or choose a reciprocal peak with an explicit DC');
+   }else if(selected.coordinates.length!==4||!['line','arrow'].includes(selected.kind))fail('Draw a two-point line or select a reciprocal peak');
+   // Reciprocal arrays retain their current calibrated wrapper. Do not replace
+   // it with an older bare source while routing the user's selected indices.
+   const target=spectral||scalar?current.object_id:await withCurrentContext(selected.source_object_id);
+   const args={object_id:target,points:peak?[dc,selected.coordinates]:[selected.coordinates.slice(0,2),selected.coordinates.slice(2)],
+    coordinate_space:spectral?'frequency_cycles_per_pixel':scalar?'source_array_indices':'source_pixels'};
+   r=await journalCall('image_measure',args);
+   lastOperation={...publicObject(r.data),...(peak?{reference:spectral?'mathematical DC [0,0]; geometric period, not phase identification':'recorded calibrated DC; not an independently verified beam centre'}:{})};
+   selection=selected;saveSelection();return state();
+  }
+  else if(body.action==='calibrate'){fields(p,['scope','xy_scale','source_text','coordinate_domain']);r=await displayObject(await journalCall('image_calibrate',{object_id:current.object_id,...p}));}
   else if(body.action==='export'){fields(p,[]);mkdirSync(path.join(workspace,'exports'),{recursive:true});const output_dir=path.join(workspace,'exports',`panel-${session}-${sequence+1}`);r=await journalCall('image_export',{object_id:current.object_id,output_dir});lastOperation={...publicObject(r.data),output_dir};saveSelection();return state();}
   else if(body.action==='show'){fields(p,['object_id']);if(!objectId.test(p.object_id??''))fail('Explicit existing object_id required');r=await displayObject(await journalCall('image_info',{object_id:p.object_id}));}
   else if(body.action==='recover'){fields(p,[]);const original=lastOperation?.request_id;if(!safeId.test(original??''))fail('No saved request to query');r=await journalCall('image_result',{request_id:original});if(!r.data.object_id)fail('Original request has not returned an image object');if(['measure','export'].includes(r.data.kind)){lastOperation=publicObject(r.data);saveSelection();return state();}r=await displayObject(r);}

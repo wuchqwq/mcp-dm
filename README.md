@@ -31,7 +31,7 @@ FFT 的频率峰也不是自动确认的晶面或物相。预览是否能被模�
 频谱支持稍压暗背景的出图预设、局部频域放大和细小标注；原谱与原始数值保留。使用方法见
 [多轮出图与标注](docs/IMAGE_ANNOTATIONS.md)，默认后端不变。
 口述 XY 标定、局部修改标记和本地图上选择的试用入口见
-[统一试用说明](docs/UNIFIED_IMAGE_TRIAL.md)；这些功能尚未合并 main。
+[统一试用说明](docs/UNIFIED_IMAGE_TRIAL.md)；这些能力已整合到主线，但仍须显式配置启用，并遵守各自的实验性支持范围。
 
 功能分支还提供可选的 [ASE 结构与电子衍射工具](docs/STRUCTURE_DIFFRACTION_TOOLS.md)：
 独立读取 CIF/XYZ，以同一[晶带轴取向](docs/STRUCTURE_ORIENTATION.md)查看结构并调用
@@ -72,7 +72,7 @@ diffsims 运动学模拟，再用明确配准[比较实验测量与模拟反射]
 |---|---|---|
 | **主线默认：v0.6 Python 后端** | 图像与元数据读取、二维统计、剖面、FFT 摘要、裁剪、科学数据导出，以及可选的捕获与预览 | 通过 DM 内嵌 Python 连接；部分数值计算使用 NumPy。预览需要独立环境，详见安装指南。 |
 | **可选：原生 C++ 实验后端** | 21 个范围受限的工具：原生摘要、uint16 序列按帧副本、裁剪、有限算术/FFT/滤波、GUI 矩形与线选区、一维剖面和直方图、PNG 预览、可见文档、有界数值交接与[小型 float32 数值导入](docs/DM_NUMERIC_RELAY.md) | 仅限 Windows x64 GMS **3.53.4137.0** 的精确指纹与各操作已验证的类型/尺寸。导入仅限 ASCII `nm`／`1/nm`；其它单位与类型未开放。NPY 交接不等于 DM 原生文件保存；详见[原生工作流](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md)。 |
-| **可选：独立 TIFF／像素图像工具** | 本功能分支可直接打开 uint16 多帧 TIFF、选帧、同 ROI 固定显示比较、像素 FFT、标注修订与 NPY 导出 | 不需要 DM 运行，不要求物理标尺；明确为外部计算，须单独配置。见[像素工作流](docs/PIXEL_IMAGE_WORKFLOW.md)。 |
+| **可选：独立 TIFF／像素图像工具** | 主线中的可选工具可直接打开 uint16 多帧 TIFF、选帧、同 ROI 固定显示比较、像素 FFT、标注修订与 NPY 导出 | 不需要 DM 运行，不要求物理标尺；明确为外部计算，须单独配置。见[像素工作流](docs/PIXEL_IMAGE_WORKFLOW.md)。 |
 | **可选外部晶体学伴随工具** | 自动斑点/中心候选、带标定的间距与夹角、FCC/BCC/HCP 联合几何索引及指定 CIF 比较 | 见[完整流程](docs/CRYSTALLOGRAPHY_WORKFLOW.md)。ASE/NumPy/SciPy 在独立环境运行；只在证据不足时补充确认，保留多解。已做合成及有限只读实验数据测量验证，普通客户端尚待验收，不是自动唯一判相。 |
 | **下一阶段：交互式显微分析** | 从明确 DM 图像返回可见预览、非破坏式显示调节、局部 FFT 出图、可修改标注和多轮解释；在此基础上继续衍射与晶体学测量 | 见[交互工作流路线](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md)与[晶体学任务](docs/DIFFRACTION_NEXT_STAGE.md)。均为发展方向，尚非完整已实现能力。 |
 

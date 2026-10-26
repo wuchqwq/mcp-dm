@@ -1,24 +1,12 @@
 # Try the unified image tools
 
-This is an opt-in feature branch, not a main release. Use
-`feature/calibrated-crystal-relay` for the newest combined trial. It includes the
-PR18 annotation/zoom work, PR16 pixel tools and PR17 fixes. Do not install the
-old PR17 branch separately or merge every open PR into a local checkout.
-PR12/15 supply the retained native/crystallography ancestry; PR13/14 fixes and
-documentation already carried into this line remain present. None of these
-open PRs is implicitly merged into main by this trial.
-
-At the initial remote check, main was `5eac70c` and PR18 was `6ecda05`.
-PR12/15/16/18 were open; PR13/14 were also open but their feature-branch merges
-were already in this ancestry. PR17 was merged into PR16, not main. The historical calibration trial
-was stacked on PR18; PR19/20 and the shared-view continuation are retained; no reset, duplicate integration or main merge is
-part of enabling it. Check GitHub again before integrating these branches.
-
-The calibrated relay continuation is stacked on PR22's
-`feature/structure-diffraction-relay`, which retains PR21 and PR20. Its native
-calibration, restricted float32 return, shared crystallographic orientation and
-reflection comparison are incremental additions. Use this combined checkout;
-do not repeatedly merge each dependency or treat any open PR as main support.
+The PR #12–#23 feature chain and closeout fixes are integrated into `main`.
+Use a clean checkout of current main for the combined trial. Do not manually
+merge the old stacked branches or reset a working tree with local changes.
+This integration is not a new stable native release: default v0.6 remains
+unchanged, and image/structure/native paths still require explicit opt-in.
+The native adapter remains restricted to the exact supported GMS build and
+per-operation scopes, including small float32 return with nm or 1/nm units.
 
 ## Connect once
 
