@@ -9,6 +9,8 @@ jobs:
   validate:
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
     defaults:
       run:
         working-directory: candidate
@@ -33,6 +35,8 @@ jobs:
         run: |
           git config core.autocrlf false
           git reset --hard 4f590f398fd4823426dc08a3b1317d5b15dcd06f
+          python -c "from pathlib import Path; [p.write_text(p.read_text(encoding='utf-8'),encoding='utf-8',newline='\n') for p in Path('../validation/.review').iterdir() if p.is_file()]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python ../validation/.review/apply_closeout.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check exact local-reviewed blobs
