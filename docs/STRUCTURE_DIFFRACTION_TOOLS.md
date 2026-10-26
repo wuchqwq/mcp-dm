@@ -24,6 +24,9 @@ default v0.6 configuration is unchanged.
 | `structure_derive` | New bounded repeat/active Cartesian rotation of atoms and cell; source remains immutable |
 | `structure_simulate` | Actual diffsims kinematic electron diffraction with explicit voltage/orientation/cutoffs |
 | `structure_result` | Query the caller's original request, without recomputation |
+| `structure_orient` | Save a shared three-index UVW orientation from the actual cell, with an explicit or recorded in-plane convention |
+| `structure_compare` | Compare sourced reciprocal measurements against saved unrastered reflections using explicit registration; retain unmatched and ambiguous candidates |
+| `structure_viewer_close` | Close the exact owned viewer and its aliases; recover this operation with the same close tool and original request ID |
 
 Write calls require a request ID saved before dispatch. Cancelled waiting does
 not stop the accepted worker; use `structure_result`, not a new request to retry.
@@ -60,9 +63,19 @@ periodic-image contacts. This presentation is limited to 512 atoms and 8,192
 undirected links; exceeding either limit refuses the whole contact display,
 without truncation. Counts and the policy remain visible. Switching display
 preserves the camera, source coordinates, cell, PBC and fixed snapshot hash.
-Reuse an existing interactive view for camera changes. Distinct interactive
-view IDs currently start distinct local helpers; a close/expiry tool has not
-been implemented, so repeated new views are not a bounded shared viewer pool.
+Reuse an existing interactive view for camera changes. Equivalent snapshots
+and scientific orientations can share one helper across view IDs. Explicit
+`structure_viewer_close` confirms the owned process and port have stopped;
+an uncertain or closed old view is never automatically relaunched. Partial
+periodic cells display their actual independent vectors without inventing a
+third vector. See [viewer lifecycle and direction limits](STRUCTURE_VIEWER_LIFECYCLE.md).
+
+Use [a shared orientation record](STRUCTURE_ORIENTATION.md) for both the initial
+structure direction and simulation. Dragging the camera never changes this
+scientific record. [Reflection comparison](REFLECTION_COMPARISON.md) consumes
+committed `image_measure` evidence, preserves its calibration version and
+reports geometric residuals rather than claiming a unique phase or an FFT/SAED
+intensity match.
 
 ## Simulation contract and limits
 

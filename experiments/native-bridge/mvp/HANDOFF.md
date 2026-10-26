@@ -1,11 +1,14 @@
 # Native MVP continuation handoff
 
-## Numerical return candidate
+## Limited numerical return and calibrated relay
 
 The structure/diffraction continuation adds `dm_native_import`, a separate
-bounded float32 NPY/JSON handoff into a new independent DM image. Its normal
-build capability remains disabled. Only a labeled compile-time qualification
-build admits synthetic trials. The final candidate now has limited actual-host
+bounded float32 NPY/JSON handoff into a new independent DM image. The normal
+build now admits only finite 2D float32 arrays up to 16,384 samples with
+real-space ASCII `nm` or reciprocal-space ASCII `1/nm` axes, on the exact
+fingerprint-matched GMS 3.53.4137.0 adapter. Empty/Unicode units and other dtypes
+remain unqualified/refused; a broader labeled diagnostic build cannot extend
+normal admission. The earlier candidate has limited actual-host
 MCP creation/readback, signed-calibration, original-ID recovery and explicit
 document-delivery evidence. A fresh synthetic session also passed independent
 same-host array/calibration and document ownership checks, limited to ASCII
@@ -17,7 +20,17 @@ released that result, leaving the other shown arrays unchanged. These are
 after-return/idle observations. The host then exited normally and the installer
 removed only its manifest-owned candidate DLL; saved scientific NPY inputs
 reopened with unchanged hashes after exit. GUI backup files do not qualify
-native SaveAs. Actual researcher re-edit/recapture remains NOT_TESTED.
+native SaveAs. A later candidate trial included an actual researcher GUI
+arithmetic edit into a new image; fresh MCP READ/capture recovered the exact new
+values without changing the old snapshot/source or calibration.
+
+The final normal artifact was separately built without a qualification flag
+and checked in a fresh synthetic host: both admitted domains, exact independent
+array/calibration readback, source hashes, original-ID recovery/conflict and
+unit refusal before file/vendor work. RELEASE, saved original-request/PID-bound
+STOP, last document reference closure, normal exit and manifest-only removal
+were rechecked. Keep this short final-artifact qualification distinct from the
+candidate human-edit evidence; neither is general concurrent-edit acceptance.
 Keep this distinct from the previously qualified outbound and pixel operations.
 See [the relay contract](../../../docs/DM_NUMERIC_RELAY.md).
 
@@ -29,10 +42,16 @@ limited MCP path above, including external simulation and a native half-result
 captured/measured/returned to a new image. Preserve the initial failure and the
 legacy GMS Python getter's `1/Å` versus `1/?` FAIL. The earlier session was
 interrupted by restart; its unfinished checks remain incomplete. A fresh
-ASCII-unit trial does not repair or qualify Unicode. External `image_measure`
-does not yet activate native calibration metadata as an operational calibration
-record; the relay preserved that metadata and reported pixel geometry only.
-Full qualification remains HOLD; this is not shipping admission. Do not
+ASCII-unit trial does not repair or qualify Unicode. The earlier pixel-only
+external measurement is historical. Validated native READ/schema-1 captures
+now activate the shared versioned `image_calibrate` record, with native source,
+signed/mixed-unit axes and crop offsets. A later synthetic actual-host relay
+checked physical measurement after native crop/processing. See
+[calibration admission](../../../docs/NATIVE_CALIBRATION_HANDOFF.md). Unknown
+calibration remains pixel-only; real/reciprocal domains cannot be interchanged
+by a scale revision. Saved-FFT axes update without recalculating complex data.
+Broader import qualification remains HOLD; the limited normal admission is not
+a stable release or native SaveAs. Do not
 reuse an old session/failed request as fresh acceptance. A user-authorized
 forced exit does not qualify normal cleanup. STOP acknowledgement alone is not
 cleanup or normal exit.

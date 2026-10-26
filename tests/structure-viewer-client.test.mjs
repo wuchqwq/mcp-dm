@@ -5,11 +5,12 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {attachStructureViewer} from '../lib/structure_viewer_client.mjs';
+import {attachStructureViewer,closeStructureViewer,structureViewerTools} from '../lib/structure_viewer_client.mjs';
 import {STRUCTURE_VIEWER_VERSION} from '../tools/structure_viewer.mjs';
 const viewId='a'.repeat(32),sourceId='b'.repeat(32),png={type:'image',mimeType:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1cAAAAASUVORK5CYII='};
 const result=()=>({content:[{type:'text',text:JSON.stringify({backend:'external-structure-workspace',state:'completed',kind:'view',object_id:viewId,structure_object_id:sourceId,request_id:'view-1',projection_only:true})},png]});
 const data=r=>JSON.parse(r.content.find(c=>c.type==='text').text);
+const alternateResult=object_id=>({content:[{type:'text',text:JSON.stringify({...data(result()),object_id,request_id:'view-'+object_id})},png]});
 function fixture(){const workspace=mkdtempSync(path.join(tmpdir(),'mcp-structure-client-')),moduleDirectory=path.join(workspace,'node-runtime','node_modules','3dmol'),assetPath=path.join(moduleDirectory,'build','3Dmol-min.js');mkdirSync(path.dirname(assetPath),{recursive:true});writeFileSync(assetPath,'/* transport fixture, not a WebGL renderer */');writeFileSync(path.join(moduleDirectory,'package.json'),JSON.stringify({name:'3dmol',version:STRUCTURE_VIEWER_VERSION,license:'BSD-3-Clause'}));writeFileSync(path.join(moduleDirectory,'LICENSE'),'BSD-3-Clause fixture');let inspections=0;const pids=new Set();return {workspace,assetPath,pids,get inspections(){return inspections;},async inspect(object_id){inspections++;assert.equal(object_id,viewId);return {content:[{type:'text',text:JSON.stringify({object_id:viewId,structure_object_id:sourceId,atoms:{symbols:['C','O'],positions_angstrom:[[0,0,0],[1,0,0]],cell_angstrom:[[4,0,0],[0,4,0],[0,0,4]],pbc:[true,true,true],occupancy:null}})}]};},remember(r){const pid=data(r).viewer_process_id;if(pid)pids.add(pid);},async close(){for(const pid of pids){try{process.kill(pid,'SIGTERM');}catch(error){if(error.code!=='ESRCH')throw error;}}await new Promise(resolve=>setTimeout(resolve,100));rmSync(workspace,{recursive:true,force:true});}};}
 test('not configured interactive option preserves completed ASE projection and performs no inspection',async()=>{const input=result();let calls=0;const response=await attachStructureViewer(input,{inspect:()=>{calls++;}});assert.equal(data(response).interactive_3d,'NOT_CONFIGURED');assert.equal(data(response).projection_only,true);assert.equal(response.content[1],png);assert.equal(calls,0);assert.equal(data(response).viewer_url,null);});
 test('invalid viewer dependency or foreign atom ancestry cannot turn a completed projection into a 3D claim',async()=>{const f=fixture();try{let response=await attachStructureViewer(result(),{workspace:f.workspace,assetPath:path.resolve('missing-3dmol/3Dmol-min.js'),inspect:f.inspect});assert.equal(data(response).interactive_3d,'UNVERIFIED');assert.equal(response.content[1],png);response=await attachStructureViewer(result(),{workspace:f.workspace,assetPath:f.assetPath,inspect:async()=>({object_id:sourceId,structure_object_id:sourceId,atoms:{}})});assert.equal(data(response).interactive_3d,'UNVERIFIED');assert.match(data(response).viewer_limitation,/ancestry/);assert.deepEqual(readdirSync(path.join(f.workspace,'viewer-connections')),[]);}finally{await f.close();}});
@@ -21,4 +22,56 @@ test('cancelling after durable launch intent stops waiting and the next client r
  const f=fixture(),controller=new AbortController(),intent=path.join(f.workspace,'viewer-connections',viewId+'.intent.json');let timer;
  try{timer=setInterval(()=>{if(existsSync(intent)){clearInterval(timer);controller.abort();}},1);const stopped=await attachStructureViewer(result(),{...f,signal:controller.signal});clearInterval(timer);assert.equal(data(stopped).interactive_3d,'UNVERIFIED');assert.ok(existsSync(intent));const original=readFileSync(intent,'utf8'),recovered=await attachStructureViewer(result(),f);f.remember(recovered);assert.equal(data(recovered).interactive_3d,'AVAILABLE_NOT_OBSERVED');assert.equal(f.inspections,1);assert.equal(readFileSync(intent,'utf8'),original);assert.equal(readdirSync(path.dirname(intent)).filter(n=>n.endsWith('.connection.json')).length,1);}
  finally{clearInterval(timer);await f.close();}
+});
+test('different immutable view wrappers of the same source/display snapshot reuse one helper with explicit aliases',async()=>{
+ const f=fixture(),secondId='c'.repeat(32);try{
+  const inspect=async object_id=>{const response=await f.inspect(viewId),info=data(response);return {content:[{type:'text',text:JSON.stringify({...info,object_id})}]};};
+  const [first,second]=await Promise.all([attachStructureViewer(result(),{...f,inspect}),attachStructureViewer(alternateResult(secondId),{...f,inspect})]);f.remember(first);f.remember(second);
+  assert.equal(data(first).interactive_3d,'AVAILABLE_NOT_OBSERVED');assert.equal(data(second).interactive_3d,'AVAILABLE_NOT_OBSERVED');assert.equal(data(first).viewer_process_id,data(second).viewer_process_id);assert.equal(data(first).viewer_url,data(second).viewer_url);assert.equal(f.pids.size,1);
+  const owner=data(first).viewer_owner_view_object_id;assert.equal(data(second).viewer_owner_view_object_id,owner);assert.equal(data(second).viewer_source.view_object_id,secondId);assert.equal(data(second).viewer_reused,owner!==secondId);
+  const again=await attachStructureViewer(alternateResult(secondId),{workspace:f.workspace,assetPath:f.assetPath,inspect:()=>{throw Error('Must recover original alias');}});assert.equal(data(again).viewer_url,data(first).viewer_url);
+  const close=data(await closeStructureViewer({object_id:secondId,request_id:'close-shared-once'},f));assert.equal(close.state,'completed');assert.equal(close.viewer_process_stopped,true);assert.equal(close.viewer_port_stopped,true);assert.deepEqual(close.affected_view_object_ids,[viewId,secondId].sort());assert.equal(close.viewer_owner_view_object_id,owner);
+  const closedView=await attachStructureViewer(result(),f);assert.equal(data(closedView).interactive_3d,'UNVERIFIED');assert.equal(data(closedView).viewer_url,null);
+  const reopenedId='e'.repeat(32),reopened=await attachStructureViewer(alternateResult(reopenedId),{...f,inspect});f.remember(reopened);assert.equal(data(reopened).interactive_3d,'AVAILABLE_NOT_OBSERVED');assert.notEqual(data(reopened).viewer_process_id,data(first).viewer_process_id);assert.equal(data(reopened).viewer_owner_view_object_id,reopenedId);
+  const oldAgain=await attachStructureViewer(alternateResult(secondId),f);assert.equal(data(oldAgain).interactive_3d,'UNVERIFIED','A new explicit view does not retarget historical aliases');
+ }finally{await f.close();}
+});
+test('a sourced orientation transforms only the independent display copy and is hash-bound to its initial direction',async()=>{
+ const f=fixture();try{
+  const oriented=result(),record={orientation_id:'d'.repeat(32),structure_object_id:sourceId,rotation_matrix_cartesian:[[0,-1,0],[1,0,0],[0,0,1]]};data(oriented);
+  oriented.content[0].text=JSON.stringify({...data(oriented),orientation:record});
+  const original=data(await f.inspect(viewId)),before=JSON.stringify(original);const first=await attachStructureViewer(oriented,{...f,inspect:async()=>({content:[{type:'text',text:JSON.stringify(original)}]})});f.remember(first);
+  assert.equal(data(first).interactive_3d,'AVAILABLE_NOT_OBSERVED');assert.equal(data(first).viewer_initial_orientation.initial_orientation_applied,true);assert.equal(data(first).viewer_initial_orientation.orientation_id,record.orientation_id);
+  const body=await(await fetch(data(first).viewer_url.split('/#')[0]+'/api/structure',{headers:{'X-Viewer-Token':data(first).viewer_url.split('#')[1]}})).json();
+  assert.deepEqual(body.structure.positions_angstrom,[[0,0,0],[0,1,0]]);assert.deepEqual(body.structure.cell_angstrom,[[0,4,0],[-4,0,0],[0,0,4]]);assert.equal(body.structure.display_orientation.scientific_source_coordinates_modified,false);assert.equal(JSON.stringify(original),before);
+ }finally{await f.close();}
+});
+test('foreign or left-handed orientation cannot claim an applied view; legacy unimplemented rotations remain explicit',async()=>{
+ const f=fixture();try{
+  for(const orientation of [{orientation_id:'d'.repeat(32),structure_object_id:'e'.repeat(32),rotation_matrix_cartesian:[[1,0,0],[0,1,0],[0,0,1]]},{orientation_id:'d'.repeat(32),structure_object_id:sourceId,rotation_matrix_cartesian:[[-1,0,0],[0,1,0],[0,0,1]]}]){
+   const input=result();input.content[0].text=JSON.stringify({...data(input),orientation});const rejected=await attachStructureViewer(input,f);assert.equal(data(rejected).interactive_3d,'UNVERIFIED');assert.equal(data(rejected).viewer_url,null);
+  }
+  const legacy=result();legacy.content[0].text=JSON.stringify({...data(legacy),rotation_deg_xyz:[20,0,0]});const displayed=await attachStructureViewer(legacy,f);f.remember(displayed);assert.equal(data(displayed).interactive_3d,'AVAILABLE_NOT_OBSERVED');assert.equal(data(displayed).viewer_initial_orientation.initial_orientation_applied,false);assert.deepEqual(data(displayed).viewer_initial_orientation.requested_rotation_deg_xyz,[20,0,0]);
+ }finally{await f.close();}
+});
+test('owned close is recoverable by original ID, rejects argument conflicts, and cannot close a foreign process',async()=>{
+ const f=fixture();try{
+  const first=await attachStructureViewer(result(),f);f.remember(first);const args={object_id:viewId,request_id:'close-owned-test'},closed=data(await closeStructureViewer(args,f));
+  assert.equal(structureViewerTools[0].name,'structure_viewer_close');assert.equal(closed.state,'completed');assert.equal(closed.viewer_state,'closed');assert.equal(closed.viewer_process_stopped,true);assert.equal(closed.viewer_port_stopped,true);assert.equal(closed.scientific_data_modified,false);assert.equal(closed.dm_called,false);
+  const file=path.join(f.workspace,'viewer-connections','close-requests','close-owned-test.request.json'),request=readFileSync(file,'utf8');const recovered=data(await closeStructureViewer(args,f));assert.equal(recovered.historical,true);assert.equal(recovered.viewer_owner_view_object_id,closed.viewer_owner_view_object_id);assert.equal(readFileSync(file,'utf8'),request);
+  const entry=pathToFileURL(fileURLToPath(new URL('../lib/structure_viewer_client.mjs',import.meta.url))).href,code='import {closeStructureViewer} from '+JSON.stringify(entry)+';process.stdout.write(JSON.stringify(await closeStructureViewer('+JSON.stringify(args)+',{workspace:'+JSON.stringify(f.workspace)+'})));';const child=spawn(process.execPath,['--input-type=module','-e',code],{stdio:['ignore','pipe','pipe'],windowsHide:true});let out='',err='';child.stdout.on('data',c=>out+=c);child.stderr.on('data',c=>err+=c);const exit=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});assert.equal(exit,0,err);assert.equal(data(JSON.parse(out)).historical,true);assert.equal(readFileSync(file,'utf8'),request);
+  await assert.rejects(closeStructureViewer({...args,object_id:'c'.repeat(32)},f),/CONFLICT/);await assert.rejects(closeStructureViewer({object_id:viewId,request_id:'../bad'},f));
+  const other={...JSON.parse(request),request_id:'other-unconfirmed-close'};writeFileSync(path.join(path.dirname(file),'other-unconfirmed-close.request.json'),JSON.stringify(other));
+  const unresolved=data(await closeStructureViewer({object_id:viewId,request_id:other.request_id},f));assert.equal(unresolved.state,'unknown','A different close receipt does not qualify this earlier uncertain request');assert.equal(existsSync(path.join(path.dirname(file),'other-unconfirmed-close.result.json')),false);
+  const already=data(await closeStructureViewer({object_id:viewId,request_id:'new-observation-of-closed-helper'},f));assert.equal(already.state,'completed');assert.equal(already.closed_now,false);assert.equal(already.closure_receipt_request_id,args.request_id);
+ }finally{await f.close();}
+});
+test('a fabricated stopped marker cannot qualify a still-running process and old close intents never dispatch again',async()=>{
+ const f=fixture();try{
+  const first=await attachStructureViewer(result(),f);f.remember(first);const owner=data(first).viewer_owner_view_object_id,directory=path.join(f.workspace,'viewer-connections'),conn=JSON.parse(readFileSync(path.join(directory,owner+'.connection.json'),'utf8')),requests=path.join(directory,'close-requests');mkdirSync(requests);
+  const request={schema_version:1,operation:'structure_viewer_close',request_id:'uncertain-close',object_id:viewId,owner_view_object_id:owner,snapshot_sha256:conn.snapshot_sha256,connection:conn};writeFileSync(path.join(requests,'uncertain-close.request.json'),JSON.stringify(request));
+  writeFileSync(path.join(directory,owner+'.connection.json.closed.json'),JSON.stringify({schema_version:1,state:'closed',object_id:owner,snapshot_sha256:conn.snapshot_sha256,pid:conn.pid,request_id:'uncertain-close'}));
+  const response=data(await closeStructureViewer({object_id:viewId,request_id:'uncertain-close'},f));assert.equal(response.state,'unknown');assert.equal(response.viewer_state,'closure_unverified');assert.equal(response.automatic_retry,false);assert.equal(existsSync(path.join(requests,'uncertain-close.result.json')),false);
+  assert.equal((await fetch(data(first).viewer_url.split('/#')[0]+'/api/structure',{headers:{'X-Viewer-Token':conn.token}})).status,200,'Querying a prior intent did not secretly submit close');
+ }finally{await f.close();}
 });

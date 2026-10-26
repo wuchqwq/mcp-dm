@@ -55,6 +55,10 @@ inline ImportSpec353 import_spec353(const std::vector<std::uint32_t>& args) {
 inline const char* import_domain353(std::uint32_t domain) {
     return domain == 1 ? "real_space" : domain == 2 ? "reciprocal_space" : "image_coordinates";
 }
+inline void require_import_ascii_scope353(const ImportSpec353& spec) {
+    if (!((spec.domain == 1 && spec.unit == 1) || (spec.domain == 2 && spec.unit == 4)))
+        throw std::runtime_error("native_import_ascii_scope_requires_nm_or_reciprocal_nm");
+}
 inline std::wstring import_unit353(std::uint32_t unit) {
     switch (unit) {
     case 0: return L""; case 1: return L"nm"; case 2: return L"\u00c5"; case 3: return L"\u00b5m";

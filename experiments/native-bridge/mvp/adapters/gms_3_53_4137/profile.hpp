@@ -4,11 +4,26 @@
 // All fingerprints and qualification declarations belong to this adapter.
 // Adding another version never extends this allowlist by approximate matching.
 namespace nb::gms353 {
-#ifdef NB_IMPORT_QUALIFICATION_BUILD
+#if defined(NB_IMPORT_QUALIFICATION_BUILD) && defined(NB_IMPORT_ASCII_QUALIFICATION_BUILD)
+#error Choose one import qualification scope
+#endif
+// Limited synthetic-host qualification: float32 with nm or 1/nm only.
+// This does not admit the broader diagnostic build's other units or builds.
+inline constexpr bool kImportAsciiLimitedQualified353 = true;
+#if defined(NB_IMPORT_QUALIFICATION_BUILD) || defined(NB_IMPORT_ASCII_QUALIFICATION_BUILD)
 inline constexpr bool kImportQualificationBuild353 = true;
 #else
 inline constexpr bool kImportQualificationBuild353 = false;
 #endif
+#ifdef NB_IMPORT_QUALIFICATION_BUILD
+inline constexpr bool kImportAsciiOnly353 = false;
+#else
+inline constexpr bool kImportAsciiOnly353 = true;
+#endif
+inline constexpr bool kImportAdmitted353 = kImportQualificationBuild353 || kImportAsciiLimitedQualified353;
+inline constexpr const char* kImportScope353 = kImportAsciiOnly353
+    ? "finite float32 canonical NPY 2D <=16384 pixels; only real_space nm or reciprocal_space 1/nm; exact signed calibration/readback; new independent image; qualification-build status is separate"
+    : "NOT_QUALIFIED shipping; diagnostic qualification build only; finite float32 canonical NPY 2D <=16384 pixels; broader units remain unqualified";
 // Primary RasterImageDisplay vtable, cross-checked against this binary's RTTI
 // and the exact native count/get implementations used by the SF wrappers.
 inline constexpr std::uint32_t kRasterRoiVtableRva353 = 0xbbd298;
@@ -70,13 +85,13 @@ inline const AdapterProfile& profile() {
             {"mfc140.dll", "#1487"},
         },
         {
-            {"native_numeric_import", kImportQualificationBuild353, "NOT_QUALIFIED shipping; dedicated compile-time qualification build only; finite float32 canonical NPY 2D <=16384 pixels; independent image with exact readback", {
+            {"native_numeric_import", kImportAdmitted353, kImportScope353, {
                 {"GMSImage.dll", "?CreateImage@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSize@Imaging@4@KAEBV?$char_range_t@_WU?$char_traits@_W@std@@@4@@Z"},
                 {"GMSImage.dll", "?SetRealValue@Image@GMS@@QEAAXAEBVDataIndex@Imaging@Gatan@@N@Z"},
                 {"GMSImage.dll", "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"},
                 {"GMSImage.dll", "?SetDimensionCalibration@Image@GMS@@QEAAXKMMAEBV?$char_range_t@_WU?$char_traits@_W@std@@@Gatan@@J@Z"},
                 {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}}, {}},
-            {"native_numeric_import_display", kImportQualificationBuild353, "NOT_QUALIFIED shipping; separate imported-image document and reference qualification", {},
+            {"native_numeric_import_display", kImportAdmitted353, "new imported float32 image to explicit DM document; same import-unit admission; plugin/document references qualified separately", {},
                 {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
             {"native_pixel_crop", true, "limited synthetic real-host qualification; explicit pixel coordinates; existing native crop ABI/type/size guards; finite numeric calibration retained, units may be unknown", {
                 {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},

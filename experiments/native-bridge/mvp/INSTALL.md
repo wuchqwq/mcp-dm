@@ -30,11 +30,14 @@ synthetic host and core tests without building the real-DM plugin. The real
 build produces `build/dm_native_bridge.dll`. The installer gives its installed
 copy the distinct fixed name `dm_native_bridge_mvp.dll`.
 
-The numerical-import candidate is disabled in normal builds. The explicit
-`-ImportQualificationBuild` switch creates a labeled synthetic-test artifact;
-it is not release qualification. Its dedicated live acceptance remains HOLD.
-See [the bounded relay contract](../../../docs/DM_NUMERIC_RELAY.md). This flag
-does not relax host fingerprints or permit replacement while DM is loaded.
+Normal builds admit only the separately qualified numerical-import subset:
+finite two-dimensional float32, at most 16384 pixels, real-space ASCII `nm`
+or reciprocal-space ASCII `1/nm`. Other units and dtypes remain unqualified.
+`-ImportAsciiQualificationBuild` labels a diagnostic artifact with the same unit
+scope; `-ImportQualificationBuild` permits the broader unqualified diagnostic
+scope. The switches are mutually exclusive. Neither extends normal admission,
+relaxes host fingerprints or permits replacement while DM is loaded. See
+[the bounded relay contract](../../../docs/DM_NUMERIC_RELAY.md).
 
 ## Inspect and install with DM closed
 

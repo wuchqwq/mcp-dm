@@ -1,10 +1,22 @@
 # Native bridge validation matrix
 
-## Numerical import: candidate, not qualified
+## Numerical import: limited normal-build qualification
 
-`dm_native_import` is disabled in the normal build. A separately labeled
-qualification build provides bounded float32 NPY/JSON staging and new-image
-creation for synthetic testing. Offline contract, fake-adapter, Windows path,
+The normal `dm_native_import` capability now admits only finite 2D float32 NPY
+arrays up to 16,384 samples, with real-space ASCII `nm` or reciprocal-space
+ASCII `1/nm` axes, on the exact fingerprint-matched GMS 3.53.4137.0 adapter.
+Other units, empty-unit image coordinates, dtypes and builds are not admitted.
+The fresh final normal artifact was built without a qualification flag and
+passed synthetic real-DM creation/SHOW/READ, independent exact array/calibration
+checks, original-ID recovery/conflict, source-NPY protection and unit rejection
+before staged-file loading or vendor image creation. Its RELEASE, original
+pre-recorded STOP with host-PID binding, last-document-reference closure, normal
+exit and manifest-only removal were checked separately from the candidate.
+This is a restricted synthetic-host qualification, not full-range support.
+
+Earlier evidence remains historical: a separately labeled qualification build
+provided bounded float32 NPY/JSON staging and new-image creation for synthetic
+testing. Offline contract, fake-adapter, Windows path,
 hash, rejection and receipt checks pass; they are not real DM qualification.
 The initial real-host attempt was refused by the staged opened-path check
 before vendor image creation. Its failure is preserved. The corrected Windows
@@ -24,11 +36,22 @@ GUI backup files do not qualify an MCP native-save interface.
 
 The earlier legacy GMS Python unit-getter `1/Å` versus `1/?` FAIL is preserved;
 ASCII-unit checks do not qualify Unicode. That session's restart-interrupted
-checks remain incomplete. Actual researcher re-edit/recapture is NOT_TESTED.
-External `image_measure` currently retains native calibration metadata without
-activating it as an operational calibration record, so that relay measurement
-reports pixel geometry only. Full qualification remains HOLD and the normal
-build stays disabled.
+checks remain incomplete. A later candidate trial included an actual researcher
+GUI arithmetic edit creating a new work image. Fresh MCP READ/capture recovered
+the exact edited array; old snapshots, source values and calibration were
+unchanged. This human action was not repeated in the final normal-artifact
+short test, and does not establish general concurrent-edit safety.
+
+The early external relay reported pixel geometry only; that record is retained.
+Validated native READ/schema-1 captures now activate the shared versioned
+`image_calibrate` mechanism. A later synthetic actual-host crop/native-operation/
+READ/external-measurement relay checked automatic physical geometry with signed
+axes and source protection. Native/user/unknown provenance, crop offsets and
+real/reciprocal domains remain distinct; user revision/withdrawal preserves old
+records, and saved complex FFT values are not recomputed. See
+[native calibration handoff](../../docs/NATIVE_CALIBRATION_HANDOFF.md).
+Unicode units and the broader import range remain HOLD. The narrow normal-build
+admission does not qualify native SaveAs or a stable release.
 Existing operation qualifications below do not qualify
 this new operation. See [the numerical relay](../../docs/DM_NUMERIC_RELAY.md).
 

@@ -22,6 +22,8 @@ import numpy as np
 import ase
 from ase import Atoms
 from ase.io import read as ase_read
+from crystallography.orientation import from_zone_axis
+from crystallography.reflection_compare import compare as compare_reflections, load_measurement
 
 BACKEND = "external-structure-workspace"
 MAX_ATOMS = 4096
@@ -32,10 +34,12 @@ ID = re.compile(r"[a-f0-9]{32}\Z")
 REQUEST_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 FIELDS = {
     "open": {"source_path"}, "get": {"object_id", "include_atoms"},
-    "view": {"object_id", "rotation_deg_xyz", "max_size", "interactive"},
+    "view": {"object_id", "rotation_deg_xyz", "orientation_id", "max_size", "interactive"},
     "measure": {"object_id", "kind", "atom_indices", "hkls", "directions", "mic"},
-    "derive": {"object_id", "repeat", "rotation_deg_xyz"},
-    "simulate": {"object_id", "voltage_kv", "euler_rzxz_deg", "reciprocal_radius_inv_angstrom",
+    "derive": {"object_id", "repeat", "rotation_deg_xyz", "orientation_id"},
+    "orient": {"object_id", "zone_axis_uvw", "in_plane_direction_uvw", "in_plane_rotation_deg"},
+    "compare": {"object_id", "measurement_paths", "experimental_kind", "registration", "max_residual_inv_angstrom", "correspondences"},
+    "simulate": {"object_id", "voltage_kv", "euler_rzxz_deg", "orientation_id", "reciprocal_radius_inv_angstrom",
                  "max_excitation_error_inv_angstrom", "size", "sigma_pixels", "with_direct_beam", "native_float32"},
     "result": {"query_request_id"},
 }
@@ -312,7 +316,7 @@ def raster_geometry(result, size, calibration, sigma):
             "normalization": "library divides qualitative Gaussian raster by its maximum; integrated intensity is not conserved"}
 
 
-def simulate(atoms, request, directory, ident, source_provenance=None, resolved_structure_object_id=None):
+def simulate(atoms, request, directory, ident, source_provenance=None, resolved_structure_object_id=None, orientation=None):
     # The library enumerates reciprocal points: bound its integer box and the
     # atom/reflection work BEFORE invoking a native/JIT scientific dependency.
     need(np.linalg.matrix_rank(atoms.cell.array) == 3 and bool(np.all(atoms.pbc)), "Kinematic simulation requires a full-rank explicitly periodic 3D cell")
@@ -326,7 +330,15 @@ def simulate(atoms, request, directory, ident, source_provenance=None, resolved_
     need(finite(voltage) and 20 <= voltage <= 400, "voltage_kv must be explicit in 20..400")
     need(finite(radius) and .05 <= radius <= 5., "reciprocal_radius_inv_angstrom must be explicit in .05..5")
     need(finite(excitation) and 1e-5 <= excitation <= .2, "max_excitation_error_inv_angstrom must be explicit in 1e-5...2")
-    rotation = triple(request.get("euler_rzxz_deg"), "euler_rzxz_deg")
+    need((orientation is None) == ("orientation_id" not in request), "A verified orientation reference is required")
+    need(not (orientation is not None and "euler_rzxz_deg" in request),
+         "Choose orientation_id or explicit euler_rzxz_deg, never both")
+    rotation = triple(orientation["euler_rzxz_deg"] if orientation is not None else request.get("euler_rzxz_deg"), "euler_rzxz_deg")
+    if orientation is not None:
+        from transforms3d.euler import euler2mat
+        actual_matrix = euler2mat(*np.deg2rad(rotation), axes="rzxz")
+        need(np.allclose(actual_matrix, np.asarray(orientation["rotation_matrix_cartesian"]), atol=2e-12, rtol=0),
+             "Pinned diffsims RZXZ conversion differs from the shared orientation matrix", "INVALID_ORIENTATION")
     size, sigma = request.get("size", 256), request.get("sigma_pixels", 1.)
     direct = request.get("with_direct_beam", False)
     need(type(size) is int and 64 <= size <= 512 and finite(sigma) and .2 <= sigma <= 8 and type(direct) is bool,
@@ -391,6 +403,7 @@ def simulate(atoms, request, directory, ident, source_provenance=None, resolved_
                                     "input_object_id": request["object_id"], "structure_object_id": resolved_structure_object_id,
                                     "structure_snapshot": atoms_data(atoms), "structure_snapshot_sha256": sha(canonical(atoms_data(atoms))),
                                     "source_provenance": source_provenance or {"status": "direct_in_memory_library_test_no_source_file_claim"},
+                                    "orientation": orientation,
                                     "requested_parameters": {key: value for key, value in request.items() if key not in ("workspace", "action", "request_id")},
                                     "effective_parameters": {"voltage_kv": voltage, "euler_rzxz_deg": rotation,
                                                              "reciprocal_radius_inv_angstrom": radius,
@@ -439,7 +452,7 @@ def simulate(atoms, request, directory, ident, source_provenance=None, resolved_
     shown = np.log1p(raster * 1000.) / math.log1p(1000.)
     memory = io.BytesIO(); Image.fromarray(np.rint(shown * 255).astype(np.uint8)).save(memory, format="PNG")
     write_new(directory / "preview.png", memory.getvalue())
-    return {**native_metadata, "reflection_count": len(intensities), "reflections": reflections, "rasterization": rasterization,
+    return {**native_metadata, "orientation": orientation, "reflection_count": len(intensities), "reflections": reflections, "rasterization": rasterization,
             "reciprocal_enumeration": enumeration, "capture_path": str(directory),
             "array_path": str(directory / "input.npy"), "dtype": "float64", "shape_yx": [size, size], "axes": ["gy", "gx"],
             "reciprocal_pixel_scale_inv_angstrom": calibration, "physical_pixel_zero_inv_angstrom": [-(size // 2) * calibration] * 2,
@@ -501,6 +514,17 @@ class StructureWorkspace:
         need(source["kind"] == "structure", "An atomic structure object is required")
         return metadata, from_data(json_file(directory / "atoms.json")), source_id
 
+    def orientation(self, ident, source_id, atoms):
+        metadata, _ = self.object(ident)
+        need(metadata.get("kind") == "orient" and metadata.get("structure_object_id") == source_id,
+             "orientation_id must reference an orientation of this exact immutable structure", "INVALID_ORIENTATION")
+        record = metadata.get("orientation")
+        need(type(record) is dict and record.get("orientation_id") == ident and
+             record.get("structure_object_id") == source_id and
+             record.get("source_atoms_sha256") == sha(canonical(atoms_data(atoms))),
+             "Orientation source identity/geometry changed", "INVALID_ORIENTATION")
+        return record
+
     def source_provenance(self, ident):
         """Fixed source and derivations, without re-reading the original file.
 
@@ -528,7 +552,8 @@ class StructureWorkspace:
                           "rotation_deg_xyz": metadata["rotation_deg_xyz"],
                           "rotation_convention": metadata["rotation_convention"],
                           "atoms_json_sha256": metadata["files_sha256"]["atoms.json"],
-                          "software_provenance": metadata["software_provenance"]})
+                          "software_provenance": metadata["software_provenance"],
+                          **({"orientation": metadata["orientation"]} if metadata.get("orientation") else {})})
             current = parent
         raise StructureError("Structure ancestry exceeds64 immutable derivations", "BUDGET_EXCEEDED")
 
@@ -552,39 +577,97 @@ class StructureWorkspace:
             provenance = self.source_provenance(source_id)
             metadata.update(parent_object_id=previous["object_id"], structure_object_id=source_id,
                             source_provenance=provenance, **summary(atoms))
+            orientation = self.orientation(request["orientation_id"], source_id, atoms) if "orientation_id" in request else None
             if action == "view":
+                need(not (orientation is not None and "rotation_deg_xyz" in request),
+                     "Choose orientation_id or display rotation_deg_xyz, never both")
                 rotation, size = triple(request.get("rotation_deg_xyz"), "rotation_deg_xyz", [0, 0, 0]), request.get("max_size", 512)
                 need(type(size) is int and 128 <= size <= 1024, "max_size must be an integer128..1024")
                 need(type(request.get("interactive", False)) is bool, "interactive must be boolean")
-                render_atoms(atoms, directory, rotation, size)
+                display_atoms = atoms.copy()
+                if orientation is not None:
+                    matrix = np.asarray(orientation["rotation_matrix_cartesian"])
+                    display_atoms.positions = atoms.positions @ matrix.T
+                    display_atoms.set_cell(atoms.cell.array @ matrix.T, scale_atoms=False)
+                render_atoms(display_atoms, directory, rotation, size)
                 metadata.update(renderer="ase.visualize.plot.plot_atoms", projection_only=True, rotation_deg_xyz=rotation,
                                 display_does_not_change_atoms=True, max_size=size, interactive_requested=request.get("interactive", False),
+                                orientation=orientation,
                                 display_recipe={"renderer": "ase.visualize.plot.plot_atoms", "radii": .5, "show_unit_cell": 2,
-                                                "rotation_deg_xyz": rotation, "scientific_coordinates_modified": False})
+                                                "rotation_deg_xyz": rotation, "scientific_coordinates_modified": False,
+                                                "rotation_matrix_cartesian": orientation["rotation_matrix_cartesian"] if orientation else None,
+                                                "display_coordinates_transformed": orientation is not None})
+            elif action == "orient":
+                record = from_zone_axis(atoms.cell.array, request.get("zone_axis_uvw"),
+                                        request.get("in_plane_direction_uvw"), request.get("in_plane_rotation_deg", 0.))
+                record.update(orientation_id=ident, structure_object_id=source_id,
+                              source_atoms_sha256=sha(canonical(atoms_data(atoms))))
+                metadata["orientation"] = record
             elif action == "measure":
                 metadata["measurement"] = measure(atoms, request)
+            elif action == "compare":
+                need(previous.get("kind") == "simulate" and previous.get("software_provenance", {}).get("diffsims") == "0.7.0",
+                     "object_id must be an actual saved qualified diffsims simulation, not a structure/view/PNG")
+                _, simulation_directory = self.object(previous["object_id"])
+                need(json_file(simulation_directory / "reflections.json") == previous.get("reflections"),
+                     "Saved simulation reflection table contradicts its original result", "CORRUPT_OBJECT")
+                paths = request.get("measurement_paths")
+                need(type(paths) is list and 1 <= len(paths) <= 32 and all(type(p) is str for p in paths),
+                     "Supply1..32 explicit saved image_measure object.json paths")
+                measurements, sources, total = [], [], 0
+                for index, path in enumerate(paths):
+                    row, source, manifest_raw, journal_raw = load_measurement(path)
+                    total += len(manifest_raw) + len(journal_raw)
+                    need(total <= MAX_BYTES, "Fixed experimental measurement records exceed2MiB", "BUDGET_EXCEEDED")
+                    manifest_name = "measurement-{:02d}.json".format(index)
+                    journal_name = "measurement-{:02d}-original-request.json".format(index)
+                    write_new(directory / manifest_name, manifest_raw)
+                    write_new(directory / journal_name, journal_raw)
+                    measurements.append(row)
+                    sources.append({**source, "fixed_manifest_file": manifest_name, "fixed_journal_file": journal_name,
+                                    "measurement_object_id": row["object_id"], "measurement_request_id": row["request_id"]})
+                compared = compare_reflections(measurements, previous, request.get("registration"),
+                                               request.get("max_residual_inv_angstrom"), request.get("experimental_kind"),
+                                               request.get("correspondences"))
+                need(len(canonical(compared)) <= MAX_BYTES // 2,
+                     "Comparison evidence exceeds1MiB; narrow the explicit reflection list/tolerance; no evidence was truncated", "BUDGET_EXCEEDED")
+                metadata.update(**compared, simulation_object_id=previous["object_id"],
+                                simulation_orientation=previous.get("orientation"),
+                                simulation_reflections_sha256=previous["files_sha256"]["reflections.json"],
+                                experimental_sources=sources, experimental_source_files_modified=False,
+                                source_capture_semantics="fixed original image_measure manifest/request bytes; scientific calibration versions retained without re-reading live DM")
             elif action == "derive":
+                need(not (orientation is not None and "rotation_deg_xyz" in request),
+                     "Choose orientation_id or active rotation_deg_xyz, never both")
                 repeat = request.get("repeat", [1, 1, 1])
                 need(type(repeat) is list and len(repeat) == 3 and all(type(v) is int and 1 <= v <= 32 for v in repeat), "repeat must be three positive integers<=32")
                 need(len(atoms) * math.prod(repeat) <= MAX_ATOMS, "Repeated structure exceeds atom budget", "BUDGET_EXCEEDED")
                 rotation = triple(request.get("rotation_deg_xyz"), "rotation_deg_xyz", [0, 0, 0])
                 atoms = atoms.repeat(repeat)
-                for angle, axis in zip(rotation, "xyz"):
-                    atoms.rotate(angle, axis, center=(0, 0, 0), rotate_cell=True)
+                if orientation is not None:
+                    matrix = np.asarray(orientation["rotation_matrix_cartesian"])
+                    atoms.positions = atoms.positions @ matrix.T
+                    atoms.set_cell(atoms.cell.array @ matrix.T, scale_atoms=False)
+                else:
+                    for angle, axis in zip(rotation, "xyz"):
+                        atoms.rotate(angle, axis, center=(0, 0, 0), rotate_cell=True)
                 validate_atoms(atoms)
                 write_new(directory / "atoms.json", canonical(atoms_data(atoms)) + b"\n")
                 metadata.pop("structure_object_id")
                 metadata.update(kind="structure", **summary(atoms), repeat=repeat, rotation_deg_xyz=rotation,
-                                rotation_convention="active Cartesian x then y then z; positions+cell rotated about origin", source_structure_object_id=source_id)
+                                orientation=orientation,
+                                rotation_convention="active shared orientation matrix; positions+cell rotated about origin" if orientation else "active Cartesian x then y then z; positions+cell rotated about origin", source_structure_object_id=source_id)
             elif action == "simulate":
                 metadata.update(**simulate(atoms, request, directory, ident, source_provenance=provenance,
-                                           resolved_structure_object_id=source_id))
+                                           resolved_structure_object_id=source_id, orientation=orientation))
             else:
                 raise StructureError("Unknown action")
         metadata.update(schema_version=1, backend=BACKEND, dm_called=False, computation_source="explicit_external_python",
                         software_provenance={"python": platform.python_version(), "ase": ase.__version__, "numpy": np.__version__,
+                                             "scipy": importlib.metadata.version("scipy"),
                                              **({"diffsims": importlib.metadata.version("diffsims"), "diffpy.structure": importlib.metadata.version("diffpy.structure")} if action == "simulate" else {}),
-                                             "module_sha256": sha(Path(__file__).read_bytes())},
+                                             "module_sha256": sha(Path(__file__).read_bytes()),
+                                             "helper_modules_sha256": {name: sha(Path(__file__).with_name(name).read_bytes()) for name in ("orientation.py", "reflection_compare.py")}},
                         files_sha256={file.name: sha(file.read_bytes()) for file in directory.iterdir() if file.is_file()},
                         manifest_path=str(directory / "object.json"))
         if (directory / "preview.png").is_file():

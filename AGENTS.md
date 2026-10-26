@@ -12,8 +12,11 @@ software provenance. They are never a fallback for a failed `dm_*` call.
 Missing physical calibration does not block pixel exploration; do not invent
 physical spacings, phase units, frame depth or square physical pixels. Keep
 user-supplied interpretation/calibration separate and revisable. The independent
-image_calibrate record binds signed real-space XY to an exact image/sequence;
-legacy context scale notes are not operational calibration. Retain its source,
+image_calibrate record binds signed XY to an exact image/sequence and coordinate
+domain. Validated native READ/schema-1 captures activate that same versioned
+record with native provenance; user corrections create new sourced revisions.
+See docs/NATIVE_CALIBRATION_HANDOFF.md. Legacy context scale notes are not
+operational calibration. Retain its source,
 scope, revision and unknown uncertainty through measurements, physical bars and
 saved-FFT axes without rewriting scientific arrays. Changing or withdrawing
 that record requires a fresh render before annotation/export; old objects stay
@@ -58,18 +61,29 @@ before per-operator ABI, scientific and ownership qualification.
 The structure/diffraction companion is now an optional composable tool route,
 not a mandatory phase-identification pipeline. `structure_*` uses ASE and an
 explicit external diffsims kinematic engine in its own environment; the local
-3Dmol viewer changes only the camera. See docs/STRUCTURE_DIFFRACTION_TOOLS.md.
+3Dmol viewer changes only the camera during interaction. Shared zone-axis
+records explicitly orient a display copy and the simulation; see
+docs/STRUCTURE_ORIENTATION.md. Saved experimental reciprocal measurements can
+be compared to un-rasterized simulated reflections with explicit registration;
+see docs/REFLECTION_COMPARISON.md. These are geometric comparisons, not unique
+phase or intensity proofs. See docs/STRUCTURE_DIFFRACTION_TOOLS.md and
+docs/STRUCTURE_VIEWER_LIFECYCLE.md for partial-cell viewing and owned helper
+reuse/closure.
 It is not a native fallback, and an experimental FFT is not a simulated SAED
 intensity image. Preserve generic cells, cell-free XYZ observation, source
 snapshots, software/approximation parameters and candidate uncertainty.
 
-The explicitly authorized `dm_native_import` candidate is a numerical handoff
+The explicitly authorized `dm_native_import` is a numerical handoff
 exception to the earlier outbound-only workflow: bounded finite float32 NPY,
 source/provenance hashes, signed raw-index calibration and a new independent DM
 image. No arbitrary scripts, hidden casts, DM tag writes or source overwrite.
-The normal adapter group remains disabled until separately qualified; a labeled
-synthetic qualification build must not be represented as release support. No
-new build fingerprint is admitted. See docs/DM_NUMERIC_RELAY.md. Mature external
+The normal adapter now admits only the separately qualified, finite 2D float32
+subset of at most 16,384 samples: real-space ASCII `nm` or reciprocal-space
+ASCII `1/nm`. Other units, empty-unit image coordinates and dtypes remain
+unqualified/refused. A broader diagnostic qualification build must not be
+represented as normal-build support. No new build fingerprint is admitted.
+Candidate human re-edit/recapture and final normal-artifact import/readback/
+ownership checks are separate evidence scopes. See docs/DM_NUMERIC_RELAY.md. Mature external
 scientific tools may produce this explicit input; do not label their computation
 DM-native or present a display PNG as scientific intensity.
 
@@ -106,10 +120,10 @@ docs/CRYSTALLOGRAPHY_WORKFLOW.md before changing this companion.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has twenty qualified-interface entries plus the gated dm_native_import candidate: dm_status,
+The separate experimental native catalog has twenty-one qualified-interface entries, each with its own restricted scope: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
-dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_frame, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile and dm_native_histogram.
+dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_frame, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile, dm_native_histogram and the limited dm_native_import.
 
 Explicit `coordinate_mode:"pixel"` on crop/filter/Fourier selects separate
 `*_PIXEL` request identities and the qualified native_pixel_crop,

@@ -134,6 +134,7 @@ std::string execute_import_packet353(const NativeRequest& request, const ImportP
     if (!histogram_api353.create_image || !histogram_api353.set_dimension_calibration || !import_api353.set_real_value || !api.real_value || !api.packing)
         throw std::runtime_error("native_import_interface_unavailable");
     const auto spec = nb::import_spec353(request.args);
+    if (nb::gms353::kImportAsciiOnly353) nb::require_import_ascii_scope353(spec);
     if (spec.ticket != packet.spec.ticket || spec.npy_sha256 != packet.spec.npy_sha256 ||
         spec.manifest_sha256 != packet.spec.manifest_sha256 || spec.width != packet.spec.width || spec.height != packet.spec.height ||
         spec.domain != packet.spec.domain || spec.unit != packet.spec.unit ||
@@ -224,7 +225,8 @@ std::string execute_import_packet353(const NativeRequest& request, const ImportP
     auto result = json_stream(); result << "{\"backend\":\"digitalmicrograph-native\",\"operation\":\"IMPORT\",\"image_id\":" << output_id
         << ",\"image\":" << descriptor << ",\"shape\":[" << spec.height << ',' << spec.width << "],\"dtype\":\"float32\",\"axes\":[\"y\",\"x\"]"
         << ",\"external_import\":" << external_context << ",\"pixel_readback_exact\":true,\"calibration_readback_exact\":true"
-        << ",\"qualification\":\"CANDIDATE_BUILD_NOT_RELEASE_QUALIFIED\""
+        << ",\"qualification\":" << nb::quote(nb::gms353::kImportQualificationBuild353
+            ? "CANDIDATE_BUILD_NOT_RELEASE_QUALIFIED" : "LIMITED_SYNTHETIC_REAL_HOST_PASS")
         << ",\"operator\":\"GMS::Image::CreateImage + GMS::Image::SetRealValue\",\"computation\":\"data handoff only; scientific values computed externally\""
         << ",\"intensity_calibration_applied\":false,\"intensity_semantics\":\"raw external numeric values\",\"visible_dm_document\":false,\"source_write_requested\":false,\"snapshot_atomic\":false}";
     auto value = result.str(); if (!nb::valid_json(value) || value.size() > nb::kMaxReply-2048) throw std::runtime_error("native_import_result_over_budget");
@@ -236,5 +238,6 @@ std::string execute_import_packet353(const NativeRequest& request, const ImportP
 std::string execute_import353(const NativeRequest& request) {
     require_ready();
     if (!qualified_capability353("native_numeric_import")) throw std::runtime_error("native_operation_not_qualified:native_numeric_import");
+    if (nb::gms353::kImportAsciiOnly353) nb::require_import_ascii_scope353(nb::import_spec353(request.args));
     return execute_import_packet353(request, load_import353(request));
 }

@@ -86,6 +86,56 @@ test('actual MCP ASE→diffsims→scientific capture→image PNG→fresh-client 
   }finally{await c.close();rmSync(f.directory,{recursive:true,force:true});}
 });
 
+test('zone-axis MCP record drives the same view and actual diffsims laboratory coordinates',optionalEnvironment,async()=>{
+  const f=fixture();let c=client(f.workspace);try{
+    const bytes=readFileSync(f.source),opened=unpack(await c.tool('structure_open',{source_path:f.source,request_id:'zone-cif'}));
+    const orientation=unpack(await c.tool('structure_orient',{object_id:opened.object_id,zone_axis_uvw:[1,1,0],in_plane_direction_uvw:[0,0,1],request_id:'zone-110'}));
+    assert.equal(orientation.kind,'orient');assert.equal(orientation.orientation.structure_object_id,opened.object_id);
+    const a=1/Math.sqrt(2),expected=[[0,0,1],[a,-a,0],[a,a,0]];
+    orientation.orientation.rotation_matrix_cartesian.forEach((row,i)=>row.forEach((v,j)=>assert.ok(Math.abs(v-expected[i][j])<1e-14)));
+    const initial=unpack(await c.tool('structure_info',{object_id:opened.object_id,include_atoms:true}));
+    const message=await c.tool('structure_view',{object_id:opened.object_id,orientation_id:orientation.object_id,max_size:256,request_id:'zone-view'});picture(message);
+    const view=unpack(message);assert.deepEqual(view.orientation,orientation.orientation);assert.equal(view.display_recipe.scientific_coordinates_modified,false);
+    assert.deepEqual(unpack(await c.tool('structure_info',{object_id:view.object_id,include_atoms:true})).atoms,initial.atoms);
+    const simulation=unpack(await c.tool('structure_simulate',{object_id:opened.object_id,orientation_id:orientation.object_id,voltage_kv:200,reciprocal_radius_inv_angstrom:1.3,max_excitation_error_inv_angstrom:.02,size:64,request_id:'zone-simulation'}));
+    assert.deepEqual(simulation.orientation,orientation.orientation);assert.ok(simulation.reflection_count>2);
+    simulation.reflections.hkl.forEach(([h,k,l],i)=>{
+      const expectedVector=[l/3.6,(h-k)*a/3.6,(h+k)*a/3.6];assert.equal(h+k,0);
+      simulation.reflections.coordinates_inv_angstrom[i].forEach((v,j)=>assert.ok(Math.abs(v-expectedVector[j])<2e-14));
+    });
+    const double=await c.raw('structure_simulate',{object_id:opened.object_id,orientation_id:orientation.object_id,euler_rzxz_deg:[0,0,0],voltage_kv:200,reciprocal_radius_inv_angstrom:1.3,max_excitation_error_inv_angstrom:.02,request_id:'double-rotation'});
+    assert.equal(double.result.isError,true);assert.match(double.result.content[0].text,/exactly one/);
+    assert.equal(existsSync(path.join(f.workspace,'structures','requests','double-rotation.json')),false);
+    await c.close();c=client(f.workspace);const recovered=unpack(await c.tool('structure_result',{request_id:'zone-110'}));assert.equal(recovered.object_id,orientation.object_id);assert.deepEqual(recovered.orientation,orientation.orientation);
+    assert.deepEqual(readFileSync(f.source),bytes);
+  }finally{await c.close();rmSync(f.directory,{recursive:true,force:true});}
+});
+
+test('actual MCP compares sourced FFT peak measurements with unrastered simulated reflections without changing calibration',optionalEnvironment,async()=>{
+  const f=fixture(),c=client(f.workspace),tiff=path.join(f.directory,'known-periods.tiff');try{
+    const code="import numpy as np,tifffile,sys; y,x=np.indices((16,16)); a=np.rint(1000+100*np.cos(2*np.pi*x/4)+100*np.cos(2*np.pi*y/4)).astype(np.uint16); tifffile.imwrite(sys.argv[1],a,photometric='minisblack')";
+    const made=spawnSync(python,['-c',code,tiff],{encoding:'utf8'});assert.equal(made.status,0,made.stderr);
+    const source=readFileSync(tiff),opened=unpack(await c.tool('structure_open',{source_path:f.source,request_id:'comparison-cif'}));
+    const oriented=unpack(await c.tool('structure_orient',{object_id:opened.object_id,zone_axis_uvw:[0,0,1],in_plane_direction_uvw:[1,0,0],request_id:'comparison-001'}));
+    const sim=unpack(await c.tool('structure_simulate',{object_id:opened.object_id,orientation_id:oriented.object_id,voltage_kv:200,reciprocal_radius_inv_angstrom:1.3,max_excitation_error_inv_angstrom:.02,size:64,request_id:'comparison-simulation'}));
+    const sequence=unpack(await c.tool('image_open',{source_path:tiff,source_kind:'tiff',request_id:'comparison-open-image'}));
+    const frame=unpack(await c.tool('image_frame',{object_id:sequence.object_id,frame_index:0,request_id:'comparison-frame'}));
+    const cal=unpack(await c.tool('image_calibrate',{object_id:frame.object_id,scope:'image',xy_scale:{x:.045,y:.045,unit:'nm'},source_text:'Synthetic independent scale: a four-pixel period equals1.8Angstrom, no experimental calibration inferred',request_id:'comparison-calibration'}));
+    const fft=unpack(await c.tool('image_fft',{object_id:cal.object_id,rect:[0,0,16,16],window:'none',subtract_mean:true,request_id:'comparison-fft'}));
+    const m1=unpack(await c.tool('image_measure',{object_id:fft.object_id,coordinate_space:'frequency_cycles_per_pixel',points:[[0,0],[.25,0]],request_id:'comparison-peak-x'}));
+    const m2=unpack(await c.tool('image_measure',{object_id:fft.object_id,coordinate_space:'frequency_cycles_per_pixel',points:[[0,0],[0,.25]],request_id:'comparison-peak-y'}));
+    const old=[readFileSync(m1.manifest_path),readFileSync(m2.manifest_path)],science=readFileSync(fft.array_path);
+    const result=unpack(await c.tool('structure_compare',{object_id:sim.object_id,measurement_paths:[m1.manifest_path,m2.manifest_path],experimental_kind:'real_space_fft',registration:{rotation_deg:0,scale:1,translation_inv_angstrom:[0,0],flip_y:false,basis:'Synthetic common XY convention; identity is supplied, not automatically fitted'},max_residual_inv_angstrom:1e-12,correspondences:[{measurement_index:0,hkl:[2,0,0]},{measurement_index:1,hkl:[0,2,0]}],request_id:'comparison-geometric'}));
+    assert.equal(result.all_experimental_reflections_matched_within_tolerance,true);assert.equal(result.matched.length,2);assert.equal(result.phase_identified,false);assert.equal(result.intensity_comparison_performed,false);
+    assert.equal(result.registration.experimental_calibration_modified,false);assert.equal(result.registration.registration_verified,false);
+    assert.equal(result.observations[0].calibration_dependency.calibration_id,cal.object_id);
+    for(const match of result.matched){assert.ok(match.position_residual_inv_angstrom<1e-14);assert.ok(Math.abs(match.experiment_original_projected_period_angstrom-1.8)<1e-14);}
+    assert.equal(result.pairwise_angles[0].experimental_registered_signed_angle_deg,90);
+    assert.deepEqual([readFileSync(m1.manifest_path),readFileSync(m2.manifest_path)],old);assert.deepEqual(readFileSync(fft.array_path),science);assert.deepEqual(readFileSync(tiff),source);
+    const recovered=unpack(await c.tool('structure_result',{request_id:'comparison-geometric'}));assert.equal(recovered.object_id,result.object_id);assert.deepEqual(recovered.matched,result.matched);
+  }finally{await c.close();rmSync(f.directory,{recursive:true,force:true});}
+});
+
 test('accepted external structure wait cancellation recovers the same object without a second write',optionalEnvironment,async()=>{
   const f=fixture(),workspace=path.join(f.directory,'cancel-workspace'),marker=path.join(f.directory,'accepted'),worker=path.join(f.directory,'slow-worker.py');
   const code=`import sys,time\nfrom pathlib import Path\nsys.path.insert(0,${JSON.stringify(root)})\nfrom crystallography import structure_tools as st\nfrom tools import structure_worker\noriginal=st.StructureWorkspace.action\ndef delayed(self,request):\n    Path(${JSON.stringify(marker)}).write_text('accepted')\n    time.sleep(0.4)\n    return original(self,request)\nst.StructureWorkspace.action=delayed\nraise SystemExit(structure_worker.main())\n`;

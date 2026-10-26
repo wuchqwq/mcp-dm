@@ -46,7 +46,7 @@ No installer or client configuration is silently changed.
 | `image_compare` | Compare 2..4 same-grid planes/ROIs with one shared gray range |
 | `image_fft` | Explicit external FFT, with optional mean subtraction/Hann window |
 | `image_measure` | Pixel/frequency geometry; physical geometry with an active versioned XY record |
-| `image_calibrate` | Create, revise, withdraw or explicitly attach an exact-scope user XY calibration |
+| `image_calibrate` | Create, revise, withdraw or explicitly attach an exact-scope XY record; preserve admitted native calibration and user revisions |
 | `image_context` | Create a revision of user interpretation; legacy scale notes remain descriptive |
 | `image_annotate` | Replace an overlay or update existing stable IDs, including retraction |
 | `image_export` | Exclusively create scientific NPY, available PNG and provenance |
@@ -93,6 +93,14 @@ complex arrays never change. Revised/withdrawn calibration requires a new
 preview before exporting changed scale bars/axes; earlier exports remain
 historical. See [the unified trial guide](UNIFIED_IMAGE_TRIAL.md) and
 [coordinate/measurement contracts](IMAGE_ANNOTATIONS.md).
+
+Internally validated native READ captures can activate their existing physical
+axes in this same versioned record, with `source:"native_dm_capture"`; no repeated
+user scale entry is needed. Original origins, signed scales, mixed-unit
+conversion and crop offsets remain traceable. Incomplete or ambiguous axes
+remain pixel-only. Reciprocal axes are distinct from real-space scales, and
+changing a user scale cannot reinterpret an established coordinate domain. See
+[native calibration admission](NATIVE_CALIBRATION_HANDOFF.md).
 
 ## Multi-turn example
 

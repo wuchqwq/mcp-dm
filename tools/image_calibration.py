@@ -1,4 +1,4 @@
-"""Versioned user-stated real-space XY calibration, independent of DM.
+"""Versioned sourced XY calibration, independent of the live DM runtime.
 
 Only geometry is converted. Stored pixels, intensity semantics, Fourier arrays,
 phase units and frame/depth meaning are deliberately outside this module.
@@ -24,13 +24,28 @@ def require(condition, message):
         raise CalibrationError(message)
 
 
-def validated_scale(value):
+def unit_kind(value):
+    """Exact recognized unit spellings only; no guessing or encoding repair."""
+    if type(value) is not str:
+        return None
+    if value.startswith("cycles/"):
+        value = "1/" + value[7:]
+    inverse = value.startswith("1/")
+    base = value[2:] if inverse else value
+    base = ALIASES.get(base, base)
+    return ("reciprocal_space" if inverse else "real_space", base) if base in UNITS else None
+
+
+def validated_scale(value, coordinate_domain="real_space"):
     require(type(value) is dict and set(value) <= {"x", "y", "unit", "uncertainty_x", "uncertainty_y"},
             "xy_scale requires signed x/y, a supported real-space length unit and optional absolute scale uncertainties")
     require(all(finite(value.get(axis)) and value[axis] != 0 for axis in ("x", "y")),
             "Both XY scales must be explicit finite nonzero signed values; square pixels are never inferred")
-    unit = ALIASES.get(value.get("unit"), value.get("unit")) if type(value.get("unit")) is str else None
-    require(unit in UNITS, "Real-space XY unit must be m, mm, um, nm or angstrom (Å accepted); diffraction and intensity units are separate")
+    require(coordinate_domain in ("real_space", "reciprocal_space"), "Explicit real-space or reciprocal-space calibration domain required")
+    parsed = unit_kind(value.get("unit"))
+    require(parsed is not None and parsed[0] == coordinate_domain,
+            "XY unit must match the declared real-space length or reciprocal-space inverse-length domain; intensity units are separate")
+    unit = ("1/" if coordinate_domain == "reciprocal_space" else "") + parsed[1]
     require(all(math.isfinite(1. / value[axis]) for axis in ("x", "y")), "XY inverse scale exceeds finite binary64")
     result = {"x": float(value["x"]), "y": float(value["y"]), "unit": unit,
               "uncertainty_x": None, "uncertainty_y": None,
@@ -45,18 +60,120 @@ def validated_scale(value):
 
 
 def active_scale(record):
-    return record.get("xy_scale") if type(record) is dict and record.get("status") == "active" else None
+    return record.get("xy_scale") if type(record) is dict and record.get("status") == "active" and record.get("coordinate_domain", "real_space") == "real_space" else None
 
 
 def dependency(record):
     return {"calibration_id": record["calibration_id"], "revision": record["revision"],
-            "status": record["status"], "source": "user_statement_not_independently_verified"} if record else None
+            "status": record["status"], "source": record.get("source", "user_statement_not_independently_verified"),
+            **({"coordinate_domain": record["coordinate_domain"]} if "coordinate_domain" in record else {})} if record else None
+
+
+def native_record(info, provenance, ident, applies_to):
+    """Admit geometry only after the caller's complete saved-READ validator.
+
+    Hashes attest internal evidence consistency, not metrological accuracy or
+    concurrent/live-source stability. Preserve raw native axes separately.
+    """
+    admission = {"status": "pixel_only", "source": "native_dm_capture",
+                 "reason": "native XY physical calibration is incomplete or unsupported"}
+    semantics = info.get("scientific_semantics") or {}
+    context = info.get("scientific_context") or {}
+    if context.get("status") == "unresolved_lineage":
+        admission["reason"] = "unresolved scientific lineage; native units cannot establish the current domain"
+        return None, admission
+    axes = info.get("working_calibration_xy")
+    mathematical = semantics.get("status") == "tracked_fourier"
+    if mathematical:
+        if semantics.get("coordinate_mode") == "pixel":
+            admission["reason"] = "tracked native pixel Fourier coordinates have no physical scale; preserved native units are not mathematical frequency calibration"
+            return None, admission
+        axes = semantics.get("coordinate_axes")
+    if type(axes) is not list or len(axes) != 2:
+        return None, admission
+    observed, kinds = [], []
+    for dim, axis in enumerate(axes):
+        if type(axis) is not dict or axis.get("dm_dimension") != dim or axis.get("numpy_axis") != 1-dim:
+            return None, admission
+        kind = unit_kind(axis.get("unit"))
+        step = axis.get("scale")
+        zero = axis.get("calibrated_value_at_pixel_zero")
+        if kind is None or not finite(step) or step == 0 or not finite(zero) or (not mathematical and axis.get("usable") is not True):
+            return None, admission
+        kinds.append(kind)
+        observed.append({"axis": "x" if dim == 0 else "y", "dm_dimension": dim,
+                         "numpy_axis": 1-dim, "size": axis["size"],
+                         "raw_origin": None if mathematical else axis.get("origin"),
+                         "physical_zero": float(zero), "signed_scale": float(step), "unit": axis["unit"],
+                         "coordinate_source": "validated_mathematical_fourier_axis" if mathematical else "fresh_native_READ_axis"})
+    if kinds[0][0] != kinds[1][0]:
+        admission["reason"] = "X/Y physical domains disagree; no real-space/reciprocal-space mixing"
+        return None, admission
+    domain = kinds[0][0]
+    if mathematical and domain != ("reciprocal_space" if semantics.get("domain") == "frequency" else "real_space"):
+        admission["reason"] = "unit domain conflicts with validated mathematical scientific coordinates"
+        return None, admission
+    history = info.get("native_external_import")
+    if not mathematical and type(history) is dict and history.get("coordinate_domain") in ("real_space", "reciprocal_space") and history["coordinate_domain"] != domain:
+        admission["reason"] = "current unit domain conflicts with historical external-import domain; creation metadata does not establish the edited current domain"
+        return None, admission
+    # Convert both signed axes to the first axis's length unit. A reciprocal
+    # frequency has the inverse conversion factor; preserve every raw field.
+    scales, zeros = [], []
+    for row, kind in zip(observed, kinds):
+        factor = UNITS[kind[1]] / UNITS[kinds[0][1]]
+        if domain == "reciprocal_space":
+            factor = 1. / factor
+        scale, zero = row["signed_scale"] * factor, row["physical_zero"] * factor
+        if (not all(finite(v) for v in (factor, scale, zero)) or scale == 0 or not finite(1. / scale) or
+                row["physical_zero"] != 0 and zero == 0):
+            admission["reason"] = "native unit conversion exceeds finite nonzero binary64 resolution"
+            return None, admission
+        row["to_record_unit_factor"] = factor
+        scales.append(scale); zeros.append(zero)
+    unit = ("1/" if domain == "reciprocal_space" else "") + kinds[0][1]
+    scale = validated_scale({"x": scales[0], "y": scales[1], "unit": unit}, domain)
+    record = {"calibration_id": ident, "revision": 1, "previous_calibration_id": None,
+              "status": "active", "scope": "image", "applies_to": applies_to,
+              "xy_scale": scale, "source": "native_dm_capture", "coordinate_domain": domain,
+              "source_text": "Native dimension calibration from the exact validated immutable READ capture; no user statement substituted",
+              "uncertainty_status": "unknown; native metadata provides no independent calibration uncertainty",
+              "real_space_only": domain == "real_space", "original_file_metadata_modified": False,
+              "value_unit_or_frame_depth_inferred": False, "native_axes": observed,
+              "physical_zero_xy": zeros, "raw_native_calibration": info.get("working_calibration_xy"),
+              "native_capture_provenance": provenance,
+              "verification_scope": "internally validated saved native READ/array/axis evidence; no metrological or atomic live-source guarantee"}
+    if domain == "reciprocal_space":
+        dc = [a.get("dc_index_in_roi") if mathematical else a.get("origin") for a in axes]
+        if all(finite(v) for v in dc):
+            record["dc_index_xy"] = dc
+            record["dc_identity_source"] = "validated mathematical Fourier bins" if mathematical else "native raw-index calibration origin; physical-zero getter rounding is preserved separately"
+    admission.update(status="active", reason="validated saved native READ with consistent physical XY axes", coordinate_domain=domain)
+    return record, admission
+
+
+def physical_points(points, record):
+    if not record or record.get("status") != "active" or "physical_zero_xy" not in record:
+        return None
+    scale, zero = record["xy_scale"], record["physical_zero_xy"]
+    result = []
+    for point in points:
+        converted = []
+        for dim, name in enumerate(("x", "y")):
+            component = point[dim] * scale[name]
+            require(finite(component) and not (point[dim] != 0 and component == 0),
+                    "A nonzero physical point component underflows or overflows binary64; cannot report a false absolute coordinate")
+            converted.append(zero[dim] + component)
+        result.append(converted)
+    require(all(finite(v) for p in result for v in p), "Physical point coordinates exceed finite binary64")
+    return result
 
 
 def geometry(dx, dy, record, frequency=False):
     """Convert mathematical cycles/pixel, never radians, with signed XY axes."""
     require(finite(dx) and finite(dy), "Measurement displacement must be finite")
-    scale = active_scale(record)
+    reciprocal = bool(record and record.get("status") == "active" and record.get("coordinate_domain") == "reciprocal_space" and not frequency)
+    scale = record["xy_scale"] if reciprocal else active_scale(record)
     result = {"calibration_dependency": dependency(record),
               "physical_angle": False, "physical_angle_degrees": None,
               "measurement_uncertainty": None,
@@ -75,15 +192,17 @@ def geometry(dx, dy, record, frequency=False):
     result.update(physical_angle=length != 0,
                   physical_angle_degrees=math.degrees(math.atan2(y, x)) if length else None,
                   physical_vector_xy=[x, y],
-                  limitation="Geometry based on a sourced user statement; no independent calibration verification or phase identification")
-    if frequency:
+                  limitation=("Geometry based on validated saved native metadata; no independent metrological verification or phase identification" if record.get("source") == "native_dm_capture" else
+                              "Geometry based on a sourced user statement; no independent calibration verification or phase identification"))
+    if frequency or reciprocal:
         period = 1. / length if length else None
         require(period is None or finite(period), "Reciprocal period exceeds finite binary64")
         result.update(physical_distance=None, physical_unit=None,
-                      physical_frequency_magnitude=length, physical_frequency_unit="cycles/" + scale["unit"],
-                      period=period, period_unit=scale["unit"],
+                      physical_frequency_magnitude=length, physical_frequency_unit="cycles/" + (scale["unit"][2:] if reciprocal else scale["unit"]),
+                      period=period, period_unit=scale["unit"][2:] if reciprocal else scale["unit"],
                       zero_frequency_reason="DC has no finite reciprocal period" if not length else None,
-                      frequency_convention="cycles, not radians; fx_physical=fx_cycles_per_pixel/signed_scale_x; analogous y; no 2pi")
+                      frequency_convention=("cycles, not radians; original array-index displacement times signed reciprocal calibration; no 2pi" if reciprocal else
+                                            "cycles, not radians; fx_physical=fx_cycles_per_pixel/signed_scale_x; analogous y; no 2pi"))
     else:
         result.update(physical_distance=length, physical_unit=scale["unit"])
     return result
@@ -124,4 +243,4 @@ def scale_bar_spec(panel, record):
     return {"visible": True, "length": length, "unit": scale["unit"], "source_length_pixels": length_pixels,
             "image_endpoints_xyxy": [left + 12, bottom - 13, left + 12 + width, bottom - 13],
             "axis": "x", "signed_scale": scale["x"], "calibration_id": record["calibration_id"],
-            "provenance": "user_statement_not_independently_verified", "display_only": True}
+            "provenance": record.get("source", "user_statement_not_independently_verified"), "display_only": True}

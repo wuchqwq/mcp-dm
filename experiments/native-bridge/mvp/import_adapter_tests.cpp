@@ -66,7 +66,6 @@ void expect_import_fail(const NativeRequest& r, const ImportPacket353& p, const 
     check(failed && retained_results.empty() && retained_result_bytes==0 && registry.size()==1 && fake.references==1);
     check(fake.pixels==std::vector<float>(12,7.25f));if(before_create)check(created==import_creates&&writes==import_writes);
 }
-#ifdef NB_IMPORT_QUALIFICATION_BUILD
 // Real Windows file I/O and the real request registry; only vendor callbacks
 // are synthetic. Staging is confined to a freshly owned temporary directory.
 struct ImportStagingFixture {
@@ -144,7 +143,6 @@ void localappdata_atomic_publication_test(const std::string& npy,const std::stri
     }
     setup_import();const auto result=load_import353({"localappdata-atomic-publication","IMPORT",args});check(result.pixels==pixels&&result.manifest==manifest);check(import_creates==0&&import_writes==0);shutdown_native();
 }
-#endif
 }
 int main(int argc, char** argv) {
     try {
@@ -163,11 +161,26 @@ int main(int argc, char** argv) {
             try{nb::import_npy353(bad,packet.spec);check(false);}catch(const std::runtime_error&){check(true);}
         }
         setup_import();
-#ifndef NB_IMPORT_QUALIFICATION_BUILD
-        (void)argc; (void)argv;
-        expect_import_fail(request,packet,"native_operation_not_qualified:native_numeric_import",true);
-        std::cout<<"import shipping-disabled tests passed "<<assertions<<" assertions; no vendor calls\n";return 0;
-#else
+        if (!nb::gms353::kImportAdmitted353) {
+            expect_import_fail(request,packet,"native_operation_not_qualified:native_numeric_import",true);
+            std::cout<<"import shipping-disabled tests passed "<<assertions<<" assertions; no vendor calls\n";return 0;
+        }
+        if (nb::gms353::kImportAsciiOnly353) {
+            for (const auto packed : {0u,16u,18u,19u,32u,37u,38u}) {
+                setup_import(); auto refused_args=args; refused_args[26]=packed;
+                auto refused=packet; refused.spec=nb::import_spec353(refused_args);
+                expect_import_fail({"unqualified-unit","IMPORT",refused_args},refused,
+                    "native_import_ascii_scope_requires_nm_or_reciprocal_nm",true);
+                try { execute_native({"no-staged-files-for-refused-unit","IMPORT",refused_args});check(false); }
+                catch(const std::runtime_error& e) { check(std::string(e.what())=="native_import_ascii_scope_requires_nm_or_reciprocal_nm"); }
+                check(import_creates==0&&import_writes==0&&import_axes==0);
+            }
+            setup_import(); auto reciprocal_args=args; reciprocal_args[26]=36;
+            auto reciprocal=packet; reciprocal.spec=nb::import_spec353(reciprocal_args);
+            check(nb::valid_json(execute_import_packet353({"ascii-reciprocal","IMPORT",reciprocal_args},reciprocal)));
+            check(retained_results.begin()->second.metadata.find("1/nm")!=std::string::npos);shutdown_native();
+            setup_import();
+        }
         auto created=attach_retention353(request,execute_import_packet353(request,packet));check(nb::valid_json(created));check(import_creates==1&&import_writes==12&&import_axes==2);
         if(argc==2){std::ofstream file(argv[1],std::ios::binary);file<<"{\"args\":[";for(std::size_t i=0;i<args.size();++i){if(i)file<<',';file<<args[i];}file<<"],\"result\":"<<created<<'}';check(file.good());}
         check(retained_results.size()==1&&retained_result_bytes==48&&fake.references==1);
@@ -191,11 +204,12 @@ int main(int argc, char** argv) {
         }
         setup_import();auto corrupt=packet;corrupt.pixels[0]=std::numeric_limits<float>::quiet_NaN();expect_import_fail(request,corrupt,"native_import_nonfinite_pixel",true);
         setup_import();corrupt=packet;corrupt.manifest="{}";expect_import_fail(request,corrupt,"native_import_packet_identity_mismatch",true);
-        setup_import();auto unknown_args=args;unknown_args[26]=0;auto unknown=packet;unknown.spec=nb::import_spec353(unknown_args);check(nb::valid_json(execute_import_packet353({"unknown","IMPORT",unknown_args},unknown)));check(retained_results.begin()->second.metadata.find("\"calibration_complete\":false")!=std::string::npos);
+        setup_import();auto unknown_args=args;unknown_args[26]=0;auto unknown=packet;unknown.spec=nb::import_spec353(unknown_args);
+        if (nb::gms353::kImportAsciiOnly353) expect_import_fail({"unknown","IMPORT",unknown_args},unknown,"native_import_ascii_scope_requires_nm_or_reciprocal_nm",true);
+        else {check(nb::valid_json(execute_import_packet353({"unknown","IMPORT",unknown_args},unknown)));check(retained_results.begin()->second.metadata.find("\"calibration_complete\":false")!=std::string::npos);}
         shutdown_native();
         fixed_root_and_recovery_tests(npy,manifest,pixels);
         localappdata_atomic_publication_test(npy,manifest,pixels);
         std::cout<<"import candidate adapter tests passed "<<assertions<<" assertions; C-shaped fakes only, no DM\n";return 0;
-#endif
     } catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

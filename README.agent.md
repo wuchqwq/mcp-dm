@@ -21,9 +21,19 @@ Optional `structure_*` tools read generic CIF/XYZ, query ASE geometry and run
 explicit diffsims kinematic electron diffraction in an independent environment;
 see [structure tools and approximation limits](docs/STRUCTURE_DIFFRACTION_TOOLS.md).
 They are composable with the image tools and never required for viewing a TIFF.
-The [bounded native import candidate](docs/DM_NUMERIC_RELAY.md) creates a new
+Use `structure_orient` for a sourced three-index UVW direction in the actual
+cell; share its `orientation_id` between view and simulation instead of guessing
+Euler angles. `structure_compare` accepts committed reciprocal `image_measure`
+records and explicit registration. It does not identify a unique phase or
+compare HRTEM/ptychography FFT intensities with SAED. Equivalent interactive
+views reuse their helper; recover `structure_viewer_close` with that same tool's
+original ID, separately from scientific `structure_result` requests.
+The [bounded native import](docs/DM_NUMERIC_RELAY.md) creates a new
 numerical DM image only when its separate adapter group is qualified; an image
 file or SHOW of an existing result is not a general scientific import.
+Normal-build admission is only finite 2D float32 up to 16384 pixels, with
+real-space `nm` or reciprocal-space `1/nm`. Use the reported native capability,
+pre-save the request ID, and explicitly SHOW the resulting image when required.
 
 For independent uint16 multi-frame TIFF or pixel-only exploration, the opt-in
 `image_*` tools provide explicit frame/ROI, fixed-range comparison, MCP image
@@ -48,6 +58,12 @@ Old exported versions remain immutable. Legacy `image_context.xy_scale` is
 descriptive only, never silently promoted to operational calibration.
 User calibration does not imply a phase unit, frame depth, axial resolution
 or unique phase identification. See [the calibrated interaction contract](docs/IMAGE_ANNOTATIONS.md#user-stated-xy-calibration).
+An admitted native READ capture automatically activates its validated physical
+axes through this same record, with `source:"native_dm_capture"`; do not ask the
+user to repeat an available scale. Unknown or conflicting axes remain pixel-only.
+Preserve raw origins, signed steps, crop offsets, domain and version; corrections
+create user revisions rather than rewriting the native record. See
+[native calibration admission](docs/NATIVE_CALIBRATION_HANDOFF.md).
 
 For a combined trial checkout and client configuration, use
 [the unified trial guide](docs/UNIFIED_IMAGE_TRIAL.md). The optional
@@ -101,11 +117,11 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 | Backend | Scope in this checkout | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Twenty established entries plus a separately gated import candidate; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope; FRAME has its own qualification. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
+| Opt-in native | Twenty established entries plus limited separately qualified numeric import; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope; FRAME has its own qualification. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
 This feature checkout's native catalog has twenty established entries plus
-the separately gated `dm_native_import` candidate. Established tools include
+the separately qualified limited `dm_native_import`. Established tools include
 qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect

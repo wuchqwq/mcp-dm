@@ -32,7 +32,7 @@ async function browserHarness(source=structure(),{edges=[[0,1]],afterAssign,miss
   const el=id=>{if(!elements.has(id))elements.set(id,{textContent:'',value:'',disabled:true});return elements.get(id);};
   const model={addAtoms(values){atoms.push(...values.map((a,i)=>({...a,index:i,bonds:[...a.bonds],bondOrder:[...a.bondOrder]})));},selectedAtoms(){return atoms;},removeAtoms(){calls.remove++;atoms=[];},setCrystMatrix(matrix){calls.matrix=matrix.values;},assignBonds(){calls.assign++;const graph=graphAtoms(data.structure,edges);atoms.forEach((a,i)=>{a.bonds=graph[i].bonds;a.bondOrder=graph[i].bondOrder;});afterAssign?.(atoms);}};
   if(missingAssign)delete model.assignBonds;
-  const viewer={addModel(){return model;},setStyle(a,b){calls.styles.push(b);view=[0,0,0,-99,0,0,0,1];},addUnitCell(){calls.cell=true;},zoomTo(){calls.zoom++;view=[0,0,0,-10,0,0,0,1];},render(){},getView(){return [...view];},setView(value){view=[...value];},setViewChangeCallback(fn){calls.camera=fn;},resize(){}};
+  const viewer={addModel(){return model;},setStyle(a,b){calls.styles.push(b);view=[0,0,0,-99,0,0,0,1];},addUnitCell(){calls.cell=true;},addArrow(spec){(calls.arrows??=[]).push(spec);},zoomTo(){calls.zoom++;view=[0,0,0,-10,0,0,0,1];},render(){},getView(){return [...view];},setView(value){view=[...value];},setViewChangeCallback(fn){calls.camera=fn;},resize(){}};
   const sandbox={document:{getElementById:el},sessionStorage:{setItem(){},getItem(){return service.token;}},location:{hash:'#'+service.token,pathname:'/'},history:{replaceState(){}},window:{addEventListener(){}},fetch:async()=>({ok:true,json:async()=>data}),$3Dmol:{createViewer(){return viewer;},Matrix3:class{constructor(...values){this.values=values;}}}};
   await vm.runInNewContext('(async()=>{'+script+'})()',sandbox);
   return {data,el,calls,get atoms(){return atoms;},get view(){return view;},set view(value){view=[...value];},change(mode){el('display-mode').value=mode;el('display-mode').onchange();},async close(){await service.close();f.close();}};
@@ -47,7 +47,19 @@ test('finite known atoms, position shape and work budget are checked before serv
  const s=structure();s.symbols=Array(4096).fill('C');s.positions_angstrom=Array.from({length:4096},(_,i)=>[i,0,0]);assert.equal(validateStructureSnapshot(s).atom_count,4096);s.symbols.push('C');s.positions_angstrom.push([4096,0,0]);assert.throws(()=>validateStructureSnapshot(s),/4096/);
 });
 test('no-cell XYZ remains viewable without inventing periodicity or a cell',()=>{
- const s=structure();s.cell_angstrom=Array.from({length:3},()=>[0,0,0]);s.pbc=[false,false,false];assert.equal(validateStructureSnapshot(s).cell_drawn,false);s.pbc[0]=true;assert.throws(()=>validateStructureSnapshot(s),/full-rank/);
+ const s=structure();s.cell_angstrom=Array.from({length:3},()=>[0,0,0]);s.pbc=[false,false,false];assert.equal(validateStructureSnapshot(s).cell_drawn,false);s.pbc[0]=true;assert.throws(()=>validateStructureSnapshot(s),/actual nonzero/);
+});
+test('partial periodic cells retain only actual independent directions and never require a fictitious third vector',()=>{
+ const s=structure();s.cell_angstrom=[[3,0,0],[-1,2,0],[0,0,0]];s.pbc=[true,true,false];const before=JSON.stringify(s),out=validateStructureSnapshot(s);
+ assert.equal(out.cell_drawn,false);assert.equal(out.cell_display,'declared_periodic_vectors_only');assert.deepEqual(out.periodic_cell_axes,[0,1]);assert.deepEqual(out.cell_angstrom[2],[0,0,0]);assert.equal(JSON.stringify(s),before);
+ s.pbc=[true,false,false];assert.deepEqual(validateStructureSnapshot(s).periodic_cell_axes,[0]);s.cell_angstrom[0]=[0,0,0];assert.throws(()=>validateStructureSnapshot(s),/actual nonzero/);
+ s.cell_angstrom=[[3,0,0],[6,0,0],[0,0,0]];s.pbc=[true,true,false];assert.throws(()=>validateStructureSnapshot(s),/independent/);
+});
+test('partial-cell presentation draws actual periodic vectors without synthesizing a three-dimensional unit cell',async()=>{
+ const s=structure();s.cell_angstrom=[[3,0,0],[-1,2,0],[0,0,0]];s.pbc=[true,true,false];const h=await browserHarness(s);try{
+  assert.equal(h.calls.cell,undefined);assert.equal(h.calls.matrix,undefined);assert.equal(h.calls.arrows.length,2);assert.deepEqual(JSON.parse(JSON.stringify(h.calls.arrows.map(a=>a.end))),[{x:3,y:0,z:0},{x:-1,y:2,z:0}]);
+  assert.match(h.el('summary').textContent,/2 个已知周期方向/);assert.deepEqual(h.data.structure.cell_angstrom,s.cell_angstrom);
+ }finally{await h.close();}
 });
 test('optional local mature renderer must exist with pinned package metadata; absence is not a 3D success',async()=>{
  await assert.rejects(createStructureViewer({structure:structure(),assetPath:path.resolve('missing-3dmol/3Dmol-min.js')}));const f=fixture();try{const a=read3DmolAsset(f.assetPath);assert.equal(a.version,STRUCTURE_VIEWER_VERSION);assert.match(a.sha256,/^[a-f0-9]{64}$/);writeFileSync(path.join(f.packageDirectory,'package.json'),JSON.stringify({name:'3dmol',version:'0.0.0',license:'BSD-3-Clause'}));assert.throws(()=>read3DmolAsset(f.assetPath),/pinned/);}finally{f.close();}
@@ -62,6 +74,20 @@ test('loopback transport refuses missing token, wrong Host/Origin, writes and ar
   const page=await (await fetch(origin+'/')).text();assert.ok(!page.includes(structure().object_id));assert.ok(!page.includes('positions_angstrom'));assert.match(page,/3Dmol-min\.js/);assert.match(page,/缺项用组件默认 1\.6 Å/);assert.match(response.headers.get('content-security-policy'),/connect-src 'self'/);
   assert.equal((await fetch(origin+'/3Dmol-min.js')).status,200);assert.equal((await fetch(origin+'/LICENSE-3Dmol.txt')).status,200);
  }finally{await viewer?.close();f.close();}
+});
+test('owned helper closure needs explicit POST, exact token/origin and snapshot identity; a closing acknowledgement is not an exit receipt',async()=>{
+ const f=fixture();let service,closed;
+ try{
+  service=await createStructureViewer({structure:structure(),assetPath:f.assetPath,onClosed:record=>{closed=record;}});
+  const origin=service.url.split('/#')[0],headers={'X-Viewer-Token':service.token,Origin:origin,'Content-Type':'application/json'},command={request_id:'close-test',object_id:structure().object_id,snapshot_sha256:service.snapshot_sha256},body=JSON.stringify(command);
+  assert.equal((await fetch(origin+'/api/close')).status,405);
+  assert.equal((await fetch(origin+'/api/close',{method:'POST',headers:{...headers,'X-Viewer-Token':'0'.repeat(48)},body})).status,403);
+  assert.equal((await fetch(origin+'/api/close',{method:'POST',headers:{...headers,Origin:'https://foreign.invalid'},body})).status,403);
+  assert.equal((await fetch(origin+'/api/close',{method:'POST',headers,body:JSON.stringify({...command,snapshot_sha256:'0'.repeat(64)})})).status,400);
+  assert.equal((await fetch(origin+'/api/close',{method:'POST',headers,body:body.replace('"close-test"','"close-test","request_id":"close-test"')})).status,400);
+  assert.equal((await fetch(origin+'/api/structure',{headers})).status,200);assert.equal(closed,undefined);
+  const ack=await(await fetch(origin+'/api/close',{method:'POST',headers,body})).json();assert.equal(ack.state,'closing');assert.notEqual(ack.state,'closed');await service.close('close-test');assert.equal(closed.state,'closed');assert.equal(closed.request_id,'close-test');assert.equal(closed.snapshot_sha256,service.snapshot_sha256);assert.equal(closed.object_id,structure().object_id);
+ }finally{await service?.close();f.close();}
 });
 test('browser adapter calls mature APIs with the full Cartesian cell and camera-only changes',async()=>{
  const f=fixture();let service;try{

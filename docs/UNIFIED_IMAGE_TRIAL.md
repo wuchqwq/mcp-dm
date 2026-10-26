@@ -1,7 +1,7 @@
 # Try the unified image tools
 
 This is an opt-in feature branch, not a main release. Use
-`feature/structure-diffraction-relay` for the newest combined trial. It includes the
+`feature/calibrated-crystal-relay` for the newest combined trial. It includes the
 PR18 annotation/zoom work, PR16 pixel tools and PR17 fixes. Do not install the
 old PR17 branch separately or merge every open PR into a local checkout.
 PR12/15 supply the retained native/crystallography ancestry; PR13/14 fixes and
@@ -13,6 +13,12 @@ PR12/15/16/18 were open; PR13/14 were also open but their feature-branch merges
 were already in this ancestry. PR17 was merged into PR16, not main. The historical calibration trial
 was stacked on PR18; PR19/20 and the shared-view continuation are retained; no reset, duplicate integration or main merge is
 part of enabling it. Check GitHub again before integrating these branches.
+
+The calibrated relay continuation is stacked on PR22's
+`feature/structure-diffraction-relay`, which retains PR21 and PR20. Its native
+calibration, restricted float32 return, shared crystallographic orientation and
+reflection comparison are incremental additions. Use this combined checkout;
+do not repeatedly merge each dependency or treat any open PR as main support.
 
 ## Connect once
 
@@ -92,6 +98,6 @@ The same checkout includes optional [structure tools](STRUCTURE_DIFFRACTION_TOOL
 Install their separate requirements/environment only when needed, add
 `DM_STRUCTURE_WORKSPACE`/`DM_STRUCTURE_PYTHON`, then inspect the real MCP catalog.
 An optional local 3Dmol asset enables a read-only structure viewer; a projection
-PNG alone is not 3D acceptance. The [native numerical import candidate](DM_NUMERIC_RELAY.md)
-has a separate qualification gate and must not be enabled merely because
+PNG alone is not 3D acceptance. [Native numerical import](DM_NUMERIC_RELAY.md)
+has a separately qualified limited float32 ASCII-unit scope; do not expand it merely because
 structure or image tests pass. No new backend is selected implicitly.

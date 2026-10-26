@@ -44,7 +44,7 @@ FIELDS = {
     "fft": {"object_id", "rect", "window", "subtract_mean", "max_size"},
     "annotate": {"object_id", "annotations", "updates"}, "context": {"object_id", "metadata"},
     "measure": {"object_id", "points", "coordinate_space"}, "export": {"object_id", "output_dir"},
-    "calibrate": {"object_id", "scope", "xy_scale", "source_text", "calibration_object_id"},
+    "calibrate": {"object_id", "scope", "xy_scale", "source_text", "calibration_object_id", "coordinate_domain"},
     "get": {"object_id"}, "result": {"query_request_id"},
 }
 
@@ -474,7 +474,7 @@ class Workspace:
                 context = metadata.get("user_context")
             ident = metadata["base_object_id"]
 
-    def calibration_scope(self, ident, scope):
+    def calibration_scope(self, ident, scope, coordinate_domain="real_space"):
         """Exact immutable source/frame identity, never filename/latest matching."""
         need(scope in ("image", "sequence"), "scope must explicitly be image or sequence")
         pending, seen, frames, sequences = [ident], set(), {}, {}
@@ -488,8 +488,13 @@ class Workspace:
             if metadata["kind"] == "tiff_source":
                 sequences[current] = metadata
             elif metadata["kind"] == "frame":
-                need(metadata.get("array_domain") != "frequency",
-                     "Real-space XY calibration cannot relabel an imported frequency-domain array; diffraction calibration is separate")
+                need(metadata.get("array_domain") not in ("frequency", "reciprocal") or coordinate_domain == "reciprocal_space",
+                     "Real-space XY calibration cannot relabel an imported frequency-domain array; declare reciprocal_space and inverse-length units explicitly")
+                need(metadata.get("array_domain") != "spatial" or coordinate_domain == "real_space",
+                     "Reciprocal-space XY calibration cannot relabel a known spatial image; calibration revises scale, not the scientific array domain")
+                if coordinate_domain == "reciprocal_space":
+                    need(metadata.get("array_domain") in ("frequency", "reciprocal"),
+                         "Reciprocal-space calibration requires an established reciprocal array domain; unknown inputs remain pixel-only")
                 frames[current] = metadata
             for key in ("base_object_id", "parent_object_id", "source_object_id", "render_base_object_id", "spectrum_object_id"):
                 target = metadata.get(key)
@@ -510,23 +515,30 @@ class Workspace:
         previous, _, context = self.resolved(request.get("object_id"))
         old = previous.get("xy_calibration")
         if "calibration_object_id" in request:
-            need(not any(key in request for key in ("scope", "xy_scale", "source_text")),
+            need(not any(key in request for key in ("scope", "xy_scale", "source_text", "coordinate_domain")),
                  "Attach an existing calibration OR provide a new statement; do not combine modes")
             reference, _ = self.object(request["calibration_object_id"])
             record = reference.get("xy_calibration")
-            need(type(record) is dict and reference["kind"] == "calibration",
-                 "calibration_object_id must be an explicit image_calibrate result")
-            target = self.calibration_scope(request["object_id"], record["scope"])
+            need(type(record) is dict and (reference["kind"] == "calibration" or
+                 reference["kind"] == "frame" and record.get("source") == "native_dm_capture"),
+                 "calibration_object_id must be an explicit calibration result or its validated native-capture frame")
+            target = self.calibration_scope(request["object_id"], record["scope"], record.get("coordinate_domain", "real_space"))
             need(target == record["applies_to"], "Calibration belongs to a different immutable image/sequence", "CALIBRATION_SCOPE_MISMATCH")
             return previous, context, dict(record), {"attached_existing_calibration": True,
                                                      "calibration_object_id": request["calibration_object_id"]}
         scope = request.get("scope")
-        target = self.calibration_scope(request["object_id"], scope)
+        domain = request.get("coordinate_domain", old.get("coordinate_domain", "real_space") if old and request.get("xy_scale", 1) is None else "real_space")
+        need(domain in ("real_space", "reciprocal_space"), "coordinate_domain must be real_space or reciprocal_space")
+        need(old is None or domain == old.get("coordinate_domain", "real_space"),
+             "Calibration revisions cannot change an established real-space/reciprocal-space domain; this is not an array reinterpretation interface")
+        need(previous["kind"] not in ("fft", "fft_view") or domain == "real_space",
+             "Saved external FFT calibration uses its source real-space pixel scale, never a reciprocal scale on the complex array")
+        target = self.calibration_scope(request["object_id"], scope, domain)
         source = request.get("source_text")
         need(type(source) is str and 1 <= len(source) <= 4000 and source.strip(),
              "A new or withdrawn calibration requires the actual user source_text")
         need("xy_scale" in request, "xy_scale must be supplied; explicit null withdraws a calibration")
-        scale = calibration.validated_scale(request["xy_scale"]) if request["xy_scale"] is not None else None
+        scale = calibration.validated_scale(request["xy_scale"], domain) if request["xy_scale"] is not None else None
         if scale is None:
             need(old is not None and old["scope"] == scope and old["applies_to"] == target,
                  "Withdrawal must reference an existing calibration with the same explicit scope")
@@ -538,7 +550,7 @@ class Workspace:
                   "source": "user_statement_not_independently_verified",
                   "uncertainty_status": ("scale uncertainty supplied; measurement uncertainty remains unknown without localization/covariance"
                                          if scale and any(scale["uncertainty_" + a] is not None for a in ("x", "y")) else "unknown"),
-                  "real_space_only": True, "original_file_metadata_modified": False,
+                  "coordinate_domain": domain, "real_space_only": domain == "real_space", "original_file_metadata_modified": False,
                   "value_unit_or_frame_depth_inferred": False}
         return previous, context, record, {"attached_existing_calibration": False}
 
@@ -684,6 +696,17 @@ class Workspace:
                             scientific_context=info.get("scientific_context"),
                             array_domain=(info.get("scientific_semantics") or {}).get("domain", "unspecified_image"),
                             capture_verification_mode="image" if native else "default_schema1_hashes_dtype_axes")
+            if native:
+                target = {"object_id": ident, "kind": "frame", "source_identity": None,
+                          "frame_index": None, "source_capture_files_sha256": hashes}
+                record, admission = calibration.native_record(info, checked.provenance, ident, target)
+                metadata["calibration_admission"] = admission
+                if record:
+                    metadata["xy_calibration"] = record
+                    metadata["array_domain"] = "reciprocal" if record["coordinate_domain"] == "reciprocal_space" else "spatial"
+            else:
+                metadata["calibration_admission"] = {"status": "pixel_only", "source": "unknown",
+                    "reason": "generic schema-1 metadata is preserved but is not validated native READ calibration; use an explicit user calibration"}
         elif action == "calibrate":
             previous, context, record, extra = self.new_calibration(request, ident)
             old = previous.get("xy_calibration")
@@ -736,11 +759,11 @@ class Workspace:
                 points = request.get("points")
                 need(type(points) is list and len(points) == 2 and all(type(p) is list and len(p) == 2 and all(number(v) for v in p) for p in points),
                      "measure requires two explicit [x,y] coordinates")
-                space = request.get("coordinate_space", "frequency_cycles_per_pixel" if spectral_view else "source_pixels")
-                need(space == ("frequency_cycles_per_pixel" if spectral_view else "source_pixels"),
-                     "coordinate_space must match the actual spatial image or saved complex FFT; never infer physical/diffraction coordinates")
-                need(spectral_view or parent.get("array_domain") != "frequency",
-                     "Imported frequency-domain scalar arrays lack the original FFT coordinate contract")
+                reciprocal_array = not spectral_view and parent.get("array_domain") in ("frequency", "reciprocal")
+                expected_space = "frequency_cycles_per_pixel" if spectral_view else "source_array_indices" if reciprocal_array else "source_pixels"
+                space = request.get("coordinate_space", expected_space)
+                need(space == expected_space,
+                     "coordinate_space must match the actual spatial image, reciprocal scalar-array indices or saved complex FFT")
                 if spectral_view:
                     h, w = values.shape
                     need(all(-(w//2)/w <= p[0] <= (w-1-w//2)/w and
@@ -757,8 +780,10 @@ class Workspace:
                      "Distinct measurement points required, except explicit FFT DC inspection")
                 measured = calibration.geometry(dx, dy, record, frequency=spectral_view)
                 metadata.update(points=points, dx=dx, dy=dy, coordinate_space=space,
-                                coordinate_system="original fftshift cycles/pixel; no2pi" if spectral_view else "source pixel centres; x right,y down",
-                                source_rect_xyxy=bounds, **measured)
+                                coordinate_system="original fftshift cycles/pixel; no2pi" if spectral_view else "source array centres; x right,y down; current calibrated domain is explicit",
+                                source_rect_xyxy=bounds,
+                                measurement_domain=("reciprocal_space" if measured.get("physical_frequency_magnitude") is not None else
+                                                    "real_space" if measured.get("physical_distance") is not None else "pixel_geometry"), **measured)
                 if spectral_view:
                     magnitude = math.hypot(dx, dy)
                     metadata.update(frequency_distance_cycles_per_pixel=magnitude,
@@ -767,10 +792,22 @@ class Workspace:
                                     image_coordinate_angle_degrees=math.degrees(math.atan2(dy, dx)) if magnitude else None,
                                     d_spacing=measured.get("period") if [0, 0] in points else None,
                                     d_spacing_unit=measured.get("period_unit") if [0, 0] in points else None,
+                                    dc_reference_point_index=points.index([0, 0]) if [0, 0] in points else None,
                                     reciprocal_interpretation="geometric period of frequency difference; d_spacing only for a vector referenced to explicit DC, not an hkl/phase identification")
                 else:
                     metadata.update(distance_pixels=math.hypot(dx, dy),
                                     image_coordinate_angle_degrees=math.degrees(math.atan2(dy, dx)))
+                    physical = calibration.physical_points(points, record)
+                    metadata.update(physical_points_xy=physical,
+                                    physical_points_unit=record["xy_scale"]["unit"] if physical else None)
+                    if reciprocal_array:
+                        # A frequency difference is a geometric period; d-spacing
+                        # requires one endpoint at the actual calibrated DC.
+                        at_dc = physical is not None and record.get("dc_index_xy") in points
+                        metadata.update(d_spacing=measured.get("period") if at_dc else None,
+                                        d_spacing_unit=measured.get("period_unit") if at_dc else None,
+                                        dc_reference_point_index=points.index(record["dc_index_xy"]) if at_dc else None,
+                                        reciprocal_interpretation="calibrated reciprocal-array geometry; d_spacing only when an endpoint is explicit mathematical/calibrated DC; not an hkl or phase assertion")
             elif spectral_view:
                 need(values.dtype == np.dtype("complex128"), "FFT view requires the saved complex128 spectrum")
                 need(request.get("rect") is None,
@@ -1080,7 +1117,7 @@ class Workspace:
 
 
 def panel(object_id, source_rect, image_rect, array_domain=None):
-    frequency = array_domain == "frequency"
+    frequency = array_domain in ("frequency", "reciprocal")
     return {"domain": "source_array_indices" if frequency else "spatial_pixels", "source_object_id": object_id,
             "source_rect_xyxy": list(source_rect), "image_rect_xyxy": list(image_rect),
             **({"upstream_array_domain": "frequency", "spatial_roi_mapping_performed": False,

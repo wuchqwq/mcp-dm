@@ -1,18 +1,20 @@
 # Fixed-build native adapter ABI notes
 
-## Restricted numerical import candidate
+## Restricted numerical import
 
-The optional import qualification build reuses the pinned exported CreateImage
+The numerical-import implementation reuses the pinned exported CreateImage
 and dimension-calibration interfaces plus exported SetRealValue/GetRealValue
 with the existing two-dimensional DataIndex contract. It adds no private RVA,
 pixel-buffer layout, arbitrary file reader or script execution interface.
 Input is an exact hash-bound, finite float32 NPY/JSON ticket; signed raw-origin
 calibration and every written value are read back before retention. Existing
 image identities are held and checked to reject an aliased output before writes.
-The default build group remains disabled: export/signature evidence and fake
-tests do not establish this new operation's real-host safety or ownership.
-Its final artifact's live acceptance remains HOLD; see [RESULTS](RESULTS.md)
-and [the relay contract](../../docs/DM_NUMERIC_RELAY.md).
+The normal build admits a separately qualified small float32 subset with ASCII
+`nm` real-space or `1/nm` reciprocal axes. Final normal-artifact synthetic-host
+value, calibration and document-lifetime checks are distinct from export/signature
+evidence and adapter substitutes. Other units, dtypes and builds remain
+unqualified; the broader diagnostic build cannot extend that scope. See
+[RESULTS](RESULTS.md) and [the relay contract](../../docs/DM_NUMERIC_RELAY.md).
 
 ## Explicit sequence-frame copy
 
