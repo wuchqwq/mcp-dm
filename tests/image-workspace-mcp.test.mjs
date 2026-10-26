@@ -219,3 +219,62 @@ test('frequency zoom preserves original bins, full complex export and anchored m
   assert.deepEqual(readFileSync(f.source),source);
  }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
 });
+
+test('short cyan and optional orange arrows preserve source anchors through actual MCP revisions',async()=>{
+ const f=fixture();let c=client(f.workspace);try{
+  const source=readFileSync(f.source);
+  const opened=result(await c.tool('image_open',{source_path:f.source,request_id:'style-open'}));
+  const frame=result(await c.tool('image_frame',{object_id:opened.object_id,frame_index:1,request_id:'style-frame'}));
+  const fft=result(await c.tool('image_fft',{object_id:frame.object_id,window:'hann',request_id:'style-fft'}));
+  const raw=readFileSync(fft.array_path);
+  const view=result(await c.tool('image_preview',{object_id:fft.object_id,display_preset:'fft_detail',request_id:'style-view'}));
+  const primary={annotation_id:'primary-candidate',kind:'arrow',coordinate_space:'frequency_cycles_per_pixel',
+   source_object_id:fft.object_id,coordinates:[-.25,-.25,.25,.25],status:'hypothesized'};
+  const secondary={...primary,annotation_id:'secondary-candidate',coordinates:[-.2,.2,.2,-.2],color:'orange',
+   note:'Second-phase candidate is a proposed interpretation, not a confirmed phase'};
+  const markedMessage=await c.tool('image_annotate',{object_id:view.object_id,annotations:[primary,secondary],request_id:'style-mark'});
+  const marked=result(markedMessage);picture(markedMessage);
+  const length=coords=>Math.hypot(coords[2]-coords[0],coords[3]-coords[1]);
+  for(const [i,input] of [primary,secondary].entries()){
+   const mark=marked.annotations[i];
+   assert.equal(mark.color,i===0?'cyan':'orange');assert.equal(mark.status,'hypothesized');
+   assert.equal(mark.line_width,3);assert.equal(mark.arrowhead_size,6);assert.equal(mark.arrow_length,24);
+   assert.ok(Math.abs(length(mark.arrow_render_coordinates)-24)<1e-10);
+   assert.ok(length(mark.coordinates)>24);
+   assert.deepEqual(mark.arrow_render_coordinates.slice(2),mark.coordinates.slice(2));
+   assert.deepEqual(mark.anchor,{coordinate_space:input.coordinate_space,source_object_id:fft.object_id,coordinates:input.coordinates});
+   assert.deepEqual(mark.source_mappings[0].frequency_cycles_per_pixel,input.coordinates);
+  }
+  const resizedMessage=await c.tool('image_preview',{object_id:marked.object_id,max_size:768,gamma:.9,request_id:'style-resize'});
+  const resized=result(resizedMessage);picture(resizedMessage);
+  for(let i=0;i<2;i++){
+   assert.deepEqual(resized.annotations[i].anchor,marked.annotations[i].anchor);
+   assert.ok(Math.abs(length(resized.annotations[i].arrow_render_coordinates)-24)<1e-10);
+   assert.equal(resized.annotations[i].color,marked.annotations[i].color);
+   assert.equal(resized.annotations[i].status,'hypothesized');
+   assert.deepEqual(resized.annotations[i].arrow_render_coordinates.slice(2),resized.annotations[i].coordinates.slice(2));
+  }
+  assert.deepEqual(readFileSync(resized.array_path),raw);
+  const full=result(await c.tool('image_annotate',{object_id:resized.object_id,annotations:[{...primary,arrow_length:null}],request_id:'style-full'}));
+  assert.equal(full.annotations[0].arrow_length,null);
+  assert.deepEqual(full.annotations[0].arrow_render_coordinates,full.annotations[0].coordinates);
+  assert.ok(length(full.annotations[0].arrow_render_coordinates)>24);
+  for(const [i,value] of [3,129,4.5,true,'24'].entries()){
+   const invalid=await c.tool('image_annotate',{object_id:view.object_id,annotations:[{...primary,arrow_length:value}],request_id:'style-invalid-'+i});
+   assert.equal(invalid.error.code,-32602);
+  }
+  const wrongKind=await c.tool('image_annotate',{object_id:view.object_id,annotations:[{...primary,kind:'line',arrow_length:24}],request_id:'style-line-cap'});
+  assert.equal(wrongKind.result.isError,true);
+  const dest=path.join(f.dir,'short-arrow-export');
+  result(await c.tool('image_export',{object_id:resized.object_id,output_dir:dest,request_id:'style-export'}));
+  assert.deepEqual(readFileSync(path.join(dest,'data.npy')),raw);
+  const manifest=JSON.parse(readFileSync(path.join(dest,'manifest.json')));
+  assert.deepEqual(manifest.display_object.annotations,resized.annotations);
+  assert.deepEqual(readFileSync(path.join(dest,'preview.png')),readFileSync(resized.image_path));
+  await c.close();c=client(f.workspace);
+  const recoveredMessage=await c.tool('image_result',{request_id:'style-resize'});picture(recoveredMessage);
+  const recovered=result(recoveredMessage);
+  assert.equal(recovered.object_id,resized.object_id);assert.deepEqual(recovered.annotations,resized.annotations);
+  assert.deepEqual(readFileSync(f.source),source);assert.deepEqual(readFileSync(fft.array_path),raw);
+ }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
+});

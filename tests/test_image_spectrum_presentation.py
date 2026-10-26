@@ -219,13 +219,88 @@ class ImageSpectrumPresentationTests(unittest.TestCase):
         view = self.ok("view", object_id=self.frame["object_id"], upscale=True, max_size=128)
         original = {"kind": "arrow", "coordinates": [20, 20, 60, 40], "status": "hypothesized"}
         marked = self.ok("annotate", object_id=view["object_id"], annotations=[original])
-        self.assertEqual(marked["annotations"][0]["line_width"], 1)
-        self.assertEqual(marked["annotations"][0]["arrowhead_size"], 4)
-        for field, values in (("line_width", (0, 5, 1.5, True)), ("arrowhead_size", (0, 13, 1.5, True))):
+        mark = marked["annotations"][0]
+        self.assertEqual(mark["line_width"], 3)
+        self.assertEqual(mark["arrowhead_size"], 6)
+        self.assertEqual(mark["color"], "cyan")
+        self.assertEqual(mark["arrow_length"], 24)
+        self.assertEqual(mark["coordinates"], original["coordinates"])
+        self.assertEqual(mark["arrow_render_coordinates"][2:], original["coordinates"][2:])
+        self.assertAlmostEqual(math.dist(mark["arrow_render_coordinates"][:2], mark["coordinates"][2:]), 24)
+        for field, values in (("line_width", (0, 5, 1.5, True)), ("arrowhead_size", (0, 13, 1.5, True)),
+                              ("arrow_length", (0, 3, 129, 24.5, True, "24"))):
             for value in values:
                 with self.subTest(field=field, value=value):
                     self.assertFalse(self.execute("annotate", object_id=view["object_id"],
                                                  annotations=[dict(original, **{field: value})])["ok"])
+
+    def test_short_cyan_arrows_preserve_tip_and_anchor_on_resize_and_export(self):
+        view = self.ok("view", object_id=self.fft["object_id"], display_preset="fft_detail")
+        original = {"kind": "arrow", "coordinates": [-.3, -.2, .2, .1],
+                    "coordinate_space": "frequency_cycles_per_pixel", "source_object_id": self.fft["object_id"],
+                    "annotation_id": "candidate", "status": "hypothesized", "text": "A"}
+        marked = self.ok("annotate", object_id=view["object_id"], annotations=[original])
+        revised = self.ok("view", object_id=marked["object_id"], max_size=768)
+        for current in (marked, revised):
+            mark = current["annotations"][0]
+            self.assertEqual(mark["anchor"]["coordinates"], original["coordinates"])
+            self.assertEqual(mark["source_mappings"][0]["frequency_cycles_per_pixel"], original["coordinates"])
+            self.assertEqual(mark["arrow_render_coordinates"][2:], mark["coordinates"][2:])
+            self.assertAlmostEqual(math.dist(mark["arrow_render_coordinates"][:2], mark["coordinates"][2:]), 24)
+            self.assertEqual((mark["color"], mark["line_width"], mark["arrowhead_size"]), ("cyan", 3, 6))
+            expected = self.png(view if current is marked else self.ok("view", object_id=view["object_id"], max_size=768)).convert("RGB")
+            # Independent render oracle: short horizontal/diagonal guide and
+            # label position use the actual tail, not the far original endpoint.
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(expected)
+            x0, y0, x1, y1 = mark["arrow_render_coordinates"]
+            draw.line([x0, y0, x1, y1], fill="#45e8ff", width=3)
+            angle = math.atan2(y1-y0, x1-x0)
+            draw.polygon([(x1, y1)]+[(x1-6*math.cos(angle+a), y1-6*math.sin(angle+a)) for a in (-.5, .5)], fill="#45e8ff")
+            draw.text([x0, y0], "A", fill="#45e8ff")
+            np.testing.assert_array_equal(np.asarray(self.png(current)), np.asarray(expected))
+        confirmed = self.ok("annotate", object_id=view["object_id"], annotations=[dict(original, status="user_confirmed")])
+        self.assertEqual(confirmed["annotations"][0]["color"], "cyan")
+        np.testing.assert_array_equal(np.asarray(self.png(marked)), np.asarray(self.png(confirmed)))
+        output = self.root / "cyan-export"
+        self.ok("export", object_id=revised["object_id"], output_dir=str(output))
+        manifest = json.loads((output/"manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["display_object"]["annotations"], revised["annotations"])
+        self.assertEqual((output/"data.npy").read_bytes(), self.complex_before)
+        self.assert_inputs_unchanged()
+
+    def test_orange_candidate_explicit_styles_and_short_segments_are_not_reclassified(self):
+        view = self.ok("view", object_id=self.frame["object_id"], upscale=True, max_size=128)
+        original = {"kind": "arrow", "coordinates": [20, 20, 23, 24], "status": "hypothesized",
+                    "color": "orange", "note": "second-phase candidate, not confirmed"}
+        marked = self.ok("annotate", object_id=view["object_id"], annotations=[original])
+        mark = marked["annotations"][0]
+        self.assertEqual(mark["arrow_render_coordinates"], original["coordinates"])
+        self.assertEqual((mark["color"], mark["status"], mark["note"]), ("orange", "hypothesized", original["note"]))
+        full = self.ok("annotate", object_id=view["object_id"], annotations=[dict(original, coordinates=[20,20,90,60],
+                       arrow_length=None, line_width=1, arrowhead_size=2)])
+        self.assertEqual(full["annotations"][0]["arrow_render_coordinates"], [20,20,90,60])
+        resized = self.ok("view", object_id=full["object_id"], max_size=256)
+        restored = resized["annotations"][0]
+        self.assertIsNone(restored["arrow_length"])
+        self.assertEqual(restored["arrow_render_coordinates"], restored["coordinates"])
+        self.assertEqual((restored["line_width"], restored["arrowhead_size"], restored["color"]), (1,2,"orange"))
+        self.assertFalse(self.execute("annotate", object_id=view["object_id"],
+                                    annotations=[dict(original, kind="line", arrow_length=24)])["ok"])
+
+    def test_historical_arrow_rerender_keeps_full_shaft_and_collapsed_display_rejects(self):
+        panels = [{"source_object_id": "a"*32, "domain": "spatial_pixels",
+                   "source_rect_xyxy": [0,0,64,64], "image_rect_xyxy": [0,0,128,128]}]
+        old = {"kind":"arrow", "anchor":{"coordinate_space":"source_pixels", "source_object_id":"a"*32,
+                                         "coordinates":[0,0,60,60]},
+               "line_width":1, "arrowhead_size":4, "color":"amber", "status":"hypothesized"}
+        mark = engine.annotation(old, [128,128], panels, reproject=True)
+        self.assertIsNone(mark["arrow_length"])
+        self.assertEqual(mark["arrow_render_coordinates"], mark["coordinates"])
+        self.assertEqual((mark["color"], mark["line_width"], mark["arrowhead_size"]), ("amber",1,4))
+        with self.assertRaises(engine.WorkspaceError):
+            engine.annotation({"kind":"arrow", "coordinates":[0,0,1e-20,0], "coordinate_space":"source_pixels",
+                               "source_object_id":"a"*32}, [128,128], panels)
 
     def test_frequency_axes_margins_keep_dc_arrow_and_region_mathematically_anchored(self):
         axes = self.ok("view", object_id=self.fft["object_id"], max_size=256, upscale=True,
@@ -467,7 +542,7 @@ class ImageSpectrumPresentationTests(unittest.TestCase):
         default = self.ok("annotate", object_id=view["object_id"], annotations=[original])
         amber = self.ok("annotate", object_id=view["object_id"], annotations=[dict(original, color="amber")])
         np.testing.assert_array_equal(np.asarray(self.png(default)), np.asarray(self.png(amber)))
-        for color in ("white", "cyan", "amber", "green"):
+        for color in ("white", "cyan", "orange", "amber", "green"):
             with self.subTest(color=color):
                 marked = self.ok("annotate", object_id=view["object_id"], annotations=[dict(original, color=color)])
                 self.assertEqual(marked["annotations"][0]["color"], color)

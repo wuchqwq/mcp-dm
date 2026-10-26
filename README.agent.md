@@ -36,7 +36,10 @@ For ordinary FFT figures start with `image_preview(display_preset:"fft_detail")`
 an unfiltered log-amplitude view with a recorded percentile display range.
 Inspect it before applying filters. Keep fine texture and streaks visible;
 do not assume that a black background or smooth bright blobs are improvements.
-Use sparse white marks on grayscale when suitable; status remains separate.
+Use sparse short cyan arrows by default (3px width, 6px head, maximum24px
+shaft); use `color:"orange"` for an explicitly proposed second-phase candidate.
+Arrow tips stay anchored; only the displayed tail is shortened. Scientific
+status remains separate: an orange arrow does not confirm a second phase.
 Published reciprocal masks/indices require their own evidence and calibration.
 `fft_detail` revision 2 uses gamma 0.8 for slightly darker midtones, with no
 default smoothing/background subtraction. To keep a user's current limits,

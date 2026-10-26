@@ -168,14 +168,29 @@ different rendering for a structural change. This route uses the independent
 `requirements-images.txt` environment, including SciPy and Pillow >=10.1; do
 not install or upgrade these packages inside GMS Python.
 
-For sparse guides, start with `line_width:1` and `arrowhead_size:3` or `4`
-(display pixels, preserved across revisions). Stop arrows outside the bright
-feature, keep labels near the outer tail, and avoid drawing lines through the
-evidence unless that line itself is the proposed observation. User feedback
-can revise the presentation without confirming a scientific interpretation.
-`color:"white"` is useful for grayscale figures. Display color is independent
-of the explicit hypothesis/confirmation/retraction status; green alone never
-means that a scientific interpretation has been verified.
+New arrows default to short, thicker cyan guides: `line_width:3`,
+`arrowhead_size:6` and `arrow_length:24` (maximum shaft length in display
+pixels, including the head). The actual direction and tip remain anchored to
+image/frequency coordinates. Only the rendered tail is shortened; an already
+short segment is never extended. `coordinates`, `anchor` and source mappings
+retain the original segment; `arrow_render_coordinates` records the displayed
+segment, and its text starts at the displayed tail. Resizing or frequency zoom
+keeps the cap in display pixels. Both original endpoints must still lie in the
+view; a hidden anchored segment stays `outside_view` until brought back.
+
+Set `color:"orange"` for an explicitly proposed second-phase candidate. This
+is a display convention, not detection or confirmation of a second phase;
+`hypothesized`, `user_confirmed` and `retracted` remain separate. Cyan is the
+default arrow color for every status, so confirmation does not silently recolor
+an arrow. Explicit `white`, `amber`, `green` and other supported choices remain
+available. Non-arrow defaults retain their existing status palette and width.
+
+Override width/head as needed, or set `arrow_length:null` to draw the full
+anchored segment (`4..128` display pixels are accepted for an explicit cap).
+Existing saved revisions keep their recorded styles; old arrows without a
+length cap re-render with their original full shaft. Stop arrow tips outside
+bright features, use few marks, and keep labels at the outer tail so the evidence
+remains visible. This presentation change never filters or changes FFT values.
 Preserve earlier renders when a user requests filtered/enlarged views or
 smaller arrows. Human approval of the revised figure is a separate step,
 not inferred from successful tool calls.

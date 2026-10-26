@@ -884,11 +884,15 @@ def annotation(item, image_size, panels, reproject=False):
     if reproject:
         anchor = item.get("anchor")
         need(anchor is not None, "Annotation has no unique source anchor; replace or remove it before re-rendering")
-        supplied = {key: item[key] for key in ("kind", "text", "status", "note", "annotation_id", "line_width", "arrowhead_size", "color") if key in item}
+        supplied = {key: item[key] for key in ("kind", "text", "status", "note", "annotation_id", "line_width", "arrowhead_size", "arrow_length", "color") if key in item}
+        # Old immutable records predate the display-length cap. Re-render their
+        # original shaft rather than retroactively applying the new default.
+        if item.get("kind") == "arrow" and "arrow_length" not in item:
+            supplied["arrow_length"] = None
         supplied.update(anchor)
         item = supplied
     allowed = {"kind", "coordinates", "text", "status", "note", "annotation_id", "coordinate_space", "source_object_id",
-               "line_width", "arrowhead_size", "color"}
+               "line_width", "arrowhead_size", "arrow_length", "color"}
     need(type(item) is dict and set(item) <= allowed, "Unknown annotation field")
     kind, coords = item.get("kind"), item.get("coordinates")
     lengths = {"point": 2, "text": 2, "rectangle": 4, "line": 4, "arrow": 4}
@@ -907,10 +911,14 @@ def annotation(item, image_size, panels, reproject=False):
     need(kind != "text" or bool(text), "Text annotation requires text")
     ident = item.get("annotation_id")
     need(ident is None or type(ident) is str and REQUEST_ID.fullmatch(ident), "Invalid annotation_id")
-    line_width, arrowhead_size = item.get("line_width", 1), item.get("arrowhead_size", 4)
+    line_width = item.get("line_width", 3 if kind == "arrow" else 1)
+    arrowhead_size = item.get("arrowhead_size", 6 if kind == "arrow" else 4)
     need(integer(line_width, 1, 4) and integer(arrowhead_size, 1, 12), "Annotation line_width needs 1..4 and arrowhead_size 1..12 display pixels")
-    color = item.get("color", "green" if status == "user_confirmed" else "amber")
-    need(color in ("white", "cyan", "amber", "green"), "Unsupported display annotation color")
+    arrow_length = item.get("arrow_length", 24)
+    need("arrow_length" not in item or kind == "arrow", "arrow_length is only valid for arrows")
+    need(arrow_length is None or integer(arrow_length, 4, 128), "arrow_length needs null or 4..128 display pixels")
+    color = item.get("color", "cyan" if kind == "arrow" else "green" if status == "user_confirmed" else "amber")
+    need(color in ("white", "cyan", "orange", "amber", "green"), "Unsupported display annotation color")
     space = item.get("coordinate_space", "rendered_image_pixels")
     need(space in ("rendered_image_pixels", "source_pixels", "source_array_indices", "frequency_cycles_per_pixel"),
          "Unsupported annotation coordinate space")
@@ -967,10 +975,21 @@ def annotation(item, image_size, panels, reproject=False):
             key = "array_index_coordinates" if current["domain"] == "source_array_indices" else "coordinates"
             mappings.append({"source_object_id": current["source_object_id"], "domain": current["domain"], key: mapped,
                              **({"spatial_roi_mapping_performed": False, "frequency_mapping_performed": False} if key == "array_index_coordinates" else {})})
+    arrow_display = {}
+    if kind == "arrow":
+        x0, y0, x1, y1 = rendered
+        distance = math.hypot(x1-x0, y1-y0)
+        need(number(distance) and distance > 0, "Arrow endpoints must remain distinct finite display positions")
+        ratio = min(1., arrow_length/distance) if arrow_length is not None else 1.
+        # Only the displayed tail moves. Scientific anchors and the arrow tip
+        # retain their exact coordinates; a short original arrow is not extended.
+        arrow_display = {"arrow_length": arrow_length,
+                         "arrow_render_coordinates": [x1+(x0-x1)*ratio, y1+(y0-y1)*ratio, x1, y1]}
     return {"kind": kind, "coordinates": rendered, "coordinate_space": "rendered_image_pixels",
             "coordinate_convention": "pixel edges" if edges else "pixel/bin centres; x right, y down",
             "status": status, "text": text, "note": note, "source_mappings": mappings, "anchor": anchor,
             "line_width": line_width, "arrowhead_size": arrowhead_size,
+            **arrow_display,
             "color": color,
             **({"annotation_id": ident} if ident is not None else {}),
             "visibility": "outside_view" if space != "rendered_image_pixels" and not visible else "visible",
@@ -988,8 +1007,10 @@ def overlay(image, annotations, panels, reproject=False):
         result.append(mark)
         if mark["status"] == "retracted" or mark["visibility"] != "visible":
             continue
-        color = {"white": "#ffffff", "cyan": "#45e8ff", "amber": "#ffba30", "green": "#00e060"}[mark["color"]]
+        color = {"white": "#ffffff", "cyan": "#45e8ff", "orange": "#ff8c32", "amber": "#ffba30", "green": "#00e060"}[mark["color"]]
         coords, kind = mark["coordinates"], mark["kind"]
+        if kind == "arrow":
+            coords = mark["arrow_render_coordinates"]
         if kind == "point":
             x, y = coords
             draw.ellipse([x-3, y-3, x+3, y+3], outline=color, width=mark["line_width"])
