@@ -63,6 +63,12 @@ process interaction.
   through `image_info`, so gamma, limits and axes match the visible PNG. The
   separate `effective_display` and `display_source_object_id` fields identify
   that recipe; the current annotation object ID and calibration are preserved.
+- Calibrated reciprocal scalar captures also support line measurement and
+  point-to-recorded-DC measurement through the same backend. A point requires
+  an active scale and an explicit recorded centre; the panel never guesses one.
+  Uncalibrated/withdrawn reciprocal arrays still permit two-point pixel geometry.
+  The current record's domain and signed units are retained in calibration edits;
+  this is not a way to reinterpret an unknown array as a diffraction image.
 - Enter the actual user statement, scope, signed X/Y scale and unit to create
   a calibration revision. No experimental scale is filled in by default.
   Spatial scale-bar and FFT frequency-axis checkboxes request corresponding

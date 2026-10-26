@@ -527,7 +527,7 @@ class Workspace:
             return previous, context, dict(record), {"attached_existing_calibration": True,
                                                      "calibration_object_id": request["calibration_object_id"]}
         scope = request.get("scope")
-        domain = request.get("coordinate_domain", old.get("coordinate_domain", "real_space") if old and request.get("xy_scale", 1) is None else "real_space")
+        domain = request.get("coordinate_domain", old.get("coordinate_domain", "real_space") if old else "real_space")
         need(domain in ("real_space", "reciprocal_space"), "coordinate_domain must be real_space or reciprocal_space")
         need(old is None or domain == old.get("coordinate_domain", "real_space"),
              "Calibration revisions cannot change an established real-space/reciprocal-space domain; this is not an array reinterpretation interface")
@@ -552,6 +552,8 @@ class Workspace:
                                          if scale and any(scale["uncertainty_" + a] is not None for a in ("x", "y")) else "unknown"),
                   "coordinate_domain": domain, "real_space_only": domain == "real_space", "original_file_metadata_modified": False,
                   "value_unit_or_frame_depth_inferred": False}
+        if same_scope:
+            record.update(calibration.revised_reciprocal_origin(old, scale))
         return previous, context, record, {"attached_existing_calibration": False}
 
     def scalar(self, ident):

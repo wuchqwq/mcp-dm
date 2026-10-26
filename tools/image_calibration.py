@@ -59,6 +59,34 @@ def validated_scale(value, coordinate_domain="real_space"):
     return result
 
 
+def revised_reciprocal_origin(previous, scale):
+    """A scale-only revision preserves a known pixel DC, not an old unit value.
+
+    Call only after exact image/scope/domain validation. Withdrawal retains the
+    recorded centre as evidence but supplies no active physical coordinates.
+    No centre is inferred for an input that never had one.
+    """
+    if not previous or previous.get("coordinate_domain") != "reciprocal_space":
+        return {}
+    dc = previous.get("dc_index_xy")
+    if dc is None:
+        return {}
+    require(type(dc) is list and len(dc) == 2 and all(finite(v) for v in dc),
+            "Saved reciprocal DC must contain two finite pixel coordinates")
+    result = {"dc_index_xy": list(dc),
+              "origin_inherited_from_calibration_id": previous["calibration_id"],
+              "origin_revision_policy": "scale-only correction; unchanged captured pixel DC"}
+    if "dc_identity_source" in previous:
+        result["dc_identity_source"] = previous["dc_identity_source"]
+    if scale is not None:
+        zeros = [-value * scale[axis] for value, axis in zip(dc, ("x", "y"))]
+        require(all(finite(v) for v in zeros) and
+                all(index == 0 or zero != 0 for index, zero in zip(dc, zeros)),
+                "Revised physical zero underflows or overflows binary64")
+        result["physical_zero_xy"] = zeros
+    return result
+
+
 def active_scale(record):
     return record.get("xy_scale") if type(record) is dict and record.get("status") == "active" and record.get("coordinate_domain", "real_space") == "real_space" else None
 

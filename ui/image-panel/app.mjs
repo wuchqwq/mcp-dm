@@ -44,7 +44,14 @@ async function act(action,params={}){
 }
 async function refresh(){const next=await api('/api/state');if(state&&(dirty()||drag)){if(next.object.object_id!==state.object.object_id)pending=next;else state={...state,pending_result:next.pending_result,state_revision:next.state_revision};showPending();message('已检查最新状态；本地草稿保持原样。');return;}if(next.pending_result&&state){state.pending_result=next.pending_result;showPending();return;}await load(next);}
 function humanCalibration(o){const c=o.xy_calibration??o.calibration_record??o.calibration;if(!c)return 'XY 物理标尺未知；像素域操作可继续';const xy=c.xy_scale??c;return xy.x!==undefined?`XY：${xy.x} / ${xy.y} ${xy.unit??''}/px · ${c.status??c.source_type??'版本化标定'}`:'XY：已保留标定记录；详情见高级信息';}
-function renderMeasurement(){const m=state.last_operation;$('operation').textContent=m?JSON.stringify(m,null,2):'';$('measurement-summary').textContent=m?.distance_physical!==undefined?`距离 ${m.distance_physical} ${m.physical_unit??''}`:m?.period!==undefined?`周期 ${m.period} ${m.period_unit??''}`:m?.distance_pixels!==undefined?`图像坐标距离 ${m.distance_pixels} px`:m?.physical_distance!==undefined?`距离 ${m.physical_distance} ${m.physical_unit??''}`:'选线段或 FFT 峰后可测量；候选标记不等于物相确认';}
+function renderMeasurement(){const m=state.last_operation;$('operation').textContent=m?JSON.stringify(m,null,2):'';const finite=value=>typeof value==='number'&&Number.isFinite(value);
+ $('measurement-summary').textContent=finite(m?.physical_distance)?`距离 ${m.physical_distance} ${m.physical_unit??''}`:
+ finite(m?.distance_physical)?`距离 ${m.distance_physical} ${m.physical_unit??''}`:
+ finite(m?.d_spacing)?`晶面间距（几何） ${m.d_spacing} ${m.d_spacing_unit??''}`:
+ finite(m?.period)?`倒空间差向量周期 ${m.period} ${m.period_unit??''}`:
+ finite(m?.distance_pixels)?`图像坐标距离 ${m.distance_pixels} px`:
+ finite(m?.frequency_distance_cycles_per_pixel)?`频率差 ${m.frequency_distance_cycles_per_pixel} cycles/pixel`:
+ '选线段或已知中心的倒空间峰后可测量；候选标记不等于物相确认';}
 async function load(next,{keepDisplay=null,keepMark=null}={}){
  const ticket=++loading,revision=historyDraft.revision,sameObject=state?.object.object_id===next.object.object_id,savedSelection=sameObject&&draft?draft:next.selection;let decoded=null;
  if(next.clean_png_base64||next.png_base64){decoded=new Image();decoded.src='data:image/png;base64,'+(next.clean_png_base64??next.png_base64);await decoded.decode();if(ticket!==loading)return;if(state&&(historyDraft.revision!==revision||drag)){pending=next;showPending();return;}}
@@ -53,6 +60,9 @@ async function load(next,{keepDisplay=null,keepMark=null}={}){
  $('identity').textContent=`${o.kind}${state.frame_identity?` · 第 ${state.frame_identity.frame_index+1} 帧`:''} · 外部工具计算 · 原图只读`;$('calibration-summary').textContent=humanCalibration(o);
  $('existing').replaceChildren(new Option('新增标记',''));for(const mark of o.annotations??[])if(mark.annotation_id)$('existing').append(new Option(`${mark.text||mark.annotation_id} · ${{hypothesized:'候选',user_confirmed:'用户确认',retracted:'撤回'}[mark.status]??mark.status}`,mark.annotation_id));selectedId=(o.annotations??[]).some(m=>m.annotation_id===previous)?previous:'';$('existing').value=selectedId;
  const d=state.effective_display??o.display??{};$('gamma').value=d.gamma??1;$('gamma-label').textContent=$('gamma').value;$('low').value=d.display_range?.[0]??'';$('high').value=d.display_range?.[1]??'';$('axes').checked=d.spectrum_axes??false;$('scale').checked=d.scale_bar??false;displayBaseline=JSON.stringify(displayDraft());if(state.frame_identity)$('frame').value=state.frame_identity.frame_index+1;
+ const calibrationRecord=o.xy_calibration;
+ if(calibrationRecord?.xy_scale){const xy=calibrationRecord.xy_scale;$('scale-x').value=xy.x;$('scale-y').value=xy.y;
+  $('unit').value=({'angstrom':'Å','1/angstrom':'1/Å'})[xy.unit]??xy.unit;$('scope').value=calibrationRecord.scope;}
  $('calibration').hidden=!state.tools.some(t=>t.name==='image_calibrate');$('metadata').textContent=JSON.stringify({object_id:o.object_id,frame_identity:state.frame_identity,calibration:o.xy_calibration??o.calibration_record??o.calibration,effective_display:d,render_base_id:state.render_base_id,display_source_object_id:state.display_source_object_id},null,2);
  renderMeasurement();
  image=decoded;cleanBase=Boolean(next.clean_png_base64);for(const c of [canvas,baseCanvas,marksCanvas]){c.width=image?.width??640;c.height=image?.height??160;}stage.style.width=canvas.width+'px';stage.style.height=canvas.height+'px';
@@ -113,7 +123,7 @@ $('undo').onclick=()=>{if(historyDraft.undo())restoreSnapshot(historyDraft.curre
 $('discard-local').onclick=guarded(async()=>{drag=null;orphanedDraft=false;await load(await api('/api/state'));message('本地草稿已撤回；保存过的科学版本仍保留。');});
 $('discard-draft').onclick=guarded(async()=>{orphanedDraft=false;if(pending){const next=pending;pending=null;await load(next);}else{editCoordinates=null;fieldDirty=false;const current=await api('/api/state');await load(current);await act('accept-result');}message('已查看保存版本；旧科学版本仍保留。');});
 $('accept-agent-result').onclick=guarded(async()=>{if(dirty()||drag)throw new Error('先保存、撤销或明确放弃草稿，再查看 Agent 结果');return act('accept-result');});
-const calibrate=withdraw=>act('calibrate',{scope:$('scope').value,xy_scale:withdraw?null:{x:Number($('scale-x').value),y:Number($('scale-y').value),unit:$('unit').value},source_text:$('source').value});$('calibrate').onclick=guarded(()=>calibrate(false));$('withdraw').onclick=guarded(()=>calibrate(true));
+const calibrate=withdraw=>act('calibrate',{coordinate_domain:state.object.xy_calibration?.coordinate_domain??'real_space',scope:$('scope').value,xy_scale:withdraw?null:{x:Number($('scale-x').value),y:Number($('scale-y').value),unit:$('unit').value},source_text:$('source').value});$('calibrate').onclick=guarded(()=>calibrate(false));$('withdraw').onclick=guarded(()=>calibrate(true));
 const revisionKey=value=>JSON.stringify([value.state_revision,value.object_id??value.object?.object_id,value.pending_result?.object_id,value.pending_result?.request_id]);
 async function pollRevision(){
  try{if(state&&!document.hidden&&!busy&&!drag){const next=await api('/api/revision');if(revisionKey(next)!==revisionKey(state))await refresh();}}

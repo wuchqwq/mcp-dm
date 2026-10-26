@@ -34,9 +34,9 @@ recipes, local frequency zoom and small arrows preserve the full raw spectrum. S
 is unchanged.
 For versioned user-stated XY calibration, partial mark edits and optional local
 point/drag interaction, see the [unified trial guide](docs/UNIFIED_IMAGE_TRIAL.md).
-These additions are on the trial branch and have not been merged into main.
+These additions are integrated on main but remain opt-in experimental capabilities with separately documented scopes.
 
-The feature branch also adds optional [ASE structure and electron-diffraction tools](docs/STRUCTURE_DIFFRACTION_TOOLS.md):
+Main also includes optional [ASE structure and electron-diffraction tools](docs/STRUCTURE_DIFFRACTION_TOOLS.md):
 generic CIF/XYZ input and crystal geometry, a shared [zone-axis orientation](docs/STRUCTURE_ORIENTATION.md)
 for viewing and diffsims kinematic simulation, and explicitly registered
 [experimental–simulation reflection comparison](docs/REFLECTION_COMPARISON.md).
@@ -77,7 +77,7 @@ The priorities are straightforward: use the intended image, do not silently chan
 |---|---|---|
 | **Default on main: v0.6 Python backend** | Images and metadata, 2D statistics, profiles, FFT summaries, cropping, scientific exports, and optional capture/preview | Connects through DM's embedded Python. Some numerical operations use NumPy. Previews require a separate environment. |
 | **Optional experimental native C++ backend** | Twenty-one tools with restricted scopes: native summaries, explicit uint16 sequence-frame copies, crop, bounded arithmetic/FFT/filters, GUI rectangle/line identity, limited 1D profiles and histograms, PNG preview, visible documents, numerical handoff and [small float32 numerical import](docs/DM_NUMERIC_RELAY.md) | Exact Windows x64 GMS **3.53.4137.0** fingerprints and per-operation dtype/size limits. Import admits only ASCII `nm`/`1/nm`; other units and types remain unavailable. NPY handoff is not native DM file saving; see the [native workflow](experiments/native-bridge/mvp/NATIVE_WORKFLOW.md). |
-| **Optional independent TIFF / pixel image tools** | This feature branch opens uint16 multi-frame TIFF, selects frames, compares a shared ROI/range, returns pixel FFTs, revisable overlays and NPY exports | No running DM or physical ruler required. Explicit external computation with separate opt-in configuration; see [pixel workflow](docs/PIXEL_IMAGE_WORKFLOW.md). |
+| **Optional independent TIFF / pixel image tools** | The opt-in tools open uint16 multi-frame TIFF, selects frames, compares a shared ROI/range, returns pixel FFTs, revisable overlays and NPY exports | No running DM or physical ruler required. Explicit external computation with separate opt-in configuration; see [pixel workflow](docs/PIXEL_IMAGE_WORKFLOW.md). |
 | **Optional external crystallography companion** | Automatic spot/centre candidates, calibrated spacings/angles, joint FCC/BCC/HCP geometry and supplied-CIF comparisons | See the [workflow](docs/CRYSTALLOGRAPHY_WORKFLOW.md). ASE/NumPy/SciPy run separately from GMS. Ambiguities remain explicit; only missing evidence needs user input. Synthetic and limited read-only experimental measurement checks have passed; ordinary clients still need qualification. No unique phase-identification claim. |
 | **Next stage: iterative microscopy analysis** | Return viewable DM images, adjust non-destructive presentation, produce and annotate local FFTs, revise analyses across turns, then use crystallographic measurements in context | See the [interactive roadmap](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md) and [crystallography tasks](docs/DIFFRACTION_NEXT_STAGE.md). These are goals, not claims of complete existing support. |
 
