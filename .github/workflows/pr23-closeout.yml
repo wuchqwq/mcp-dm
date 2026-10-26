@@ -1,0 +1,34 @@
+name: PR23 isolated closeout evidence
+on:
+  push:
+    branches: [validation/pr23-closeout-20261027]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4f590f398fd4823426dc08a3b1317d5b15dcd06f
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export exact public source and ancestor proof
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git archive --format=zip -o evidence/pr23-source.zip HEAD
+          git rev-parse HEAD HEAD^{tree} > evidence/source-identity.txt
+          git ls-tree -r HEAD > evidence/source-blobs.txt
+          git ls-remote origin refs/heads/main > evidence/main-at-check.txt
+          for pair in main:5eac70caf2f7e584e599355052a77f33b3a12664 12:c8723c1a5a47334a50198319fa3f5e76530905da 13:e1edc521375991f96df675c6d22b65bf91d1a50a 14:370909aa978a64d8c904e90d12f288e6f3e688fd 15:3c7fa255959520ad0462b7f58513aedb55eb9eda 16:228d61267c4ddaa9508d8b9a5bb1fa41dbb6e964 17:228d61267c4ddaa9508d8b9a5bb1fa41dbb6e964 18:6ecda05d7715bdd41347d1575721c6c1f1182ef7 19:490051a26d5d361709eaf6408ac71458920ac0dc 20:7c53edf897d0976b59083b885d99cdb9c738c1eb 21:27e49357723295d3693c4d6076339c7b7750318b 22:9486a6a474e7528a7f03dfa2524376f1f9bf8da0; do
+            label=${pair%%:*}; sha=${pair#*:}
+            git merge-base --is-ancestor "$sha" HEAD
+            echo "$label $sha INCLUDED" >> evidence/ancestors.txt
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr23-pinned-source
+          path: evidence/
+          retention-days: 7
