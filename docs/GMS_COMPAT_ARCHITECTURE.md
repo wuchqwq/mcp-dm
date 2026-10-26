@@ -1,0 +1,340 @@
+# GMS 兼容性工程：证据、工具与边界
+
+本文说明 MCP-DM 现有原生 Adapter 的实际状态、哪些 ABI 信息可以被确定性工具自动提取、
+哪些只能算静态候选、哪些必须由真实宿主验收，以及本轮新增的离线兼容基础设施
+（`tools/gms_compat/`）如何在不放松任何门禁的前提下支持跨版本研究。
+
+范围声明：本工具不加载厂商 DLL、不启动 DM、不执行目标文件中的代码、不解析任意地址，
+也不会把任何候选提升为可用能力。它输出的是**可复核的差异与缺口**，不是兼容性结论。
+
+---
+
+## 1. 当前 Native Adapter 架构与已验证范围
+
+### 1.1 分层
+
+| 层 | 位置 | 是否含厂商信息 |
+| --- | --- | --- |
+| Node MCP facade | `server.mjs` | 否 |
+| NB2 传输、请求记录、结果生命周期 | `lib/native_bridge.mjs`, `experiments/native-bridge/mvp/core.cpp` | 否 |
+| 版本选择与兼容状态 | `adapter_profile.hpp`, `adapter_identity_win.hpp` | 否 |
+| 通用分派 | `adapter_dispatch.inc` | 否 |
+| 版本专用实现 | `adapters/gms_3_53_4137/` | 是（指纹、POD、入口 RVA、签名） |
+
+选择的唯一入口是 `select_adapter`：先比较可执行文件名、文件版本与 PE 架构，再逐个核对
+五个模块的 SHA-256（`mfc140.dll` 只校验哈希不校验版本），随后解析显式列出的导出符号。
+任何一步不满足即返回 `UNSUPPORTED_BUILD` 或 `ABI_MISMATCH`，并且**在触碰任何厂商调用之前返回**。
+未知构建只读取 Windows 元数据，不探测导出表以外的内容，不扫描入口。
+
+### 1.2 能力门禁
+
+能力以独立组声明（`native_crop`、`native_read`、`native_fft`、`native_line_profile`、
+`native_histogram` 等）。一个组的可用性需要同时满足：
+
+1. 适配器整体 `SUPPORTED`；
+2. 该组的 `qualified` 声明为真；
+3. 该组**全部**必需导出（以及非导出的 `entry_contract`）在该构建上可用。
+
+`adapter_dispatch.inc` 在进入版本实现之前把请求映射到组名，缺组直接抛
+`native_capability_unavailable`。catalog 条目本身不等于能力准入。
+
+### 1.3 已验证范围（必须逐字理解）
+
+- 仅 `Windows x64 GMS 3.53.4137.0`，且五个模块指纹全部匹配。
+- 证据来自**有界合成真实宿主**验收：合成图像、合成 GUI fixture、独立的同 PID oracle。
+- 覆盖：核心元数据、mean/SUMMARY、crop、READ、PREVIEW、SHOW、uint16 FRAME、
+  float32/uint32 算术与滤波、Fourier v2、GUI 矩形 ROI、真一维 line profile、histogram、
+  有界数值导入。
+- **不覆盖**：其他构建或其他架构、真实实验数据、并发编辑、模型侧视觉确认、
+  任意 dtype/layout、SaveAs/OpenImage、workspace 激活、注释写回。
+
+历史失败不被后续成功覆盖，例如同栈销毁 document 持有引用、非 ASCII 名称比较、
+binary64 表达式幂 oracle 的 FAIL，均单独保留。
+
+---
+
+## 2. 现有 ABI 信息中哪些可以自动提取
+
+`gms-compat inspect` 的自动提取范围，全部来自 PE 文件本身，不依赖厂商文档：
+
+| 项目 | 来源 | 可靠性 |
+| --- | --- | --- |
+| 文件 SHA-256 | 逐块读取 | 确定性事实 |
+| 架构（x86/x64/arm64） | COFF `Machine` | 确定性事实 |
+| PE 形态（pe32/pe32+）、节表、`SizeOfImage` | 可选头 + 节表 | 确定性事实 |
+| 文件版本 `a.b.c.d` | `RT_VERSION` → `VS_FIXEDFILEINFO` | 确定性事实（缺失则显式 `absent`） |
+| 导出：名称、序号、RVA、所在节、是否可执行、是否转发 | 导出目录 | 确定性事实 |
+| 导入模块关系与 thunk 数量 | 导入/延迟导入目录 | 确定性事实 |
+
+不可自动提取、本工具也不猜测的内容：
+
+- 调用形状（sret、参数顺序、寄存器分配、`this` 位置）；
+- 对象布局、对齐、所有权与销毁配对；
+- 非导出入口的地址（必须逐构建重新定位，见 §6）；
+- 数值约定（归一化、centering、饱和/截断）；
+- 任何“两个同名导出 ABI 相同”的结论。
+
+`compare` 只在上述事实层面比较。它不会读机器码，因此**相似机器码不可能被它当成证据**。
+
+---
+
+## 3. 哪些证据仅为静态候选
+
+`docs/GMS_COMPAT_ABI_EVIDENCE.md` 中 `STATIC_CANDIDATE` / `UNRESOLVED` / `BLOCKED` 三类
+即“没有真实宿主执行证据”的集合，当前包括：
+
+| 条目 | 状态 | 原因 |
+| --- | --- | --- |
+| `processing.fourier_packed_candidates`（`FFT`、`Packed_FFT`） | STATIC_CANDIDATE | 只闭合了 one-pointer reference 骨架；复数存储、归一化、centering、workspace 边界未定 |
+| `presentation.plot_style` | STATIC_CANDIDATE | 一个字节的 setter/getter 已静态闭合，但发货禁用，重绘行为无法验收 |
+| `processing.other_signatures` | BLOCKED | `GetPixelCount`/`GetMeanAndVariance`/`GetMinimumMaximum` 签名不匹配已绑定的三种回调形状 |
+| `blocked.save`（SaveAs） | BLOCKED | 字符串构造只是部分证据；格式保持、独占写、源名突变、错误/所有权未定 |
+| `blocked.whole_file_open` | BLOCKED | 任意文件读取的语义与所有权从未闭合 |
+| `unresolved.workspace_activation` | UNRESOLVED | 候选对象族与 `GMS::Image` 引用契约不同构 |
+| `superseded.probe_lookup` | BLOCKED | 对象地址令牌不是稳定 ID，旧 PE resolver 已退役 |
+
+这些条目在 `compare` 输出里可以出现（作为高风险项），但它们的 `qualification` 不会被工具改写。
+工具没有任何写路径可以修改证据文件里的资格字段。
+
+---
+
+## 4. 哪些调用必须依赖真实宿主验证
+
+以下事项无论如何都无法由静态工具证明，必须在目标构建的真实宿主上单独验收：
+
+1. **调用形状**：sret 指针位置、参数顺序、返回值寄存器。静态可推断，但只有执行才能确认。
+2. **对象布局与对齐**：`NativeImageRef`、`NativeDataSlice`(176B)、`DataSize353`(48B)、
+   `CharRange353`(16B)、MSVC `std::wstring`(32B)、document holder(16B)、引用计数前缀。
+3. **所有权与销毁配对**：引用计数递减、`ref_ptr_delete` 仅在计数归零时调用、
+   `mfc140.dll` ordinal 1487 与厂商分配器配对。
+4. **数值语义**：Fourier 符号/归一化/centering、滤波边界、uint32 饱和与截断、
+   histogram 计数完整性。
+5. **GUI 身份与几何**：display/ROI 身份链、`slice_ids`、直接 `ImageSource_Simple` 布局。
+6. **文档生命周期**：SHOW 后的可见性、STOP 后引用失效时机（同栈销毁已 FAIL，空闲后观测才 PASS）。
+7. **dtype 映射**：type code 2/11/12 与真实存储的一致性。
+
+对应地，证据清单中每条 `QUALIFIED_LIMITED` 都带 `verification.real_host` 记录；
+校验器会拒绝没有 `PASS*` 记录却被标为 `QUALIFIED_LIMITED` 的条目。
+
+---
+
+## 5. 现有架构与跨版本适配之间的最小缺口
+
+按“最小必要”排序：
+
+1. **证据不可机器校验**（本轮 P0 已补）：ABI 知识原先散落在 Markdown 与 C++ 常量里，
+   无法回答“这条结论依据是什么、是否已验收、换构建后哪些必须重推”。
+2. **没有构建间结构对照**（本轮 P1 已补）：面对新构建只能人工比对导出表。
+3. **非导出入口无法静态推导**（P2）：`GMS.dll` 中文档工厂、SHOW、ROI、line extract 的入口
+   只有固定构建的 RVA。任何构建变化都必须重新定位，当前只能手工完成。
+4. **资格仍是手工编辑 C++ 常量**（P2）：`profile.hpp` 的 `qualified` 是人工审阅后写入的，
+   没有模板化的候选产物与验收计划生成。
+5. **没有“候选 → 验收 → 提级”的固定流程**（P2）：缺一套默认禁用、可 diff、可审查的
+   候选 Adapter 骨架。
+
+本轮不触碰第 1、2 项之外的任何东西：正式 C++ Adapter、已验证 SHA、能力门禁、
+运行时分派、`server.mjs`、MCP Schema、默认 Python v0.6 后端、安装机制均未修改。
+
+---
+
+## 6. 本轮交付
+
+### 6.1 `tools/gms_compat/` 结构
+
+```text
+tools/gms_compat/
+  cli.py                     inspect / compare / evidence 子命令
+  pe.py                      只读 PE 解析（mmap + 界限检查，不加载、不执行）
+  manifest.py                模块清单模型、规范化、路径脱敏、稳定序列化
+  compare.py                 结构对照与能力影响映射
+  evidence.py                证据清单校验、查询、Markdown 渲染
+  evidence/abi_evidence.json 机器可读 ABI 证据（唯一事实源）
+  schema/*.schema.json       供非 Python 消费者使用的契约
+```
+
+### 6.2 `inspect`
+
+- 输入：显式指定的本地 PE 文件或目录（目录默认 `*.dll`/`*.exe`，非递归，模块数有预算）。
+- 输出：`schema: mcp-dm/gms-compat/module-manifest`，模块按名称排序，导出按 `(ordinal, name)` 排序，
+  JSON 键排序、固定缩进、以 `\n` 结尾 → 同输入两次运行逐字节一致。
+- 明确错误码（节选）：`pe_file_missing`、`pe_file_empty`、`pe_file_too_large`、
+  `pe_dos_header_truncated`、`pe_dos_magic`、`pe_lfanew_out_of_range`、`pe_nt_signature`、
+  `pe_optional_header_truncated`、`pe_optional_magic_unsupported`、`pe_section_table_too_many`、
+  `pe_rva_unmapped`、`pe_export_table_too_large`、`pe_export_name_ordinal_mismatch`、
+  `pe_resource_directory_invalid`、`pe_version_resource_invalid`。
+- 路径脱敏：`--disclosure none|basename|relative|full`，默认 `basename`；
+  `relative` 必须配 `--redact-root`，否则拒绝。报告中同时声明 `read_only: true`、
+  `loaded_any_module: false`、`executed_any_target_code: false`。
+
+### 6.3 `compare`
+
+输入两份清单，输出 `schema: mcp-dm/gms-compat/comparison`：
+
+- `modules[].status`：`IDENTICAL` / `CHANGED` / `MISSING_IN_CANDIDATE` / `ADDED_IN_CANDIDATE`；
+  `IDENTICAL` 需要哈希、架构与命名导出面同时一致。
+- 每个模块的 `exports.detail` 分桶：`identical`、`rva_changed`、`forwarder_changed`、
+  `section_changed`、`removed`、`added`，另有 `rename_candidates`。
+- `abi_unknown`：模块二进制变化后，同名（甚至同 RVA）导出依然列入未知，理由字段写明
+  “name/RVA 不构成调用形状证据”。
+- `high_risk`：变化导出若在证据清单中有绑定，给出 `evidence_entry` 与需重推的项目。
+- `manual_review`：变化模块上的非导出入口契约，理由固定为
+  “RVA 不能跨构建转移，必须在候选构建上重新定位并记录新的静态证据”。
+- `affected_operations`：受影响的既有能力组（来自证据清单的 `scope.operations`）。
+- `qualification.state` **恒为 `REFUSED`**，`may_authorize_calls` 恒为 `false`。
+
+`rename_candidates` 仅由“同一 RVA、一删一增”产生，`confidence: low`，
+并显式带 `establishes_equivalent_abi: false`。
+
+### 6.4 退出码
+
+| 码 | 含义 |
+| --- | --- |
+| 0 | 完成（`compare` 发现差异也算完成） |
+| 1 | 策略性失败：证据校验不通过、`--fail-on-change` 检出变化 |
+| 2 | 输入失败：不可解析/缺失/超限的 PE、非法清单、未知条目 |
+| 3 | `evidence render --check` 检出文档与 JSON 漂移 |
+
+### 6.5 实际执行结果
+
+环境：Windows，Python 3.13，仓库内 `python -B`。fixture 为自制合成 PE（无任何厂商代码）。
+
+```text
+$ python tools/gms_compat/cli.py evidence validate
+evidence valid: 34 entries
+
+$ python tools/gms_compat/cli.py evidence render --check
+evidence render up to date: docs/GMS_COMPAT_ABI_EVIDENCE.md
+```
+
+两套合成构建（A=3.53.4137.0，B=3.54.1.0；B 中 `GetMean` 移位、`GetSubSliceAsImage` 改名、
+`GMS.dll` 变化）的对照结果：
+
+```text
+$ python tools/gms_compat/cli.py compare A.json B.json
+summary: changed_modules=2  exports_rva_changed=2  exports_removed=1
+         exports_added=1   high_risk=3  affected_operations=19
+qualification: {"state": "REFUSED", "may_authorize_calls": false}
+high_risk: GMSImage.dll ?FindByID...        -> image.lookup
+           GMSImage.dll ?GetSubSliceAsImage -> image.sub_slice
+           GMSImageProcessing.dll ?GetMean  -> processing.reductions
+```
+
+当候选构建的 `GMS.dll` 发生变化时，`manual_review` 会列出 6 条非导出契约
+（`document.factory_show`、`document.holders`、`presentation.plot_style`、
+`roi.display_resolution`、`roi.geometry`、`roi.line_profile`），要求逐条重新定位。
+
+### 6.6 测试
+
+新增 `tests/gms_compat_pe_fixture.py`（合成 PE 生成器）与三个测试模块，共 **68 个用例**：
+
+| 文件 | 覆盖 |
+| --- | --- |
+| `test_gms_compat_inspect.py`（16） | 版本/架构/哈希、转发导出、导入关系、缺失版本资源、截断/非 PE/空/超限输入、逐字节可复现、路径脱敏、目录预算 |
+| `test_gms_compat_compare.py`（19） | 完全一致但不授予资格、哈希变化、同名不同 RVA、同名同 RVA 仍未知、架构变化 CRITICAL、改名候选、转发变化、模块缺失/新增、证据映射、非导出契约、可复现性、CLI 退出码与非法清单 |
+| `test_gms_compat_evidence.py`（33） | 清单自校验、指纹与 C++ profile 交叉核对、资格门禁的 15 项篡改拒绝用例、schema 契约一致、渲染幂等 |
+
+关键负向断言（防止“候选自动变成 QUALIFIED”）：
+
+- `compare` 输出中不允许出现 `"QUALIFIED_LIMITED"` 或 `"state": "QUALIFIED`；
+- 去掉某条的 `real_host` 记录后校验器必须报 `qualified_without_real_host_pass`；
+- 把 `derivation` 改成 `name_only`/`similarity_only` 后必须报 `qualification_exceeds_derivation`；
+- 伪造标题锚点、伪造源文件、伪造布局出处、重复绑定符号、重复写入 RVA、未声明的操作名，
+  全部必须报错。
+
+合成 PE 覆盖 x86 与 x64、有/无版本资源、转发导出、导入模块，以及损坏/截断/空/超限输入。
+测试不加载任何厂商 DLL，不需要 DM 许可、真实数据或固定盘符。
+
+---
+
+## 7. P2 设计建议（本轮不实现）
+
+目标：把“人工比对 + 人工移植”变成“可复核的候选生成 + 明确验收清单”，
+但**任何候选默认 `CANDIDATE_DISABLED`**，且 P2 在没有真实目标构建时不得宣称跨版本兼容。
+
+### 7.1 输入与产物
+
+```text
+gms-compat evidence extract   --build-dir <授权安装> --out build_b.json     # 复用 inspect
+gms-compat evidence derive    --base abi_evidence.json --candidate build_b.json \
+                              --out candidate_evidence.json                 # 默认全 UNRESOLVED
+gms-compat adapter scaffold   --evidence candidate_evidence.json \
+                              --out adapters/gms_<ver>/                    # 模板，默认禁用
+gms-compat plan acceptance    --evidence candidate_evidence.json \
+                              --out plan.json                              # 实机验收清单
+```
+
+### 7.2 每个不确定项必须给出具体验证方法
+
+候选证据条目强制带 `verification_plan`，字段固定：
+
+```json
+{
+  "unknown": "call_shape.hidden_sret",
+  "method": "real_host_probe",
+  "preconditions": ["module hash pinned", "idle host", "synthetic source image"],
+  "observation": "result slot written exactly once; returned pointer equals slot address",
+  "oracle": "independent same-PID read of the created image",
+  "pass_criterion": "one owned reference, matching numeric ID, source pixels unchanged",
+  "artifact": "experiments/native-bridge/results/<build>/probe_<id>.json"
+}
+```
+
+方法枚举：`static_disassembly`、`offline_synthetic`、`real_host_probe`、
+`real_host_numerical_oracle`、`real_host_lifecycle`、`manual_review`。
+静态方法**不得**单独产出 `QUALIFIED_LIMITED`。
+
+### 7.3 Adapter 候选模板
+
+- 目录结构对齐 `adapters/gms_3_53_4137/`：`profile.hpp`、`<group>_contract.hpp`、
+  `<group>_adapter.inc`。
+- 模板生成时把每个 `qualified` 置为 `false`，所有 RVA 占位为 `null` 并带
+  `#error` 或 `static_assert` 的显式填充要求，避免“复制旧 RVA 就能编译通过”。
+- 生成的候选不进入 `implementations()`，不进入 MCP catalog，不改变现有 SHA 门禁。
+
+### 7.4 合成测试与实机验收计划生成
+
+- 合成测试：按能力组生成 `*_adapter_tests.cpp` 骨架，覆盖 dtype/维度/校准/所有权拒绝路径；
+  不含任何数值实现，只测门禁。
+- 实机验收计划：按 `AGENTS.md` 的必选顺序生成步骤与观测项
+  （身份 → 符号 → 回调就绪 → 数值 → 源不变 → 生命周期 → 正常退出），
+  每步绑定预期的 PASS/FAIL 判定与产物路径。
+
+### 7.5 关于 Ghidra 等本地反汇编工具
+
+可评估，但必须遵守：
+
+- 只在**用户有权分析的本地安装**上运行，产物不入库（只入库结构化结论与锚点）；
+- 反汇编结论只能记为 `derivation: static_inspection`，不能记为真实宿主例外；
+- 任何“看起来一样”的签名或常量都不构成调用约定证明；
+- 非导出入口的定位结果必须记录为“候选 RVA + 证据锚点”，并强制 `manual_review`。
+
+### 7.6 提级路径（不可跳过）
+
+`CANDIDATE_DISABLED` → 离线合成测试通过 → 真实目标构建上的分组验收
+（数值 + 源不变 + 生命周期 + 正常退出）→ 独立人工审查 → 才允许修改
+`profile.hpp` 的 `qualified` 与模块指纹。
+
+---
+
+## 8. 未解决问题
+
+1. **x86 构建**：现有适配器只有 x64 调用形状；x86 需要 `__stdcall`/`__cdecl`/`__thiscall`
+   独立建模，且 `mfc140` 分配器配对可能不同。
+2. **非导出入口的自动定位**：即使引入 Ghidra，也缺少“入口契约 → 函数”的稳定映射规则；
+   当前只能人工按调用图确认。
+3. **MSVC STL 版本差异**：`std::wstring` 32B 布局在别的 MSVC 运行时上可能变化，
+   需要按 `mfc140` 版本的独立证据条目。
+4. **Fourier 复数表示**：`FFT`/`Packed_FFT` 的复数存储与 packing 仍未闭合。
+5. **manifest 覆盖面**：`compare` 不解释节区属性差异的业务含义，也不检查重定位信息；
+   对加壳或自修改镜像无意义（也不会被误判为兼容）。
+6. **compare 的能力映射依赖证据清单**：清单未覆盖的导出只会进 `high_risk` 且标
+   `evidence_entry: null`，这是刻意的——宁缺勿猜。
+
+---
+
+## 9. 与既有文档的关系
+
+- `AGENTS.md`：产品边界与科学契约，未修改，仅新增一段指向本工具的说明。
+- `experiments/native-bridge/ABI_NOTES.md`：静态 ABI 叙述的原始出处，本清单逐条引用其标题锚点。
+- `experiments/native-bridge/mvp/ADAPTERS.md`：能力/资格语义的原始出处。
+- 本工具不取代上述文档的规范地位：证据清单只做索引与校验，结论仍以原始记录为准。

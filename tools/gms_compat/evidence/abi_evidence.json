@@ -1,0 +1,1873 @@
+{
+  "schema": "mcp-dm/gms-compat/abi-evidence",
+  "schema_version": 1,
+  "build": {
+    "profile_id": "gms-3.53.4137.0-windows-x64",
+    "host": "DigitalMicrograph.exe",
+    "version": "3.53.4137.0",
+    "architecture": "x64",
+    "identity_source": "experiments/native-bridge/mvp/adapters/gms_3_53_4137/profile.hpp",
+    "version_policy": "exact version plus per-module SHA-256; no approximate version range is admitted",
+    "modules": [
+      {
+        "name": "DigitalMicrograph.exe",
+        "sha256": "2f03ccd751b2abc7f55d3bda5b975895c3527660a03080618005a134d6fbfddb",
+        "check_version": true
+      },
+      {
+        "name": "GMSImage.dll",
+        "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b",
+        "check_version": true
+      },
+      {
+        "name": "GMSImageProcessing.dll",
+        "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042",
+        "check_version": true
+      },
+      {
+        "name": "GMS.dll",
+        "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93",
+        "check_version": true
+      },
+      {
+        "name": "mfc140.dll",
+        "sha256": "b784303d86232a1b316c79839aa78bf631b4fc182e55d9d947688adb066dff26",
+        "check_version": false
+      }
+    ]
+  },
+  "known_operations": [
+    "native_crop",
+    "native_datasets",
+    "native_display",
+    "native_fft",
+    "native_fft_large",
+    "native_filters",
+    "native_frame",
+    "native_gui_rois",
+    "native_histogram",
+    "native_histogram_axis",
+    "native_histogram_display",
+    "native_ifft_large",
+    "native_imag_large",
+    "native_image_arithmetic",
+    "native_line_plot_style",
+    "native_line_profile",
+    "native_mean",
+    "native_numeric_import",
+    "native_numeric_import_display",
+    "native_phase_large",
+    "native_pixel_crop",
+    "native_pixel_fft",
+    "native_pixel_filters",
+    "native_power_large",
+    "native_preview",
+    "native_profile_display",
+    "native_read",
+    "native_real_large",
+    "native_result_release",
+    "native_save",
+    "native_statistics",
+    "native_uint32_crop",
+    "native_uint32_display",
+    "native_uint32_fft",
+    "native_uint32_fft_large",
+    "native_uint32_filters",
+    "native_uint32_ifft_large",
+    "native_uint32_imag_large",
+    "native_uint32_image_arithmetic",
+    "native_uint32_mean",
+    "native_uint32_phase_large",
+    "native_uint32_power_large",
+    "native_uint32_preview",
+    "native_uint32_read",
+    "native_uint32_real_large",
+    "native_uint32_statistics"
+  ],
+  "entries": [
+    {
+      "id": "image.lookup",
+      "title": "Numeric image lookup by ID and by index",
+      "area": "image-identity",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?FindByID@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@K@Z", "ordinal": null},
+        {"module": "GMSImage.dll", "kind": "export", "name": "?FindByIndex@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@K@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_static_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-supplied result slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef*", "notes": "8-byte caller slot; receives one owned reference or an empty reference"},
+          {"name": "id", "type": "uint32_t", "notes": "numeric ID returned by GetID; FindByIndex takes a zero-based registry index instead"}
+        ],
+        "notes": "A missing ID or out-of-range index yields an empty reference. The adapter checks the returned object's GetID before use."
+      },
+      "layout": {
+        "structures": [
+          {"name": "NativeImageRef", "size": "8", "alignment": "8", "fields": "single void* image"}
+        ],
+        "ownership": "a non-null result owns exactly one strong reference and must be released through image.reference_release; a borrowed pointer must never be released",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Image identity and ownership"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Image identity and ownership", "claim": "static methods returning ref_ptr<Image> receive the hidden result pointer first and write one pointer"},
+        {"source": "experiments/native-bridge/mvp/adapters/gms_3_53_4137/profile.hpp", "anchor": "?FindByID@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@K@Z", "claim": "the shipping profile requires this exact decorated export"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/adapter_tests.cpp", "note": "selection and identity gates"},
+          {"path": "experiments/native-bridge/mvp/core_tests.cpp", "note": "protocol and lifecycle"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "synthetic real-host lookup with matching numeric ID"}
+        ]
+      },
+      "uncertainties": [
+        "Atomicity of the registry between calls is not established; a matching count does not prove a stable snapshot.",
+        "FindByIndex outside the checked range can raise a host error and is never attempted."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_datasets", "native_mean", "native_statistics", "native_crop", "native_display", "native_read", "native_preview", "native_fft", "native_filters", "native_image_arithmetic", "native_frame", "native_histogram", "native_line_profile", "native_gui_rois", "native_numeric_import"],
+        "dtypes": ["any registered image (lookup only)"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["idle host required", "no concurrent edit protection"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout", "ownership"]
+    },
+    {
+      "id": "image.enumerate",
+      "title": "Bounded native registry enumeration",
+      "area": "image-identity",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?CountAllImages@Image@GMS@@SAKXZ", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "uint32_t",
+        "params": [],
+        "notes": "Enumeration prefers count plus zero-based FindByIndex over the functional EnumImages callback, whose allocator-specific vector ABI is not closed."
+      },
+      "layout": null,
+      "layout_absent_reason": "no object crosses this call; only a scalar count is returned",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Bounded enumeration", "claim": "count plus index lookup is the preferred bounded enumeration path"},
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Bounded enumeration", "claim": "the registry may include images without visible document windows"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/adapter_tests.cpp", "note": "duplicate-ID and count checks"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "DATASETS enumeration against a synthetic host"}
+        ]
+      },
+      "uncertainties": [
+        "Registry contents may change between the count and the individual lookups."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_datasets"],
+        "dtypes": ["metadata only"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["output budget enforced before any lookup"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape"]
+    },
+    {
+      "id": "image.id",
+      "title": "Numeric image identity",
+      "area": "image-identity",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetID@Image@GMS@@QEBAKXZ", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member",
+        "hidden_sret": false,
+        "returns": "uint32_t",
+        "params": [
+          {"name": "this", "type": "const void*", "notes": "borrowed image pointer"}
+        ]
+      },
+      "layout": null,
+      "layout_absent_reason": "the call reads no object field through a declared layout; only this-pointer identity is used",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Descriptors, calibration, and statistics", "claim": "GetDataType and the descriptor getters read the native descriptor without touching pixels"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/adapter_tests.cpp", "note": "identity agreement checks"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "returned ID matched the synthetic source"}
+        ]
+      },
+      "uncertainties": [],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_datasets", "native_read", "native_crop", "native_result_release"],
+        "dtypes": ["any"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["identity only; no descriptor or pixel claim"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape"]
+    },
+    {
+      "id": "image.dimensions",
+      "title": "Dimension count and per-axis size",
+      "area": "image-descriptor",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetDimensions@Image@GMS@@QEBAKXZ", "ordinal": null},
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetNthDimension@Image@GMS@@QEBAKJ@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member",
+        "hidden_sret": false,
+        "returns": "uint32_t",
+        "params": [
+          {"name": "this", "type": "const void*", "notes": "member call; GetDimensions takes no further arguments"},
+          {"name": "dimension", "type": "int32_t", "notes": "GetNthDimension only; validated against the previously read count"}
+        ],
+        "notes": "DM dimension 0 is x and dimension 1 is y, so the exported row-major shape is [size_y, size_x]. No GetDimensionSize export exists in the inspected module."
+      },
+      "layout": null,
+      "layout_absent_reason": "only scalar getters are called; the descriptor itself is not dereferenced by the bridge",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Descriptors, calibration, and statistics", "claim": "GetNthDimension is the native size getter and each index must be validated against the count"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/pixel_adapter_tests.cpp", "note": "axis size and bound rejection"},
+          {"path": "experiments/native-bridge/mvp/uint32_adapter_tests.cpp", "note": "uint32 shape gates"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "shape agreed with the independent oracle"}
+        ]
+      },
+      "uncertainties": [
+        "A third or higher dimension is only meaningful for the FRAME group; other operations reject it."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_datasets", "native_read", "native_crop", "native_fft", "native_filters", "native_frame", "native_histogram", "native_line_profile"],
+        "dtypes": ["any"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["axis order is z,y,x for rank three; no axis permutation is inferred"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape"]
+    },
+    {
+      "id": "image.data_type",
+      "title": "Scalar type code",
+      "area": "image-descriptor",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetDataType@Image@GMS@@QEBAKXZ", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member",
+        "hidden_sret": false,
+        "returns": "uint32_t type code",
+        "params": [
+          {"name": "this", "type": "const void*", "notes": "no pixel buffer is touched"}
+        ],
+        "notes": "Only code 2 (float32), code 11 (uint32) and code 12 (float64, rank-one profile output) are mapped. Other codes remain unsupported without conversion."
+      },
+      "layout": null,
+      "layout_absent_reason": "the type code is returned as a scalar; the descriptor layout is not read by the bridge",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Descriptors, calibration, and statistics", "claim": "GetDataType reads the descriptor and needs no pixel access; other codes stay unsupported"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/pixel_adapter_tests.cpp", "note": "type rejection paths"},
+          {"path": "experiments/native-bridge/mvp/uint32_adapter_tests.cpp", "note": "code 11 admission"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/mvp/UINT32_ACCEPTANCE.md", "anchor": "## Independent synthetic trial", "note": "code 11 confirmed against a host-created uint32 view and high-bit reads"}
+        ]
+      },
+      "uncertainties": [
+        "The integer/unsigned flags describe the fixed-build mapping of code 11, not additional vendor flag getters."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_read", "native_crop", "native_mean", "native_statistics", "native_uint32_mean", "native_uint32_read", "native_uint32_crop", "native_line_profile", "native_display"],
+        "dtypes": ["float32", "uint32", "float64 (rank-one output only)"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["unknown codes are refused, never coerced"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "type_code_mapping"]
+    },
+    {
+      "id": "image.packing",
+      "title": "Data packing style",
+      "area": "image-descriptor",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided four-byte result buffer",
+        "params": [
+          {"name": "this", "type": "const void*", "notes": "member call"},
+          {"name": "out", "type": "DataPackingStyle*", "notes": "four-byte structure written by the callee; it is not a scalar integer return"}
+        ]
+      },
+      "layout": {
+        "structures": [
+          {"name": "DataPackingStyle", "size": "4", "alignment": "4", "fields": "four-byte structure returned through the hidden destination pointer"}
+        ],
+        "ownership": "caller-owned scalar structure; no reference is created or released",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Version isolation and additional typed operations"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Version isolation and additional typed operations", "claim": "packing is a four-byte structure returned through a destination pointer, not a scalar getter"},
+        {"source": "experiments/native-bridge/mvp/adapters/gms_3_53_4137/profile.hpp", "anchor": "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ", "claim": "every operation capability group requires this export"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/pixel_adapter_tests.cpp", "note": "ordinary-packing gate"},
+          {"path": "experiments/native-bridge/mvp/uint32_adapter_tests.cpp", "note": "packing 1 requirement for uint32"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "ordinary packing accepted before any pixel path"}
+        ]
+      },
+      "uncertainties": [
+        "Non-ordinary packing values are recognized and refused; their pixel semantics are not closed."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_read", "native_crop", "native_fft", "native_filters", "native_image_arithmetic", "native_frame", "native_uint32_read", "native_uint32_crop", "native_line_profile"],
+        "dtypes": ["float32", "uint32", "uint16 (frame source)"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["only ordinary packing is admitted"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout"]
+    },
+    {
+      "id": "image.spatial_calibration",
+      "title": "Spatial dimension calibration getter",
+      "area": "calibration",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetDimensionCalibration@Image@GMS@@QEAAXKPEAM0PEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@J@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member",
+        "hidden_sret": false,
+        "returns": "void",
+        "params": [
+          {"name": "this", "type": "void*", "notes": "borrowed image pointer"},
+          {"name": "dimension", "type": "uint32_t", "notes": "validated against the dimension count"},
+          {"name": "origin", "type": "float*", "notes": "binary32 output; may be null"},
+          {"name": "scale", "type": "float*", "notes": "binary32 signed scale; may be null"},
+          {"name": "unit", "type": "MsvcWideString*", "notes": "MSVC string object; may be null"},
+          {"name": "format", "type": "int32_t", "notes": "0 returns the physical coordinate at index zero, 1 returns the stored index origin"}
+        ],
+        "notes": "Both numeric outputs are binary32. physical(i) = origin + i * scale. Negative scales are preserved and non-finite values are rejected before publication."
+      },
+      "layout": {
+        "structures": [
+          {"name": "MsvcWideString", "size": "32", "alignment": "8", "fields": "union storage at 0, length at 16, capacity at 24"}
+        ],
+        "ownership": "the callee constructs the string; the bridge copies bounded UTF-16 and releases it through the paired allocator path, never through a local C++ destructor",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## MSVC string ABI shim"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Descriptors, calibration, and statistics", "claim": "the calibration call shape, the two binary32 outputs and the format 0/1 distinction"},
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## MSVC string ABI shim", "claim": "the 32-byte MSVC wide-string representation and its matching deallocator"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/read_adapter_tests.cpp", "note": "signed calibration translation"},
+          {"path": "experiments/native-bridge/mvp/import_adapter_tests.cpp", "note": "calibration round-trip guards"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "signed calibration compared against an independent oracle"}
+        ]
+      },
+      "uncertainties": [
+        "The unit string is a vendor-owned MSVC object; any change to its layout must fail closed.",
+        "Format 1 semantics are documented but only format 0 is exercised by the qualified paths."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_datasets", "native_read", "native_crop", "native_line_profile", "native_histogram_axis"],
+        "dtypes": ["float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["non-finite calibration is reported, never replaced"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout", "string_allocator"]
+    },
+    {
+      "id": "image.intensity_calibration",
+      "title": "Intensity calibration getter",
+      "area": "calibration",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetIntensityCalibration@Image@GMS@@QEAAXAEAM0AEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member",
+        "hidden_sret": false,
+        "returns": "void",
+        "params": [
+          {"name": "this", "type": "void*", "notes": "borrowed image pointer"},
+          {"name": "origin", "type": "float&", "notes": "binary32 output"},
+          {"name": "scale", "type": "float&", "notes": "binary32 output"},
+          {"name": "unit", "type": "MsvcWideString&", "notes": "MSVC string output"}
+        ]
+      },
+      "layout": {
+        "structures": [
+          {"name": "MsvcWideString", "size": "32", "alignment": "8", "fields": "union storage at 0, length at 16, capacity at 24"}
+        ],
+        "ownership": "same vendor string ownership contract as the spatial getter; the value is copied, never applied to pixels",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## MSVC string ABI shim"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Native one-dimensional results, image creation and histogram", "claim": "the typed intensity-calibration getter verifies the native copy while the result stays unapplied"},
+        {"source": "experiments/native-bridge/mvp/adapters/gms_3_53_4137/profile.hpp", "anchor": "?GetIntensityCalibration@Image@GMS@@QEAAXAEAM0AEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z", "claim": "required by the frame and line-profile groups"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/frame_adapter_tests.cpp", "note": "copied-but-unapplied calibration"},
+          {"path": "experiments/native-bridge/mvp/line_profile_adapter_tests.cpp", "note": "intensity calibration preservation"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Explicit uint16 sequence-frame working copies", "note": "intensity calibration copied and not applied"}
+        ]
+      },
+      "uncertainties": [
+        "Whether the vendor applies intensity calibration inside any operator is not derived from this getter."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_frame", "native_line_profile", "native_histogram_axis"],
+        "dtypes": ["uint16", "float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["intensity_calibration_applied is always false in receipts"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout"]
+    },
+    {
+      "id": "image.unicode_name",
+      "title": "UTF-16 image name getter",
+      "area": "image-identity",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetUnicodeName@Image@GMS@@QEBA?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@XZ", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided 32-byte string object",
+        "params": [
+          {"name": "this", "type": "const void*", "notes": "member call receives this first"},
+          {"name": "out", "type": "MsvcWideString*", "notes": "fresh caller storage; the callee constructs the object"}
+        ],
+        "notes": "Unlike the static lookups, this member method takes this before the hidden result pointer."
+      },
+      "layout": {
+        "structures": [
+          {"name": "MsvcWideString", "size": "32", "alignment": "8", "fields": "union storage at 0, length at 16, capacity at 24"}
+        ],
+        "ownership": "exactly one release through the paired deallocator; length excludes the terminator and must be validated against capacity",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## MSVC string ABI shim"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## MSVC string ABI shim", "claim": "member sret order, inline-versus-heap rule and bounded UTF-16 conversion"},
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Legacy Python and native Unicode paths", "claim": "an ASCII round trip does not establish non-ASCII interoperation"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/adapter_tests.cpp", "note": "string layout and guard paths"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "ASCII-named synthetic images only"}
+        ]
+      },
+      "uncertainties": [
+        "Non-ASCII interoperation remains NOT_QUALIFIED; a correct UTF-16 conversion does not establish agreement with legacy Python name bindings.",
+        "Lone surrogates and malformed layouts must fail closed and are only covered offline."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_datasets"],
+        "dtypes": ["metadata only"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["ASCII names only for qualified use"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout", "string_allocator"]
+    },
+    {
+      "id": "abi.msvc_string_release",
+      "title": "Matching deallocator for MSVC wide-string output",
+      "area": "image-memory",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "mfc140.dll", "sha256": "b784303d86232a1b316c79839aa78bf631b4fc182e55d9d947688adb066dff26"}
+      ],
+      "symbols": [
+        {"module": "mfc140.dll", "kind": "export_ordinal", "name": "#1487", "ordinal": 1487}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "void",
+        "params": [
+          {"name": "allocation", "type": "void*", "notes": "the address that was actually returned by the vendor allocator"}
+        ],
+        "notes": "Resolved by ordinal with GetProcAddress from the already-loaded module; its module identity is part of the ABI allowlist."
+      },
+      "layout": {
+        "structures": [
+          {"name": "MsvcWideString (heap form)", "size": "32", "alignment": "8", "fields": "heap pointer at 0, length at 16, capacity at 24"}
+        ],
+        "ownership": "below 4096 bytes the heap pointer is released directly; at or above 4096 the exposed pointer is 32-byte aligned and the original allocation address is the pointer-sized word immediately before it (difference 8..39 bytes)",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## MSVC string ABI shim"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## MSVC string ABI shim", "claim": "the inspected destruction path, the alignment rule and the ordinal binding"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/adapter_tests.cpp", "note": "malformed layout fails closed without double free"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "exercised through UTF-16 name and unit release on the pinned build"}
+        ]
+      },
+      "uncertainties": [
+        "The allocation/deallocation pairing is layout-specific and is not a public vendor string API.",
+        "mfc140.dll is gated by SHA-256 but not by file version."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_datasets", "native_read", "native_line_profile"],
+        "dtypes": ["metadata only"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["must be paired with the vendor allocator; never use local free/delete"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "ordinal", "call_shape", "layout", "allocator_pairing"]
+    },
+    {
+      "id": "image.reference_release",
+      "title": "Owned image reference release",
+      "area": "image-memory",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?ref_ptr_delete@Gatan@@YAXPEAVImage@GMS@@@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "void",
+        "params": [
+          {"name": "image", "type": "void*", "notes": "only reachable when the intrusive count has just reached zero"}
+        ],
+        "notes": "The export is a final destructor/deallocator. Calling it on every successful lookup would destroy a live image."
+      },
+      "layout": {
+        "structures": [
+          {"name": "GMS::Image (prefix only)", "size": "8", "alignment": "8", "fields": "signed 64-bit intrusive reference count at offset 0; not a vtable pointer"}
+        ],
+        "ownership": "decrement atomically; call ref_ptr_delete only when the new count is zero; never release a borrowed pointer and never copy an owned reference without a matching increment",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Image identity and ownership"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Image identity and ownership", "claim": "first field is a signed 64-bit intrusive count and the export is a final deallocator"},
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Independent crop contract", "claim": "returned references follow the same ownership rule as lookup"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/result_release_tests.cpp", "note": "release guards and early-return paths"},
+          {"path": "experiments/native-bridge/mvp/candidate_calls_tests.cpp", "note": "synthetic ownership transfer rules"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Historical live continuation: SUMMARY and document lifecycle", "note": "after-idle reference invalidation following release"}
+        ]
+      },
+      "uncertainties": [
+        "Synchronous destruction of document-held references on the same stack failed an early check; after-return idle behaviour is the qualified contract.",
+        "The count is not a stable public API; any layout change invalidates the guard."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_result_release", "native_crop", "native_read", "native_display", "native_histogram", "native_line_profile"],
+        "dtypes": ["any"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["one release per owned reference", "never on a borrowed pointer"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "layout", "ownership"]
+    },
+    {
+      "id": "image.sub_slice",
+      "title": "Independent rectangular pixel copy",
+      "area": "image-creation",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetSubSliceAsImage@Image@GMS@@QEBA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSlice@Imaging@4@@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided result slot",
+        "params": [
+          {"name": "this", "type": "const void*", "notes": "source image, borrowed"},
+          {"name": "out", "type": "NativeImageRef*", "notes": "receives one owned reference to a new independent image"},
+          {"name": "slice", "type": "const NativeDataSlice*", "notes": "176-byte caller-built slice descriptor"}
+        ],
+        "notes": "The inspected path creates a new image and copies the selected data, unlike CreateSlicedImage which retains the original backing seed."
+      },
+      "layout": {
+        "structures": [
+          {"name": "SliceAxis", "size": "24", "alignment": "8", "fields": "source_dimension at 0, padding, length at 8, step at 16"},
+          {"name": "NativeDataSlice", "size": "176", "alignment": "8", "fields": "source_dimensions at 0, source_start[5] at 8, output_dimensions at 48, output_axes[5] at 56 with stride 24"}
+        ],
+        "ownership": "returned reference follows the image reference ownership rule; the source stays untouched",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Independent crop contract"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Independent crop contract", "claim": "call shape, the 176-byte slice representation and the half-open rectangle mapping"},
+        {"source": "experiments/native-bridge/mvp/adapters/gms_3_53_4137/crop_contract.hpp", "claim": "compile-time offsets and size assertions for the slice POD", "anchor": "NativeDataSlice"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/pixel_adapter_tests.cpp", "note": "rectangle validation and calibration translation"},
+          {"path": "experiments/native-bridge/mvp/uint32_adapter_tests.cpp", "note": "uint32 crop bounds"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "every selected pixel compared against an independent oracle; source unchanged"}
+        ]
+      },
+      "uncertainties": [
+        "Only the 2D ordinary-packing rectangle mapping is closed; other slice shapes are unverified."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_crop", "native_pixel_crop", "native_uint32_crop", "native_frame"],
+        "dtypes": ["float32", "uint32", "uint16 (frame source)"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["half-open upper edges", "bounds validated before allocation"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout", "ownership"]
+    },
+    {
+      "id": "image.create",
+      "title": "New native image creation",
+      "area": "image-creation",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?CreateImage@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSize@Imaging@4@KAEBV?$char_range_t@_WU?$char_traits@_W@std@@@4@@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_static_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided result slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef*", "notes": "argument one; the result is read from this slot, not from the returned pointer"},
+          {"name": "size", "type": "const DataSize*", "notes": "48-byte rank plus int64 extents"},
+          {"name": "type", "type": "uint32_t", "notes": "scalar type code; 11 is used for uint32 histogram destinations"},
+          {"name": "name", "type": "const CharRange*", "notes": "16-byte begin/end wide-character range"}
+        ]
+      },
+      "layout": {
+        "structures": [
+          {"name": "DataSize353", "size": "48", "alignment": "8", "fields": "dimensions at 0, padding, size[5] int64 at 8"},
+          {"name": "CharRange353", "size": "16", "alignment": "8", "fields": "begin and end wchar_t pointers"}
+        ],
+        "ownership": "the created image owns one reference; the bridge retains or releases it through the standard reference contract",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Native one-dimensional results, image creation and histogram"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Native one-dimensional results, image creation and histogram", "claim": "argument order, the 48-byte DataSize and the 16-byte CharRange, fixed by Check_ImageDataSize and SetUnicodeName"},
+        {"source": "experiments/native-bridge/mvp/adapters/gms_3_53_4137/histogram_contract.hpp", "anchor": "DataSize353", "claim": "compile-time layout assertions for the creation PODs"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/histogram_adapter_tests.cpp", "note": "creation and count validation"},
+          {"path": "experiments/native-bridge/mvp/import_adapter_tests.cpp", "note": "imported image creation"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Rank-one delivery and native histogram (2026-10-25 audit round)", "note": "native rank-one destination created and verified"}
+        ]
+      },
+      "uncertainties": [
+        "Only the rank-one uint32 histogram destination and the bounded float32 import destination are exercised."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_histogram", "native_numeric_import"],
+        "dtypes": ["uint32", "float32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["bounded extents validated before the call"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout", "ownership"]
+    },
+    {
+      "id": "image.real_value",
+      "title": "Element read and write through a 2D index",
+      "area": "image-pixels",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z", "ordinal": null},
+        {"module": "GMSImage.dll", "kind": "export", "name": "?SetRealValue@Image@GMS@@QEAAXAEBVDataIndex@Imaging@Gatan@@N@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member",
+        "hidden_sret": false,
+        "returns": "double (getter) or void (setter)",
+        "params": [
+          {"name": "this", "type": "const void*", "notes": "member call"},
+          {"name": "index", "type": "const DataIndex*", "notes": "only the documented 2D prefix is constructed"},
+          {"name": "value", "type": "double", "notes": "setter only, passed in the floating-point register"}
+        ],
+        "notes": "The 2D index prefix is dimension count at byte 0, signed X at byte 8, signed Y at byte 16. This is not a complete definition of the vendor's multidimensional class."
+      },
+      "layout": {
+        "structures": [
+          {"name": "DataIndex (2D prefix only)", "size": "24", "alignment": "8", "fields": "dimension count dword at 0, int64 x at 8, int64 y at 16"}
+        ],
+        "ownership": "caller-owned index; no reference is created or released",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Version isolation and additional typed operations"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Version isolation and additional typed operations", "claim": "the getter returns double and consumes only the proven 2D index prefix"},
+        {"source": "experiments/native-bridge/mvp/adapters/gms_3_53_4137/read_contract.hpp", "anchor": "DataIndex", "claim": "compile-time layout assertions for the index prefix"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/read_adapter_tests.cpp", "note": "exact float32 encoding, signed zero, uint32 integral checks"},
+          {"path": "experiments/native-bridge/mvp/import_adapter_tests.cpp", "note": "write-read back validation"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier accepted MVP baseline", "note": "READ bytes matched an independent oracle including high-bit uint32 values"}
+        ]
+      },
+      "uncertainties": [
+        "The full multidimensional index class is not defined; only the 2D prefix is used.",
+        "Inexact or non-finite float32 conversions are rejected rather than rounded."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_read", "native_uint32_read", "native_preview", "native_histogram", "native_numeric_import", "native_line_profile"],
+        "dtypes": ["float32", "uint32", "float64 (rank-one read)"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["<=16384 samples per READ", "no generic pixel-buffer mapping"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout"]
+    },
+    {
+      "id": "image.set_spatial_calibration",
+      "title": "Spatial calibration setter and its binary32 rounding",
+      "area": "calibration",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export", "name": "?SetDimensionCalibration@Image@GMS@@QEAAXKMMAEBV?$char_range_t@_WU?$char_traits@_W@std@@@Gatan@@J@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_member",
+        "hidden_sret": false,
+        "returns": "void",
+        "params": [
+          {"name": "this", "type": "void*", "notes": "member call"},
+          {"name": "dimension", "type": "uint32_t", "notes": "x or y"},
+          {"name": "origin", "type": "float", "notes": "XMM2; origin expressed in the requested format"},
+          {"name": "scale", "type": "float", "notes": "XMM3"},
+          {"name": "unit", "type": "const CharRange*", "notes": "16-byte wide-character range"},
+          {"name": "format", "type": "int32_t", "notes": "stack argument; 0 stores -(origin / scale), 1 stores the given index origin"}
+        ],
+        "notes": "A format-0 write followed by a format-0 read is not bit-exact: the stored index origin is multiplied by the scale again."
+      },
+      "layout": {
+        "structures": [
+          {"name": "CharRange353", "size": "16", "alignment": "8", "fields": "begin and end wchar_t pointers"}
+        ],
+        "ownership": "caller-owned range; the host copies what it needs",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Native one-dimensional results, image creation and histogram"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Native one-dimensional results, image creation and histogram", "claim": "XMM2 origin, XMM3 scale, trailing format int, and the format-0 divide branch"},
+        {"source": "docs/HISTOGRAM_AXIS_AUDIT.md", "anchor": "# Histogram axis: native arithmetic and scientific limits", "claim": "the quotient and product must be modelled in binary32, not compared with an epsilon floor"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/histogram_adapter_tests.cpp", "note": "axis write/read guard modelling"},
+          {"path": "experiments/native-bridge/mvp/import_adapter_tests.cpp", "note": "signed raw-origin calibration readback"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Histogram intensity axis and presentation: reviewed continuation", "note": "observed last-bit agreement with an independent DM-Python oracle"}
+        ]
+      },
+      "uncertainties": [
+        "Whole-axis drift bounds are empirical for the recorded values; no general error theorem follows."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_numeric_import", "native_histogram_axis"],
+        "dtypes": ["float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["identity intensity calibration plus a nonempty unit is required for a labelled axis"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "layout", "rounding_model"]
+    },
+    {
+      "id": "processing.reductions",
+      "title": "Scalar reductions over a locked layout",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?GetMean@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?GetMinimum@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?GetMaximum@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?GetSum@GMSImageProcessing@@YANAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "double in the normal floating-point return register",
+        "params": [
+          {"name": "image", "type": "const NativeImageRef*", "notes": "borrowed; the callee obtains data, locks a layout and calls the native reduction"}
+        ],
+        "notes": "No intensity calibration is fetched or applied: the value is raw pixel intensity. Each result is checked for finiteness before the next call."
+      },
+      "layout": null,
+      "layout_absent_reason": "the reduction is performed by the vendor path; the bridge only passes a reference and reads a scalar",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Descriptors, calibration, and statistics", "claim": "GetMean returns binary64 in the floating-point return register and yields raw intensity"},
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Native SUMMARY reductions", "claim": "the four exports share one const NativeRef* shape and are called sequentially"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/uint32_adapter_tests.cpp", "note": "pixel-count and overflow budgets"},
+          {"path": "experiments/native-bridge/mvp/candidate_calls_tests.cpp", "note": "reduction callback shape"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/mvp/SUMMARY_ACCEPTANCE.md", "anchor": "## 同宿主独立 oracle", "note": "four raw reductions matched a same-PID oracle with nontrivial intensity calibration present"}
+        ]
+      },
+      "uncertainties": [
+        "Sequential calls are not an atomic snapshot; snapshot_atomic is false.",
+        "Variance, median and stddev are separate candidates with unresolved conventions."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_mean", "native_statistics", "native_uint32_mean", "native_uint32_statistics"],
+        "dtypes": ["float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["uint32 sums bounded to 2097152 pixels", "<=4194304 source pixels for float32 SUMMARY"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "dtype_budget"]
+    },
+    {
+      "id": "processing.histogram",
+      "title": "Native histogram operator",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?CalcHistogram@GMSImageProcessing@@YAXAEBV?$ref_ptr@VImage@GMS@@@Gatan@@0NN@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "void",
+        "params": [
+          {"name": "source", "type": "const NativeImageRef*", "notes": "borrowed source reference"},
+          {"name": "destination", "type": "const NativeImageRef*", "notes": "caller-created rank-one image"},
+          {"name": "minimum", "type": "double", "notes": "requested lower range bound, binary64"},
+          {"name": "maximum", "type": "double", "notes": "requested upper range bound, binary64"}
+        ],
+        "notes": "The script function ImageCalculateHistogram is a wrapper over this operator. The bridge performs no binning of its own."
+      },
+      "layout": null,
+      "layout_absent_reason": "both arguments are references to existing images; no new object layout crosses the boundary",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Native one-dimensional results, image creation and histogram", "claim": "CalcHistogram is exported with a caller-created one-dimensional destination and no bridge kernel"},
+        {"source": "docs/NATIVE_HISTOGRAM.md", "anchor": "## Request and counts", "claim": "counts must be exact non-negative integers whose total equals the source pixel count"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/histogram_adapter_tests.cpp", "note": "range coverage, bin budget and exact-count checks"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Rank-one delivery and native histogram (2026-10-25 audit round)", "note": "synthetic float32 source, exact counts and document delivery"}
+        ]
+      },
+      "uncertainties": [
+        "The undocumented under/overflow rule is never exercised: the caller range must cover the complete source range.",
+        "Counts are uint32 in storage; transport is exact binary64."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_histogram", "native_histogram_display", "native_histogram_axis"],
+        "dtypes": ["float32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["2..4096 bins", "<=4194304 source pixels", "complete range coverage required"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "count_invariants"]
+    },
+    {
+      "id": "processing.convert",
+      "title": "Native dtype conversion",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?ImageConvert@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@K@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided result slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef*", "notes": "receives one owned reference"},
+          {"name": "source", "type": "const NativeImageRef*", "notes": "borrowed"},
+          {"name": "type", "type": "uint32_t", "notes": "target scalar type code"}
+        ]
+      },
+      "layout": null,
+      "layout_absent_reason": "only existing image references and a scalar type code cross the boundary",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Explicit sequence-frame copy", "claim": "ImageConvert creates an independent float32 result and the temporary is released before the retained result is committed"},
+        {"source": "experiments/native-bridge/mvp/NATIVE_FRAME.md", "anchor": "## Input, coordinates and native computation", "claim": "DM performs the conversion; every uint16 value remains exact in float32"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/frame_adapter_tests.cpp", "note": "temporary and retained reference accounting"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Explicit uint16 sequence-frame working copies", "note": "uint16 values preserved exactly and the source stayed unchanged"}
+        ]
+      },
+      "uncertainties": [
+        "Only the uint16 to float32 direction is exercised."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_frame"],
+        "dtypes": ["uint16 -> float32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["<=1048576 XY pixels", "two-image temporary peak reserved before allocation"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "ownership"]
+    },
+    {
+      "id": "processing.filters",
+      "title": "3x3 convolution filters",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?SmoothFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?SobelFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?LaplaceFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?SharpenFilter@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided result slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef*", "notes": "receives one owned reference"},
+          {"name": "source", "type": "const NativeImageRef*", "notes": "borrowed"}
+        ],
+        "notes": "The unary wrapper shape is shared by all four filters. uint32 Smooth/Sharpen keep uint32 with native saturation and truncation; Sobel/Laplace return float32."
+      },
+      "layout": null,
+      "layout_absent_reason": "only image references cross the boundary; no filter kernel is constructed by the bridge",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Version isolation and additional typed operations", "claim": "native 3x3 convolution accumulates in binary64 and uint32 stores saturate then truncate toward zero"},
+        {"source": "experiments/native-bridge/mvp/OPERATIONS_ACCEPTANCE.md", "anchor": "## 四种滤波的已验参考", "claim": "the four filters were checked against recorded references"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/pixel_adapter_tests.cpp", "note": "shape and dtype gates"},
+          {"path": "experiments/native-bridge/mvp/uint32_operations_tests.cpp", "note": "uint32 saturation and truncation expectations"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Current feature: native operations and scientific handoff", "note": "four filters through the public MCP chain with a same-host oracle"}
+        ]
+      },
+      "uncertainties": [
+        "Edge and boundary semantics are the vendor's; they are not re-derived or asserted.",
+        "Only axes 5..256 are admitted."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_filters", "native_pixel_filters", "native_uint32_filters"],
+        "dtypes": ["float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["dimensions 5..256", "smooth/sobel/laplace/sharpen only"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "dtype_semantics"]
+    },
+    {
+      "id": "processing.unary",
+      "title": "Unary arithmetic operators",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?Negate@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?Abs@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?Square@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided result slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef*", "notes": "receives one owned reference"},
+          {"name": "source", "type": "const NativeImageRef*", "notes": "borrowed"}
+        ],
+        "notes": "uint32 inputs are zero-extended, converted to binary64, processed by the vendor operator and stored as binary32."
+      },
+      "layout": null,
+      "layout_absent_reason": "only image references cross the boundary",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Version isolation and additional typed operations", "claim": "unary wrappers take one source reference and the scientific conversion is the vendor's"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/uint32_operations_tests.cpp", "note": "dtype and result-shape gates"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/mvp/UINT32_OPERATIONS_ACCEPTANCE.md", "anchor": "## Qualification stages", "note": "32 synthetic outputs through Node MCP with a same-PID oracle"}
+        ]
+      },
+      "uncertainties": [
+        "uint32 arithmetic is binary64 then float32 storage; it is not integer-exact."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_image_arithmetic", "native_uint32_image_arithmetic"],
+        "dtypes": ["float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["negate, abs, square only", "<=4 MiB output"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "dtype_semantics"]
+    },
+    {
+      "id": "processing.binary",
+      "title": "Paired arithmetic operators",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "??HGMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV12@0@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "??GGMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV12@0@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "??DGMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV12@0@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided result slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef*", "notes": "receives one owned reference"},
+          {"name": "left", "type": "const NativeImageRef*", "notes": "borrowed"},
+          {"name": "right", "type": "const NativeImageRef*", "notes": "borrowed"}
+        ],
+        "notes": "Only add, subtract and multiply are bound. Division is a known export but is not admitted by the shipped operation contract."
+      },
+      "layout": null,
+      "layout_absent_reason": "only image references cross the boundary",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Version isolation and additional typed operations", "claim": "binary wrappers take two source references and the vendor operator performs the computation"},
+        {"source": "experiments/native-bridge/mvp/candidate_calls.cpp", "anchor": "??KGMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV12@0@Z", "claim": "the divide export exists but is catalogued as an unqualified candidate"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/uint32_operations_tests.cpp", "note": "descriptor compatibility and dtype matching"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/mvp/UINT32_OPERATIONS_ACCEPTANCE.md", "anchor": "## Qualification stages", "note": "paired arithmetic with matching dtypes and independent oracle"}
+        ]
+      },
+      "uncertainties": [
+        "Shape-mismatch policy is the vendor's; the bridge refuses mismatched descriptors instead of relying on it.",
+        "Division is deliberately not admitted."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_image_arithmetic", "native_uint32_image_arithmetic"],
+        "dtypes": ["float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["add, subtract, multiply only", "matching dtypes and compatible descriptors required"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "dtype_semantics"]
+    },
+    {
+      "id": "processing.fourier",
+      "title": "Forward, inverse and component Fourier operators",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?Real_FFT@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?IFFT@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?Real@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?Imag@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?Arg@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?Norm@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_sret",
+        "hidden_sret": true,
+        "returns": "pointer to the caller-provided result slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef*", "notes": "receives one owned reference"},
+          {"name": "source", "type": "const NativeImageRef*", "notes": "borrowed; the operator selects its own internal path"}
+        ],
+        "notes": "Contract version 2: forward uses a positive exponent, no normalization and fftshift data; inverse uses a negative exponent divided by width*height and resets the spatial origin to zero."
+      },
+      "layout": null,
+      "layout_absent_reason": "only image references cross the boundary; the complex representation is returned as a native image",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## FFT interface investigation: not qualified", "claim": "the exported FFT family shares the one-pointer reference shape but imposes different descriptor and packing constraints"},
+        {"source": "experiments/native-bridge/mvp/FFT_READINESS.md", "anchor": "## v2 明确的数值与坐标", "claim": "the measured sign, normalization, centering and calibration are reported separately from mathematical bin coordinates"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/uint32_operations_tests.cpp", "note": "large-shape admission and pool accounting"},
+          {"path": "experiments/native-bridge/mvp/core_tests.cpp", "note": "retained-result pool arithmetic"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Bounded larger Fourier operations", "note": "v2 FFT/IFFT/component operations within the recorded bounds"}
+        ]
+      },
+      "uncertainties": [
+        "The empirical small dense-FFT accuracy policy is not a general error theorem.",
+        "An earlier binary64-expression power oracle FAIL is preserved as history and is not repaired by later passes.",
+        "Vendor workspace memory is not bounded by the bridge."
+      ],
+      "conflicts": [
+        {"summary": "Real_FFT input is ordinary-packed float32 or uint32-rounded binary32, not a complex image, while FFT expects a different packing; selecting by dtype alone would be wrong", "resolved": true}
+      ],
+      "scope": {
+        "operations": ["native_fft", "native_pixel_fft", "native_uint32_fft", "native_fft_large", "native_ifft_large", "native_real_large", "native_imag_large", "native_phase_large", "native_power_large", "native_uint32_fft_large", "native_uint32_real_large", "native_uint32_imag_large", "native_uint32_phase_large", "native_uint32_power_large"],
+        "dtypes": ["float32", "uint32 (rounded to binary32 on input)"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["power-of-two axes 4..256, or 4..1024 with a matching large capability", "<=1048576 pixels in v2", "uint32 IFFT large remains unqualified"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "export_name", "call_shape", "numerical_convention", "pool_budget"]
+    },
+    {
+      "id": "processing.fourier_packed_candidates",
+      "title": "Packed and complex-first Fourier candidates",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export_name_unverified", "name": "FFT", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export_name_unverified", "name": "Packed_FFT", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc_sret",
+        "hidden_sret": true,
+        "returns": "presumed pointer to a caller-provided result slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef* (presumed)", "notes": "same one-pointer reference skeleton as the qualified family"},
+          {"name": "source", "type": "const NativeImageRef* (presumed)", "notes": "packing requirements differ from Real_FFT"}
+        ],
+        "notes": "Only a partial static skeleton is known. The decorated export names are not recorded in the shipping profile; this entry is not a binding."
+      },
+      "layout": null,
+      "layout_absent_reason": "the packed representation and the complex storage layout were not closed",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## FFT interface investigation: not qualified", "claim": "bounded machine-code inspection supports the reference shape but not a production call contract"},
+        {"source": "experiments/native-bridge/mvp/candidate_calls.cpp", "anchor": "FFT_WRAPPER_REVIEWED_STATIC_PARTIAL", "claim": "complex, real and packed inputs differ; normalization, centering and ownership are unqualified"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/candidate_calls_tests.cpp", "note": "synthetic callback coverage only"}
+        ],
+        "real_host": []
+      },
+      "uncertainties": [
+        "Exact complex storage, normalization, centering, usable reciprocal axes and workspace bounds are unresolved.",
+        "Ordinary float32 input must not select FFT merely by dtype."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": [],
+        "dtypes": ["unknown"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["no binding, no protocol operation, no MCP tool"]
+      },
+      "qualification": "STATIC_CANDIDATE",
+      "derivation": "static_inspection",
+      "revalidation": ["export_name", "call_shape", "layout", "numerical_convention"]
+    },
+    {
+      "id": "processing.other_signatures",
+      "title": "Reductions with call shapes outside the bound adapters",
+      "area": "processing",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImageProcessing.dll", "sha256": "6be3044d049b6b2184404ea5adc2588d0677ae9b2f78ceb80169d315aef82042"}
+      ],
+      "symbols": [
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?GetPixelCount@GMSImageProcessing@@YA_KAEBV?$ref_ptr@VImage@GMS@@@Gatan@@@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?GetMeanAndVariance@GMSImageProcessing@@YAXAEBV?$ref_ptr@VImage@GMS@@@Gatan@@AEAN1@Z", "ordinal": null},
+        {"module": "GMSImageProcessing.dll", "kind": "export", "name": "?GetMinimumMaximum@GMSImageProcessing@@YAXAEBV?$ref_ptr@VImage@GMS@@@Gatan@@AEAN1@Z", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "uint64_t or void with two double outputs",
+        "params": [
+          {"name": "source", "type": "const NativeImageRef*", "notes": "borrowed"},
+          {"name": "outputs", "type": "double*", "notes": "two caller-provided outputs for the multi-value forms"}
+        ],
+        "notes": "These exact exports exist but their shapes do not match the bound Unary/Binary/Reduction callbacks, so they are catalogued and refused."
+      },
+      "layout": null,
+      "layout_absent_reason": "no layout is needed for a refused binding",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/mvp/candidate_calls.cpp", "anchor": "EXPORTED_OTHER_SIGNATURE", "claim": "known exports with signatures outside the three adapted shapes are blocked"},
+        {"source": "experiments/native-bridge/mvp/BATCH_CANDIDATES.md", "anchor": "## 已识别但没有硬套进调用层的项目", "claim": "identified items were deliberately not forced into the prepared call layer"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/candidate_calls_tests.cpp", "note": "blocked entries reject invocation"}
+        ],
+        "real_host": []
+      },
+      "uncertainties": [
+        "The two-output forms would need their own qualification, including precision and non-finite conventions."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": [],
+        "dtypes": ["unknown"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["invocation always rejected"]
+      },
+      "qualification": "BLOCKED",
+      "derivation": "static_inspection",
+      "revalidation": ["export_name", "call_shape"]
+    },
+    {
+      "id": "document.factory_show",
+      "title": "Document creation and display entrypoints",
+      "area": "document",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "image_get_or_create_document", "rva": null, "note": "the pinned RVA is recorded only in the version profile and must be re-derived per build"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "image_document_show", "rva": null, "note": "the pinned RVA is recorded only in the version profile and must be re-derived per build"}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "native document holder (16 bytes) or void",
+        "params": [
+          {"name": "image", "type": "Image*", "notes": "the factory receives only an image and selects the display itself"},
+          {"name": "document", "type": "void*", "notes": "the display entrypoint receives the holder produced by the factory"}
+        ],
+        "notes": "These entrypoints have no applicable public DLL exports in the inspected build. Binding requires a complete host/module hash gate followed by an executable-section and committed-page check."
+      },
+      "layout": {
+        "structures": [
+          {"name": "document holder", "size": "16", "alignment": "8", "fields": "64-bit reference count followed by a native document pointer"}
+        ],
+        "ownership": "each return is one owned reference; release Window first and then the document holder, calling the matched vendor final destructor only at zero",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Visible-document SHOW candidate"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Visible-document SHOW candidate", "claim": "typed entrypoints without public exports, the 16-byte holder and the entry-page gate"},
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Native one-dimensional results, image creation and histogram", "claim": "the same factory delivers rank-one results because it takes only an Image*"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/result_release_tests.cpp", "note": "holder release ordering"},
+          {"path": "experiments/native-bridge/mvp/histogram_adapter_tests.cpp", "note": "rank-one display admission split"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Current feature: native operations and scientific handoff", "note": "explicit-ID document delivery with unique document count"}
+        ]
+      },
+      "uncertainties": [
+        "A receipt is not proof of active-tab visibility or model viewing.",
+        "Saving the document remains outside this entry."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_display", "native_uint32_display", "native_profile_display", "native_histogram_display", "native_numeric_import_display"],
+        "dtypes": ["float32", "uint32", "float64 (rank-one)", "uint32 counts"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["explicit retained ID only", "no front-image or most-recent-window selection"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "rva", "call_shape", "layout", "ownership", "entry_page_gate"]
+    },
+    {
+      "id": "document.holders",
+      "title": "Document holder and window destruction",
+      "area": "document",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "destroy_document_holder", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "destroy_window", "rva": null, "note": "pinned RVA lives only in the version profile"}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "void",
+        "params": [
+          {"name": "object", "type": "void*", "notes": "the holder or window whose count has just reached zero"}
+        ]
+      },
+      "layout": {
+        "structures": [
+          {"name": "Window (opaque)", "size": "unknown", "alignment": "8", "fields": "only a 64-bit reference counter is proven"}
+        ],
+        "ownership": "matched final destructors only; malformed layout latches the adapter disabled instead of guessing a destruction path",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Visible-document SHOW candidate"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Visible-document SHOW candidate", "claim": "release order Window then holder, and the fail-closed rule for malformed layout"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/result_release_tests.cpp", "note": "double-release and ordering guards"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Current feature: native operations and scientific handoff", "note": "normal exit after documented ownership handover"}
+        ]
+      },
+      "uncertainties": [
+        "Only the reference counter of the Window object is proven; the rest stays opaque."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_display", "native_profile_display", "native_histogram_display"],
+        "dtypes": ["not applicable"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["never close unrelated user documents"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "rva", "call_shape", "layout", "ownership"]
+    },
+    {
+      "id": "roi.display_resolution",
+      "title": "Image display and ROI enumeration entrypoints",
+      "area": "roi",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_image_display_count", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_image_display_at", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_resolve_display", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_display_image", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_destroy_display_holder", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_destroy_roi", "rva": null, "note": "pinned RVA lives only in the version profile"}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "varies; enumeration returns a count and per-index holders",
+        "params": [
+          {"name": "image", "type": "Image*", "notes": "the explicit native image reference; never a front-image lookup"},
+          {"name": "index", "type": "uint32_t", "notes": "validated against the returned count"}
+        ],
+        "notes": "An owned display holder keeps the document/component context alive while the resolved display is borrowed. Reverse image lookup must match both pointer and numeric ID."
+      },
+      "layout": null,
+      "layout_absent_reason": "display and ROI objects stay opaque; only their reference counters are proven",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "### Earlier GUI rectangle continuation: typed read-only ownership, limited qualification", "claim": "display enumeration uses the explicit image reference and each acquired ROI follows the traced getter/destructor contract"},
+        {"source": "docs/NATIVE_GUI_ROI.md", "anchor": "## Identity and coordinates", "claim": "IDs compose image, document, display component and ROI; they are not global names"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/roi_adapter_tests.cpp", "note": "identity, geometry and ownership guards"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Earlier continuation: GUI ROI qualification and independent Fourier control", "note": "explicit-ID GUI rectangle to native crop/mean/READ with independent source checks"}
+        ]
+      },
+      "uncertainties": [
+        "Immediate same-stack destruction after fixture cleanup failed and is preserved as a separate FAIL; after-return idle behaviour is the qualified contract.",
+        "Repeated reads detect changes but do not provide an atomic GUI/source lock."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_gui_rois", "native_line_profile"],
+        "dtypes": ["float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["direct ImageSource_Simple layout only", "slice_ids:[0] only"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "rva", "call_shape", "layout", "ownership", "vtable_identity"]
+    },
+    {
+      "id": "roi.geometry",
+      "title": "ROI geometry, raster mapping and direct source layout",
+      "area": "roi",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_id", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_is_selected", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_rectangle", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_raster_count", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_raster_at", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_raster_dimensions", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_raster_mapping", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_raster_slice_id", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_simple_source_count", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_simple_source_slice_id", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_simple_source_extents", "rva": null, "note": "pinned RVA lives only in the version profile"}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "varies per getter",
+        "params": [
+          {"name": "roi", "type": "void*", "notes": "owned ROI reference"},
+          {"name": "outputs", "type": "typed pointers", "notes": "raw top/left/bottom/right and rotation are preserved"}
+        ],
+        "notes": "Raster type and relevant vtable entries are checked before their typed getters. Direct getters retain errors instead of inheriting wrapper exception-to-zero behaviour."
+      },
+      "layout": {
+        "structures": [
+          {"name": "RasterImageDisplay vtable identity", "size": "n/a", "alignment": "n/a", "fields": "module-specific vtable RVA cross-checked against RTTI"}
+        ],
+        "ownership": "each acquired ROI uses the traced owning getter/destructor contract; the bridge never creates or modifies a document, pixel or selection",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "### Earlier GUI rectangle continuation: typed read-only ownership, limited qualification"
+      },
+      "static_evidence": [
+        {"source": "docs/NATIVE_GUI_ROI.md", "anchor": "## Identity and coordinates", "claim": "raw rectangle edges and rotation are preserved; only integral, finite, in-bounds unrotated rectangles become half-open analysis ROIs"},
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "### Earlier GUI rectangle continuation: typed read-only ownership, limited qualification", "claim": "the selected-ID getter returns slice IDs, not dimensions or an axis permutation"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/roi_adapter_tests.cpp", "note": "geometry, ineligible source classes and error retention"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "docs/NATIVE_GUI_ROI.md", "anchor": "## Executed engineering checks", "note": "explicit native ROI/crop/READ with independent same-PID source and selection observation"}
+        ]
+      },
+      "uncertainties": [
+        "Sliced, Group and Summed sources remain ineligible; only direct ImageSource_Simple plus slice_ids:[0] establishes source-pixel alignment.",
+        "An earlier observation under the old mapping assumption failed and remains preserved."
+      ],
+      "conflicts": [
+        {"summary": "slice IDs were once misread as axis dimensions, producing an eligibility FAIL; the contract now treats them as slice identity", "resolved": true}
+      ],
+      "scope": {
+        "operations": ["native_gui_rois"],
+        "dtypes": ["float32", "uint32"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["no rounding, clipping or most-recent-window inference"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "rva", "call_shape", "vtable_identity", "layout"]
+    },
+    {
+      "id": "roi.line_profile",
+      "title": "GUI line extraction to a true one-dimensional image",
+      "area": "roi",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_is_line", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_line", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "line_profile_extract", "rva": null, "note": "pinned RVA lives only in the version profile"}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": true,
+        "returns": "new owned image pointer written through the destination slot",
+        "params": [
+          {"name": "out", "type": "NativeImageRef*", "notes": "receives one owned reference to a new rank-one image"},
+          {"name": "source", "type": "const NativeImageRef*", "notes": "borrowed; retained lineage is checked before extraction"},
+          {"name": "parameters", "type": "typed line parameters", "notes": "verified width-one integer endpoints"}
+        ],
+        "notes": "A one-shot extraction call; the name does not expose a live evaluator or a background listener."
+      },
+      "layout": null,
+      "layout_absent_reason": "the output is a normal native image; no new object layout crosses the boundary",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "### GUI line extraction and true one-dimensional handoff", "claim": "the one-shot extraction returns a new owned image guarded by the existing reference RAII"},
+        {"source": "docs/NATIVE_LINE_PROFILE.md", "anchor": "## Narrow input contract", "claim": "width one, axis-aligned integer centres, equal signed scales and at most 4096 samples"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/line_profile_adapter_tests.cpp", "note": "eligibility, endpoint and output-rank guards"}
+        ],
+        "real_host": [
+          {"status": "PASS_LIMITED", "record": "experiments/native-bridge/RESULTS.md", "anchor": "## Current continuation: GUI line and true native 1D profile", "note": "nonlinear controls, reverse order, signed calibration and unchanged sources"}
+        ]
+      },
+      "uncertainties": [
+        "Diagonal, fractional and wide profiles remain unqualified.",
+        "A prior fixture with fractional GUI coordinates failed its oracle and remains preserved."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_line_profile", "native_profile_display"],
+        "dtypes": ["float32", "uint32 sources; float64 output"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["<=4096 endpoint-inclusive samples", "known Fourier lineage refused"]
+      },
+      "qualification": "QUALIFIED_LIMITED",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "rva", "call_shape", "ownership"]
+    },
+    {
+      "id": "presentation.plot_style",
+      "title": "Histogram bar styling candidate",
+      "area": "presentation",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "plot_style_get", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "plot_style_set", "rva": null, "note": "pinned RVA lives only in the version profile"}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "one byte (getter) or void (setter)",
+        "params": [
+          {"name": "display", "type": "LinePlotImageDisplay*", "notes": "resolved through the already qualified ROI display path"},
+          {"name": "value", "type": "byte", "notes": "single presentation flag"}
+        ],
+        "notes": "The script layer is skipped entirely: the bridge proves the dynamic type through the object's complete object locator before calling the setter."
+      },
+      "layout": {
+        "structures": [
+          {"name": "LinePlotImageDisplay (styling field only)", "size": "unknown", "alignment": "n/a", "fields": "one byte proven by a dedicated getter/setter pair"}
+        ],
+        "ownership": "the acquired image reference is balanced before any vendor setter or getter call",
+        "evidence_source": "experiments/native-bridge/ABI_NOTES.md",
+        "evidence_anchor": "## Native one-dimensional results, image creation and histogram"
+      },
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Native one-dimensional results, image creation and histogram", "claim": "the internal setter stores one byte and a dedicated getter returns it; no other reader or writer was found"},
+        {"source": "AGENTS.md", "anchor": "## Product boundary", "claim": "histogram bar styling is a candidate that is not qualified and is disabled for shipping"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/histogram_adapter_tests.cpp", "note": "display_style reports default with style_not_qualified"}
+        ],
+        "real_host": []
+      },
+      "uncertainties": [
+        "Proving the dynamic type requires reading the object's complete object locator; a decorated type name alone is not sufficient.",
+        "Repaint behaviour is not observable in a way that this project can qualify."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_line_plot_style"],
+        "dtypes": ["not applicable"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["disabled for shipping; host default style is used instead"]
+      },
+      "qualification": "STATIC_CANDIDATE",
+      "derivation": "static_inspection",
+      "revalidation": ["sha256", "rva", "vtable_identity", "layout"]
+    },
+    {
+      "id": "blocked.save",
+      "title": "SaveAs and document saving",
+      "area": "blocked",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [],
+      "unbound_reason": "deliberately unbound: only partial string-construction evidence exists, and format preservation, exclusive output, source-filename mutation and error/ownership contracts are unresolved",
+      "call_shape": null,
+      "call_shape_absent_reason": "no call contract is established; nothing may be bound from a partial signature",
+      "layout": null,
+      "layout_absent_reason": "no object layout was derived for a refused interface",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Version isolation and additional typed operations", "claim": "SaveAs and Open remain blocked and partial string evidence is not enough to call either interface"},
+        {"source": "experiments/native-bridge/mvp/ADAPTERS.md", "anchor": "## Admission and diagnostics", "claim": "native_save remains unqualified"}
+      ],
+      "verification": {
+        "offline_tests": [
+          {"path": "experiments/native-bridge/mvp/adapter_profile_tests.cpp", "note": "native_save is reported unavailable"}
+        ],
+        "real_host": []
+      },
+      "uncertainties": [
+        "Whether an exclusive-write contract can be established at all is unknown."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": ["native_save"],
+        "dtypes": ["not applicable"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["refused; the explicit saved-READ NPY encoder is a separate data handoff and is not DM SaveAs"]
+      },
+      "qualification": "BLOCKED",
+      "derivation": "documented",
+      "revalidation": ["sha256", "call_shape", "layout", "ownership", "file_semantics"]
+    },
+    {
+      "id": "blocked.whole_file_open",
+      "title": "Whole-file native OpenImage",
+      "area": "blocked",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [],
+      "unbound_reason": "unresolved: no closed reader/ownership contract for arbitrary files; the supported input route is the explicit numerical handoff instead",
+      "call_shape": null,
+      "call_shape_absent_reason": "no call contract is established",
+      "layout": null,
+      "layout_absent_reason": "no object layout was derived",
+      "static_evidence": [
+        {"source": "AGENTS.md", "anchor": "## Validation and claims", "claim": "whole-file native OpenImage remains unverified"}
+      ],
+      "verification": {
+        "offline_tests": [],
+        "real_host": []
+      },
+      "uncertainties": [
+        "File-format coverage, error semantics and ownership were never closed."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": [],
+        "dtypes": ["not applicable"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["refused"]
+      },
+      "qualification": "BLOCKED",
+      "derivation": "documented",
+      "revalidation": ["call_shape", "layout", "ownership", "file_semantics"]
+    },
+    {
+      "id": "unresolved.workspace_activation",
+      "title": "Workspace enumeration, activation and annotation UI",
+      "area": "unresolved",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMS.dll", "sha256": "9056884e38c090b7fff1cefe70150dc49d10dbc1f823fed6c7a661d255c01f93"}
+      ],
+      "symbols": [],
+      "unbound_reason": "unresolved: ImageUtilities-based candidates use different object families (Gatan::DM::Image, ROI, ImageDisplay/ScriptObject) than the adapter's GMS::Image reference contract, and workspace event registration does not establish a typed enumeration or activation API",
+      "call_shape": null,
+      "call_shape_absent_reason": "no typed contract or ownership definition was available",
+      "layout": null,
+      "layout_absent_reason": "the candidate object families were never mapped to a proven layout",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "### Earlier GUI and workspace boundary", "claim": "workspace activation and annotations remain unqualified; no guessed casts or calls were attempted"},
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Bounded enumeration", "claim": "manual tests only show that explicit image IDs stay stable across tabs"}
+      ],
+      "verification": {
+        "offline_tests": [],
+        "real_host": []
+      },
+      "uncertainties": [
+        "Whether an activation API exists at all is unknown.",
+        "A SHOW receipt is not an active-tab or focus assertion."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": [],
+        "dtypes": ["not applicable"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["no UI automation or Python fallback is permitted"]
+      },
+      "qualification": "UNRESOLVED",
+      "derivation": "documented",
+      "revalidation": ["call_shape", "layout", "ownership"]
+    },
+    {
+      "id": "superseded.probe_lookup",
+      "title": "Legacy probe object-token lookup",
+      "area": "superseded",
+      "build_profile": "gms-3.53.4137.0-windows-x64",
+      "modules": [
+        {"module": "GMSImage.dll", "sha256": "0d8e22006a1023eb9f0de2b497ef1629c5a22c562741d3e4b0405d308590da3b"}
+      ],
+      "symbols": [
+        {"module": "GMSImage.dll", "kind": "export_name_unverified", "name": "FindImageAsObject", "ordinal": null}
+      ],
+      "call_shape": {
+        "abi": "win64_msvc",
+        "hidden_sret": false,
+        "returns": "reference to an image chosen by object-address token",
+        "params": [
+          {"name": "token", "type": "unsigned __int64", "notes": "an object-address token, not the numeric ID returned by GetID"}
+        ],
+        "notes": "Recorded only to prevent reuse. It is not a replacement for numeric-ID lookup."
+      },
+      "layout": null,
+      "layout_absent_reason": "the token semantics were never closed and are now superseded",
+      "static_evidence": [
+        {"source": "experiments/native-bridge/ABI_NOTES.md", "anchor": "## Image identity and ownership", "claim": "the older probe's FindImageAsObject compares an object-address token and is not a replacement for numeric lookup"},
+        {"source": "AGENTS.md", "anchor": "## Architecture and ownership", "claim": "the retired nb_probe must never be built or loaded"}
+      ],
+      "verification": {
+        "offline_tests": [],
+        "real_host": []
+      },
+      "uncertainties": [
+        "Object addresses are not stable identifiers."
+      ],
+      "conflicts": [],
+      "scope": {
+        "operations": [],
+        "dtypes": ["not applicable"],
+        "versions": ["3.53.4137.0"],
+        "limits": ["do not revive the retired PE resolver"]
+      },
+      "qualification": "BLOCKED",
+      "derivation": "documented",
+      "revalidation": ["call_shape"]
+    }
+  ]
+}
