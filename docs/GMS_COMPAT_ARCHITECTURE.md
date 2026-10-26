@@ -143,10 +143,11 @@ binary64 表达式幂 oracle 的 FAIL，均单独保留。
 
 ```text
 tools/gms_compat/
-  cli.py                     inspect / compare / evidence 子命令
+  cli.py                     inspect / compare / audit / evidence 子命令
   pe.py                      只读 PE 解析（mmap + 界限检查，不加载、不执行）
   manifest.py                模块清单模型、规范化、路径脱敏、稳定序列化
   compare.py                 结构对照与能力影响映射
+  audit.py                   单清单 vs 证据清单的一致性核对
   evidence.py                证据清单校验、查询、Markdown 渲染
   evidence/abi_evidence.json 机器可读 ABI 证据（唯一事实源）
   schema/*.schema.json       供非 Python 消费者使用的契约
@@ -185,7 +186,63 @@ tools/gms_compat/
 `rename_candidates` 仅由“同一 RVA、一删一增”产生，`confidence: low`，
 并显式带 `establishes_equivalent_abi: false`。
 
-### 6.4 退出码
+### 6.4 `audit`
+
+`compare` 回答“两份构建之间变了什么”，`audit` 回答另一个更窄的问题：
+**针对这一份构建，哪些已记录的 ABI 绑定存在、哪些缺失、哪些永远无法离线确认。**
+
+输出 `schema: mcp-dm/gms-compat/audit`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `modules[].pinned_sha256_match` | 与固定 profile 的哈希是否一致（未知模块为 `null`） |
+| `modules[].missing_exports` | 缺失的导出/序号绑定，附带绑定它的证据条目 |
+| `modules[].non_export_contracts` | 该模块上依赖非导出入口的契约名 |
+| `capabilities[].state` | 见下表 |
+| `summary.non_export_contracts` | 无法离线核验的入口总数 |
+
+能力状态：
+
+| 状态 | 含义 |
+| --- | --- |
+| `EVIDENCE_COMPLETE` | 全部导出绑定存在、全部证据条目为 `QUALIFIED_LIMITED`、无非导出依赖 |
+| `CONTRACT_UNVERIFIABLE` | 绑定存在且已验收，但功能依赖非导出入口，文件层面无法确认 |
+| `SYMBOL_MISSING` | 至少一个必需导出/序号缺失 → 该能力在该构建上必然不可用 |
+| `EVIDENCE_INCOMPLETE` | 绑定存在，但支撑条目本身不是 `QUALIFIED_LIMITED` |
+| `REFUSED_BY_EVIDENCE` | 该操作的全部证据条目都是 `BLOCKED`（如 SaveAs） |
+
+`audit` 的 `qualification.state` 同样恒为 `REFUSED`，并显式声明能力覆盖由
+“证据条目的操作范围并集”推导，而非版本 profile 的逐能力符号表，因此可能低估
+某个能力额外需要的符号。
+
+### 6.5 对真实安装的只读核对
+
+对一台已安装 GMS 的机器（只读、仅本机、未上传任何厂商文件）执行：
+
+```text
+$ gms-compat inspect <install>/{DigitalMicrograph.exe,GMSImage.dll,GMSImageProcessing.dll,GMS.dll} \
+                     %SystemRoot%/System32/mfc140.dll -o installed.json
+$ gms-compat audit installed.json
+modules present 5/5   hash matched 5/5   export bindings 46/46 present   missing 0
+non-export contracts 26
+capability states: EVIDENCE_COMPLETE 35 | CONTRACT_UNVERIFIABLE 7
+                   EVIDENCE_INCOMPLETE 1 | REFUSED_BY_EVIDENCE 1
+```
+
+由此得到三个此前未记录的结构性事实：
+
+1. **固定指纹可复现**：五个模块（含 `mfc140.dll` 14.51.36247.0 的 ordinal 1487）
+   与 profile 逐一匹配，说明证据清单描述的就是这套安装，而不是历史推测。
+2. **已用 ABI 面极窄**：`GMSImage.dll` 有 1033 个命名导出，证据只绑定 18 个（1.7%）；
+   `GMSImageProcessing.dll` 328 个中绑定 27 个（8.2%）。其余导出全部处于“存在但未验证”状态，
+   `audit` 不会因为它们存在就提高任何资格。
+3. **`GMS.dll` 的导出表几乎不携带信息**：它只有 64 个导出，而适配器在其中绑定 26 条
+   **非导出**入口（文档工厂、SHOW、ROI、line extract、plot style）。这直接说明：
+   对 `GMS.dll` 而言，导出表对照基本无效——`compare` 只能通过模块哈希变化提示风险，
+   26 条契约必须逐条人工重新定位。这正是 `compare` 输出 `manual_review` 的原因，
+   也是 P2 必须引入静态反汇编辅助的核心理由。
+
+### 6.6 退出码
 
 | 码 | 含义 |
 | --- | --- |
@@ -194,7 +251,7 @@ tools/gms_compat/
 | 2 | 输入失败：不可解析/缺失/超限的 PE、非法清单、未知条目 |
 | 3 | `evidence render --check` 检出文档与 JSON 漂移 |
 
-### 6.5 实际执行结果
+### 6.7 实际执行结果
 
 环境：Windows，Python 3.13，仓库内 `python -B`。fixture 为自制合成 PE（无任何厂商代码）。
 
@@ -223,14 +280,15 @@ high_risk: GMSImage.dll ?FindByID...        -> image.lookup
 （`document.factory_show`、`document.holders`、`presentation.plot_style`、
 `roi.display_resolution`、`roi.geometry`、`roi.line_profile`），要求逐条重新定位。
 
-### 6.6 测试
+### 6.8 测试
 
-新增 `tests/gms_compat_pe_fixture.py`（合成 PE 生成器）与三个测试模块，共 **68 个用例**：
+新增 `tests/gms_compat_pe_fixture.py`（合成 PE 生成器）与四个测试模块，共 **82 个用例**：
 
 | 文件 | 覆盖 |
 | --- | --- |
 | `test_gms_compat_inspect.py`（16） | 版本/架构/哈希、转发导出、导入关系、缺失版本资源、截断/非 PE/空/超限输入、逐字节可复现、路径脱敏、目录预算 |
 | `test_gms_compat_compare.py`（19） | 完全一致但不授予资格、哈希变化、同名不同 RVA、同名同 RVA 仍未知、架构变化 CRITICAL、改名候选、转发变化、模块缺失/新增、证据映射、非导出契约、可复现性、CLI 退出码与非法清单 |
+| `test_gms_compat_audit.py`（14） | 完整构建全覆盖、序号绑定、缺失导出导致能力缺符号、模块缺失、哈希/架构不符、纯契约能力不可确认、BLOCKED 操作被拒、可复现性、CLI 退出码 |
 | `test_gms_compat_evidence.py`（33） | 清单自校验、指纹与 C++ profile 交叉核对、资格门禁的 15 项篡改拒绝用例、schema 契约一致、渲染幂等 |
 
 关键负向断言（防止“候选自动变成 QUALIFIED”）：

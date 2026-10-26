@@ -1,10 +1,12 @@
 """Command line interface for the offline GMS compatibility tool.
 
-Two operations exist in this release:
+Three operations exist in this release:
 
 ``inspect``  static, read-only PE/export/version inventory of a caller-named
              local file or directory. Never loads the module.
 ``compare``  structural comparison of two manifests. Never grants qualification.
+``audit``    conformance of one manifest against the recorded ABI evidence:
+             present/absent bindings, contracts that cannot be checked offline.
 
 ``evidence`` manages the machine-readable ABI evidence inventory.
 
@@ -21,6 +23,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+import audit as audit_module  # noqa: E402
 import compare as compare_module  # noqa: E402
 import evidence as evidence_module  # noqa: E402
 import manifest as manifest_module  # noqa: E402
@@ -139,6 +142,23 @@ def command_compare(args):
                                     module_filter=args.module)
     _write_output(report, args.output)
     if args.fail_on_change and report["summary"]["changed_modules"]:
+        return EXIT_POLICY
+    return EXIT_OK
+
+
+# -- audit -----------------------------------------------------------------
+def command_audit(args):
+    try:
+        document = manifest_module.load_manifest(args.manifest)
+    except manifest_module.ManifestError as error:
+        return _fail(error.code, error.detail)
+    try:
+        evidence = evidence_module.Evidence.load(args.evidence)
+    except evidence_module.EvidenceError as error:
+        return _fail(error.code, error.detail)
+    report = audit_module.audit(document, evidence)
+    _write_output(report, args.output)
+    if args.fail_on_missing and report["summary"]["export_bindings_missing"]:
         return EXIT_POLICY
     return EXIT_OK
 
@@ -267,6 +287,16 @@ def build_parser():
     compare.add_argument("--fail-on-change", action="store_true",
                          help="exit 1 when any module differs")
     compare.set_defaults(func=command_compare)
+
+    audit = subparsers.add_parser(
+        "audit", help="check one manifest against the recorded ABI evidence")
+    audit.add_argument("manifest", help="manifest produced by `inspect`")
+    audit.add_argument("--evidence", default=None,
+                       help="ABI evidence inventory (default: packaged inventory)")
+    audit.add_argument("--output", default=None, help="write report to this file")
+    audit.add_argument("--fail-on-missing", action="store_true",
+                       help="exit 1 when any required export binding is absent")
+    audit.set_defaults(func=command_audit)
 
     evidence = subparsers.add_parser(
         "evidence", help="validate, render or query the ABI evidence inventory")
