@@ -121,6 +121,8 @@ metric with a basis hypothesis, not cubic P or a chemical phase proof. See
 docs/CRYSTALLOGRAPHY_WORKFLOW.md before changing this companion.
 
 - `server.mjs`: zero-dependency Node >=18 stdio MCP facade, strict tool schemas, serialized loopback requests, timeouts/cancellation. Stdout is MCP JSON only; diagnostics belong on stderr.
+- `lib/runtime/`: portable ToolRegistry and compatible schema validation only; no DM/GMS, environment lookup, host selection, task state or scientific algorithms. Its contract metadata is versioned separately from existing MCP/data formats.
+- `lib/tools/`: this server's explicit capability composition and backend adapters. `create_server_runtime.mjs` owns DM-specific configuration; it is not the future Agent's global registry. DM adapters stay here long term; image/structure registrations are transitional compatibility routes for later extraction. See docs/TOOL_REGISTRY.md before adding modules; never extend the protocol facade with tool-name dispatch branches.
 - `bridge/dm_bridge.py`: Python 3.7-compatible host integration, a genuine DM backend and an explicit synthetic mock backend. `DigitalMicrograph` imports successfully only inside its host; do not fake a successful real backend.
 - `bridge/spectroscopy.py`: explicit-axis energy calibration and bounded ROI arithmetic. Real EDS/EELS/spectral SI remain NOT_TESTED until actual representative data are accepted.
 - `bridge/fourdstem.py`: bounded geometric virtual detector arithmetic. Array/memmap and native-reader entrypoints share one kernel. The reader callback initially requires canonical axes and returns small `[n,q_y,q_x]` chunks.

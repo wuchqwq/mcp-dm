@@ -9,7 +9,7 @@ import net from 'node:net';
 import vm from 'node:vm';
 
 const serverFile = fileURLToPath(new URL('../server.mjs', import.meta.url));
-const source = readFileSync(serverFile, 'utf8');
+const source = readFileSync(new URL('../lib/tools/dm_python_module.mjs', import.meta.url), 'utf8');
 
 // Inject process events into the actual launcher without adding test switches
 // to production or starting any host. Protocol tests below use the real stdio.
