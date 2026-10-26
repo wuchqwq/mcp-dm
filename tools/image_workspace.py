@@ -32,7 +32,7 @@ OBJECT_ID = re.compile(r"[a-f0-9]{32}\Z")
 FIELDS = {
     "open": {"source_path"}, "frame": {"object_id", "frame_index"},
     "import_capture": {"source_path"},
-    "view": {"object_id", "rect", "display_range", "gamma", "max_size", "representation", "spectrum_filter", "upscale", "spectrum_axes", "display_preset"},
+    "view": {"object_id", "rect", "frequency_rect", "display_range", "gamma", "max_size", "interpolation", "representation", "spectrum_filter", "upscale", "spectrum_axes", "display_preset"},
     "compare": {"object_ids", "rect", "display_range", "gamma", "max_size"},
     "fft": {"object_id", "rect", "window", "subtract_mean", "max_size"},
     "annotate": {"object_id", "annotations"}, "context": {"object_id", "metadata"},
@@ -202,6 +202,8 @@ def display_options(request, values, inherited=None):
     gamma = request.get("gamma", inherited.get("gamma", 1.0))
     maximum = request.get("max_size", inherited.get("max_size", 1024))
     upscale = request.get("upscale", inherited.get("upscale", False))
+    interpolation = request.get("interpolation", inherited.get("interpolation", "lanczos"))
+    need(interpolation in ("nearest", "lanczos"), "interpolation must be nearest or lanczos for PNG display only")
     need(type(upscale) is bool, "upscale must be boolean and affects PNG only")
     need(number(gamma) and gamma > 0 and math.isfinite(1.0 / gamma), "gamma must be finite and positive")
     need(integer(maximum, 1, 1024), "max_size must be an integer in 1..1024")
@@ -223,9 +225,9 @@ def display_options(request, values, inherited=None):
         low, high = map(float, supplied)
         range_source = "explicit"
     return {"display_range": [low, high], "range_source": range_source,
-            "gamma": float(gamma), "max_size": maximum, "upscale": upscale, "constant_range": low == high,
+            "gamma": float(gamma), "max_size": maximum, "upscale": upscale, "interpolation": interpolation, "constant_range": low == high,
             "display_only": True, "quantitative": False,
-            "resampling": "Pillow LANCZOS display resizing; optional enlargement adds no measured detail; scientific array unchanged"}
+            "resampling": "Pillow {} display resizing; optional enlargement adds no measured detail; scientific array unchanged".format(interpolation.upper())}
 
 
 def spectrum_display(values, representation):
@@ -271,12 +273,13 @@ def render(values, settings, bound):
     scaled = np.power(scaled, 1.0 / settings["gamma"])
     pixels = np.floor(scaled * 255 + 0.5).astype(np.uint8)
     image = Image.fromarray(pixels)
+    sampling = Image.Resampling.NEAREST if settings.get("interpolation") == "nearest" else Image.Resampling.LANCZOS
     if settings.get("upscale"):
         scale = min(bound[0]/image.width, bound[1]/image.height)
         size = (max(1, min(bound[0], round(image.width*scale))), max(1, min(bound[1], round(image.height*scale))))
-        image = image.resize(size, Image.Resampling.LANCZOS)
+        image = image.resize(size, sampling)
     else:
-        image.thumbnail(bound, Image.Resampling.LANCZOS)
+        image.thumbnail(bound, sampling)
     return image
 
 
@@ -294,29 +297,42 @@ def spectrum_canvas(shown, settings, spectrum_id):
     need(type(axes) is bool, "spectrum_axes must be boolean")
     maximum = settings["max_size"]
     need(not axes or maximum >= 256, "Frequency-axis labels require max_size>=256")
+    full_shape = shown.shape
+    rect = rectangle(settings.get("frequency_rect"), full_shape)
     bounds = (maximum-84, maximum-100) if axes else (maximum, maximum)
-    plot = render(shown, settings, bounds)
+    plot = render(cut(shown, rect), settings, bounds)
     if not axes:
-        return plot, frequency_panel(spectrum_id, shown.shape, [0, 0, plot.width, plot.height])
+        return plot, frequency_panel(spectrum_id, full_shape, [0, 0, plot.width, plot.height], rect)
     left, top = 64, 44
     # Tiny spectra can retain their native display size when upscale is false;
     # reserve a minimum legend canvas so axes/title are not silently cropped.
     image = Image.new("RGB", (max(256, plot.width+84), max(192, plot.height+100)), "#171b22")
     image.paste(plot, (left, top))
-    panel_info = frequency_panel(spectrum_id, shown.shape, [left, top, left+plot.width, top+plot.height])
+    panel_info = frequency_panel(spectrum_id, full_shape, [left, top, left+plot.width, top+plot.height], rect)
     draw = ImageDraw.Draw(image)
     font = ImageFont.load_default(size=13)
     title = "FFT | filtered display" if settings.get("spectrum_filter") else "FFT | " + settings["representation"]
     draw.text((left, 8), title, fill="white", font=font)
     draw.text((8, 28), "fy", fill="white", font=font)
     draw.rectangle([left-1, top-1, left+plot.width, top+plot.height], outline="#a0a8b4")
-    for frequency in (-.25, 0, .25):
-        x, y = coordinate_transform([frequency, frequency], panel_info, False, inverse=True)
+    # Label original signed frequencies visible in this subregion. Cropping
+    # never recentres DC or changes the frequency denominator/resolution.
+    h, w = full_shape
+    def tick_label(value, size):
+        # Enough decimal places to distinguish adjacent original bins, even
+        # when a narrow crop lies near Nyquist on a large source grid.
+        precision = int(math.ceil(math.log10(2*size))) + 1
+        return format(value, ".{}f".format(precision)).rstrip("0").rstrip(".") if value else "0"
+    for bin_x in sorted(set((rect[0], (rect[0]+rect[2]-1)/2, rect[2]-1))):
+        fx = (bin_x-w//2)/w
+        x, _ = coordinate_transform([fx, 0], panel_info, False, inverse=True)
         draw.line([x, top+plot.height, x, top+plot.height+4], fill="white")
-        label = "0" if frequency == 0 else str(frequency)
-        draw.text((x, top+plot.height+7), label, fill="white", font=font, anchor="mt")
+        draw.text((x, top+plot.height+7), tick_label(fx, w), fill="white", font=font, anchor="mt")
+    for bin_y in sorted(set((rect[1], (rect[1]+rect[3]-1)/2, rect[3]-1))):
+        fy = (bin_y-h//2)/h
+        _, y = coordinate_transform([0, fy], panel_info, False, inverse=True)
         draw.line([left-4, y, left, y], fill="white")
-        draw.text((left-8, y), label, fill="white", font=font, anchor="rm")
+        draw.text((left-8, y), tick_label(fy, h), fill="white", font=font, anchor="rm")
     draw.text((max(128, left+plot.width/2), top+plot.height+30), "fx (cycles/pixel)",
               fill="white", font=font, anchor="mt")
     return image, panel_info
@@ -529,6 +545,8 @@ class Workspace:
                      "spectrum_axes is only valid for a saved complex FFT display")
                 need(spectral_view or "display_preset" not in request,
                      "fft_detail display_preset requires a saved complex FFT")
+                need(spectral_view or "frequency_rect" not in request,
+                     "frequency_rect requires a saved complex FFT; spatial ROI uses rect")
             else:
                 parent, _, context, values = self.scalar(request.get("object_id"))
             metadata.update(parent_object_id=request["object_id"], user_context=context,
@@ -536,8 +554,10 @@ class Workspace:
             if spectral_view:
                 need(values.dtype == np.dtype("complex128"), "FFT view requires the saved complex128 spectrum")
                 need(request.get("rect") is None,
-                     "FFT re-rendering uses the full saved spectrum; select a spatial ROI before FFT, not a hidden frequency crop")
+                     "FFT display selection uses frequency_rect in original FFT bins; rect selects a spatial ROI before FFT")
                 old_display = dict(parent.get("display") or {})
+                selection = request.get("frequency_rect", old_display.get("frequency_rect"))
+                selected_rect = rectangle(selection, values.shape)
                 recipe = dict(request)
                 detail_preset = "display_preset" in request
                 if detail_preset:
@@ -545,7 +565,7 @@ class Workspace:
                     # A reusable starting point, not a sample-specific denoiser.
                     # Explicit caller parameters always override the recipe.
                     recipe = {"representation": "log_amplitude", "spectrum_filter": None,
-                              "spectrum_axes": False, "upscale": True, "max_size": 512, "gamma": 1, **request}
+                              "spectrum_axes": False, "upscale": True, "max_size": 512, "gamma": 0.8, **request}
                 previous_mode = old_display.get("representation", "log_amplitude")
                 mode = recipe.get("representation", previous_mode)
                 shown, expression = spectrum_display(values, mode)
@@ -570,9 +590,12 @@ class Workspace:
                     if "range_percentiles" in old_display:
                         settings["range_percentiles"] = old_display["range_percentiles"]
                 settings["display_preset"] = "fft_detail" if detail_preset else old_display.get("display_preset")
+                settings["display_preset_revision"] = 2 if detail_preset else old_display.get("display_preset_revision")
                 settings["representation"] = mode
                 settings.update(spectrum_filter=filter_spec, filter_provenance=filter_provenance)
                 settings["spectrum_axes"] = recipe.get("spectrum_axes", old_display.get("spectrum_axes", False))
+                settings["frequency_rect"] = selected_rect
+                settings["frequency_rect_convention"] = "absolute half-open bin edges in original fftshift grid; omission inherits, null restores full spectrum"
                 spectrum_id = parent.get("spectrum_object_id", parent["object_id"])
                 image, spectrum_panel = spectrum_canvas(shown, settings, spectrum_id)
                 save_array(directory, "data.npy", values)
@@ -582,7 +605,7 @@ class Workspace:
                                 frequency_axes=parent["frequency_axes"], display_representation=expression, display=settings,
                                 panels=[spectrum_panel],
                                 fft_recomputed=False, scientific_data_changed=False,
-                                rendering_scope="saved external complex FFT; amplitude/power/log are display-only; NPY remains complex")
+                                rendering_scope="saved external complex FFT; frequency selection and amplitude/power/log are display-only; NPY retains the full unchanged complex spectrum")
             elif action == "measure":
                 points = request.get("points")
                 need(type(points) is list and len(points) == 2 and all(type(p) is list and len(p) == 2 and all(number(v) for v in p) for p in points),
@@ -764,7 +787,7 @@ class Workspace:
         return self.publish(metadata, directory)
 
     def revise_comparison(self, parent, parent_directory, context, request, metadata, directory, annotations):
-        need(request.get("rect") is None and not any(key in request for key in ("representation", "spectrum_filter", "spectrum_axes", "display_preset")),
+        need(request.get("rect") is None and not any(key in request for key in ("representation", "spectrum_filter", "spectrum_axes", "display_preset", "frequency_rect")),
              "Saved comparison preview changes display only; choose a new ROI using image_compare")
         names = ["data-{}.npy".format(i) for i in range(len(parent["panels"]))]
         values = [load_array(parent_directory / name) for name in names]
@@ -811,11 +834,17 @@ def spatial_panel(parent, rect, image_rect):
     return panel(parent["object_id"], rect, image_rect, array_domain=parent.get("array_domain"))
 
 
-def frequency_panel(object_id, shape, image_rect):
+def frequency_panel(object_id, shape, image_rect, frequency_rect=None):
     height, width = map(int, shape)
+    selected = rectangle(frequency_rect, shape)
+    x0, y0, x1, y1 = selected
     return {"domain": "frequency", "source_object_id": object_id, "image_rect_xyxy": list(image_rect),
+            "fft_rect_xyxy": selected,
+            "dc_visible": x0 <= width//2 < x1 and y0 <= height//2 < y1,
+            "frequency_bounds_centers_xyxy": [(x0-width//2)/width, (y0-height//2)/height,
+                                               (x1-1-width//2)/width, (y1-1-height//2)/height],
             "fft_shape_yx": [height, width], "dc_bin_xy": [width // 2, height // 2], "unit": "cycles/pixel",
-            "bin_center_mapping": "fft_x=(image_x-panel_left+0.5)*fft_width/panel_width-0.5; analogous y",
+            "bin_center_mapping": "fft_x=fft_rect_x0+(image_x-panel_left+0.5)*fft_rect_width/panel_width-0.5; analogous y",
             "frequency_coordinate_rule": "fx=(fft_x-floor(fft_width/2))/fft_width; fy=(fft_y-floor(fft_height/2))/fft_height",
             "spatial_roi_mapping": "not performed; the FFT input spatial ROI is separate operation provenance"}
 
@@ -827,7 +856,9 @@ def coordinate_transform(coords, current, edges, inverse=False):
         h, w = current["fft_shape_yx"]
         # Frequency coordinates are bin centres; edges lie half a bin outside.
         offsets = [-(w // 2), -(h // 2)]
-        source0, extent = [0, 0], [w, h]
+        x0, y0, x1, y1 = current.get("fft_rect_xyxy", [0, 0, w, h])
+        source0, extent = [x0, y0], [x1-x0, y1-y0]
+        grid = [w, h]
     else:
         x0, y0, x1, y1 = current["source_rect_xyxy"]
         source0, extent = [x0, y0], [x1-x0, y1-y0]
@@ -840,11 +871,11 @@ def coordinate_transform(coords, current, edges, inverse=False):
         centre = 0.5 if not edges or current["domain"] == "frequency" else 0.0
         image_centre = 0.0 if edges else 0.5
         if inverse:
-            local = value*extent[axis]-offsets[axis] if current["domain"] == "frequency" else value
+            local = value*grid[axis]-offsets[axis] if current["domain"] == "frequency" else value
             result.append(start + (local-source0[axis]+centre)*size/extent[axis]-image_centre)
         else:
             local = source0[axis]+(value-start+image_centre)*extent[axis]/size-centre
-            result.append((local+offsets[axis])/extent[axis] if current["domain"] == "frequency" else local)
+            result.append((local+offsets[axis])/grid[axis] if current["domain"] == "frequency" else local)
     need(all(number(value) for value in result), "Annotation transform exceeds finite coordinates")
     return result
 
@@ -912,9 +943,10 @@ def annotation(item, image_size, panels, reproject=False):
         # last displayed centre under downsampling; check source bounds instead.
         if current["domain"] == "frequency":
             h, w = current["fft_shape_yx"]
+            x0, y0, x1, y1 = current.get("fft_rect_xyxy", [0, 0, w, h])
             margin = 0.5 if edges else 0
-            bounds = [(-(w//2)-margin)/w, (-(h//2)-margin)/h,
-                      (w-1-w//2+margin)/w, (h-1-h//2+margin)/h]
+            bounds = [(x0-w//2-margin)/w, (y0-h//2-margin)/h,
+                      (x1-1-w//2+margin)/w, (y1-1-h//2+margin)/h]
         else:
             x0, y0, x1, y1 = current["source_rect_xyxy"]
             bounds = [x0, y0, x1 if edges else x1-1, y1 if edges else y1-1]

@@ -77,13 +77,61 @@ qualify every client's image UI or DM native annotations.
 
 Start ordinary FFT presentation with `image_preview(display_preset:"fft_detail")`.
 This reusable recipe reads the saved complex spectrum, selects log amplitude,
-disables smoothing/background subtraction and large axis frames, sets gamma 1,
+disables smoothing/background subtraction and large axis frames, sets gamma 0.8,
 enlarges to a 512-pixel display and uses the 5th/99.8th percentiles as display
 limits. Explicit fields override the recipe. Those percentiles are a starting
 point, not a claim that every weak feature is visible; inspect the actual image
 and revise limits when needed. Changing only gamma/size later inherits the
 computed limits. `display_range:null` explicitly requests full min/max instead.
 The recipe never changes FFT computation or scientific values.
+Recipe revision 2 slightly darkens midtones through `normalized**(1/0.8)`;
+it does not subtract background, smooth, mask or threshold scientific data.
+New explicit preset calls record `display_preset_revision:2`. Existing saved
+views retain their original recipe, and omitted fields still inherit that view.
+To darken an existing view while preserving its exact limits, change only
+`gamma:0.8` rather than requesting a fresh automatic range.
+
+## Frequency-region zoom
+
+Use the same `image_preview` tool with `frequency_rect:[x0,y0,x1,y1]` to enlarge
+a selected region of a saved complex FFT. These are **absolute, integer,
+half-open bin edges in the original fftshift grid**, not PNG pixels, spatial
+ROI coordinates or offsets within the last zoom. Check the spectrum shape and
+`panels` before selecting. The old `rect` remains a spatial selection and is
+rejected on FFT views, preventing a silent coordinate-domain change.
+
+For a synthetic full spectrum of shape `[55,95]`, a view of `[38,22,58,34]`
+shows only those original bins. Frequencies still use `(bin-floor(N/2))/N`
+with N=95 or 55. The original DC bin stays `[47,27]`; it can lie outside a
+different frequency window and is never recentered. Axis ticks describe the
+original signed frequencies, including when the window excludes zero.
+
+Omit `frequency_rect` to keep the saved window; use another absolute rectangle
+to pan and `frequency_rect:null` to return to the full spectrum. Display limits,
+gamma and optional filter settings inherit, so zooming alone does not change
+contrast. An explicit `display_range:null` recalculates from the **full**
+spectrum. Optional presentation filtering also runs on the full spectrum before
+the display crop, preserving its original-bin sigma and boundary behavior.
+
+The returned panel includes the original `fft_shape_yx` and visible
+`fft_rect_xyxy`. Annotation anchors remain on the original spectrum ID and
+cycles/pixel grid; resized or panned windows project them anew. Marks outside
+the view remain in metadata as `outside_view` and reappear on return, without
+being clipped or rebound to another bright spot. Add sparse small guides near
+the visible evidence, using the paper examples below only as style references.
+
+Zooming enlarges a display selection and adds no measured resolution. It does
+not execute FFT, replace the spatial input ROI, perform inverse FFT or create
+a new scientific spectrum. Export still contains the **full original complex
+NPY**, plus the cropped PNG, visible bin rectangle, display recipe, annotations
+and provenance. Preserve a full-spectrum reference alongside a zoom.
+
+`interpolation:"nearest"` displays the original sampled bins as discrete cells
+when enlarging, making coarse frequency sampling visible without interpolation
+blur. `interpolation:"lanczos"` retains the existing smoother presentation.
+Both resize the PNG only; neither creates new frequency information. This
+choice inherits across revisions and is saved in exports. Keep enlargement
+moderate and shorten a local guide if a full-spectrum arrow becomes too long.
 
 Representative microscopy figures retain granular background, compact spots
 and continuous streaks, with sparse thin arrows/circles or restrained labels.

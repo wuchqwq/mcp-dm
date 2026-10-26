@@ -38,6 +38,15 @@ Inspect it before applying filters. Keep fine texture and streaks visible;
 do not assume that a black background or smooth bright blobs are improvements.
 Use sparse white marks on grayscale when suitable; status remains separate.
 Published reciprocal masks/indices require their own evidence and calibration.
+`fft_detail` revision 2 uses gamma 0.8 for slightly darker midtones, with no
+default smoothing/background subtraction. To keep a user's current limits,
+revise only gamma on their existing view. Use `image_preview.frequency_rect`
+for an absolute half-open window in the original FFT bin grid, omit to inherit
+and pass null to restore full. Original spectrum ID/DC/bin spacing and full
+complex NPY stay unchanged; preserve full-spectrum and zoomed PNGs together.
+When a narrow frequency window looks soft after enlargement, use
+`interpolation:"nearest"` to inspect original sampled bins, or reduce the
+display size. Do not add smoothing/sharpening to manufacture apparent detail.
 
 The researcher may normally work through DM's GUI and use external Python for specialized analysis. Do not require them to learn DM scripting or force every request through a capture/report pipeline.
 

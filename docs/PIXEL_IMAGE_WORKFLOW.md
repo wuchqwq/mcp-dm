@@ -132,14 +132,16 @@ For example, call `image_fft` once, then `image_preview` on that result with
 request. Each step needs its own saved request ID. Annotating and exporting the
 new FFT view retain the original frequency-bin mapping and exact complex NPY.
 
-FFT re-rendering currently uses the full saved spectrum: a `rect` is rejected
-rather than silently cropping/recomputing it. Choose the spatial ROI before
-FFT. Annotated images and saved comparison composites now accept direct
+FFT re-rendering accepts `frequency_rect` for display-only region enlargement
+in the original shifted FFT bin grid; `null` restores the full spectrum.
+The scientific NPY remains full and unchanged. The spatial `rect` is still
+rejected on FFT views. Choose the spatial ROI before FFT. Annotated images
+and saved comparison composites now accept direct
 `image_preview` display revisions. Unambiguous annotations follow their source
 coordinates automatically, including through resizing and FFT representation
 changes. Comparison revisions keep the same ROI and saved arrays; use
-`image_compare` for a different ROI. Frequency cropping and arbitrary curves
-remain unsupported. See [coordinate-bound annotations](IMAGE_ANNOTATIONS.md).
+`image_compare` for a different ROI. Arbitrary curves remain unsupported.
+See [coordinate-bound annotations and frequency zoom](IMAGE_ANNOTATIONS.md).
 
 ## Validation and remaining boundaries
 

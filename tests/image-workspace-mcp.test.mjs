@@ -176,3 +176,46 @@ test('readable FFT presentation filters, axes and small arrows are actual MCP re
   assert.deepEqual(readFileSync(f.source),original);
  }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
 });
+
+test('frequency zoom preserves original bins, full complex export and anchored marks across MCP clients',async()=>{
+ const f=fixture();let c=client(f.workspace);try{
+  const source=readFileSync(f.source);
+  const opened=result(await c.tool('image_open',{source_path:f.source,request_id:'zoom-open'}));
+  const frame=result(await c.tool('image_frame',{object_id:opened.object_id,frame_index:1,request_id:'zoom-frame'}));
+  const fft=result(await c.tool('image_fft',{object_id:frame.object_id,rect:[2,3,22,15],window:'hann',request_id:'zoom-fft'}));
+  const raw=readFileSync(fft.array_path);
+  const detail=result(await c.tool('image_preview',{object_id:fft.object_id,display_preset:'fft_detail',request_id:'zoom-full'}));
+  assert.equal(detail.display.gamma,.8);assert.equal(detail.display.display_preset_revision,2);
+  const mark={annotation_id:'candidate-a',kind:'arrow',color:'white',line_width:1,arrowhead_size:2,
+   coordinate_space:'frequency_cycles_per_pixel',source_object_id:fft.object_id,coordinates:[.25,.25,.2,1/6],status:'hypothesized'};
+  const annotated=result(await c.tool('image_annotate',{object_id:detail.object_id,annotations:[mark],request_id:'zoom-annotate'}));
+  const zoomArgs={object_id:annotated.object_id,frequency_rect:[12,6,18,11],max_size:256,interpolation:'nearest',request_id:'zoom-saved'};
+  const zoomMessage=await c.tool('image_preview',zoomArgs);const zoom=result(zoomMessage);picture(zoomMessage);
+  assert.deepEqual(zoom.panels[0].fft_shape_yx,[12,20]);assert.deepEqual(zoom.panels[0].fft_rect_xyxy,[12,6,18,11]);
+  assert.deepEqual(zoom.panels[0].image_rect_xyxy,[0,0,256,213]);
+  assert.equal(zoom.spectrum_object_id,fft.object_id);assert.equal(zoom.fft_recomputed,false);
+  assert.equal(zoom.display.interpolation,'nearest');
+  assert.deepEqual(zoom.frequency_axes,fft.frequency_axes);assert.deepEqual(zoom.display.display_range,detail.display.display_range);
+  assert.deepEqual(zoom.annotations[0].anchor.coordinates,mark.coordinates);
+  assert.ok(Math.abs(zoom.annotations[0].coordinates[2]-(2.5*256/6-.5))<1e-10);
+  assert.ok(Math.abs(zoom.annotations[0].coordinates[3]-(2.5*213/5-.5))<1e-10);
+  assert.deepEqual(readFileSync(zoom.array_path),raw);
+  const dest=path.join(f.dir,'frequency-zoom-export');
+  result(await c.tool('image_export',{object_id:zoom.object_id,output_dir:dest,request_id:'zoom-export'}));
+  assert.deepEqual(readFileSync(path.join(dest,'data.npy')),raw);
+  const manifest=JSON.parse(readFileSync(path.join(dest,'manifest.json')));
+  assert.deepEqual(manifest.display_mapping.frequency_rect,[12,6,18,11]);assert.deepEqual(manifest.scientific_object.shape_yx,[12,20]);
+  await c.close();c=client(f.workspace);
+  const recoveredMessage=await c.tool('image_result',{request_id:'zoom-saved'});
+  assert.equal(result(recoveredMessage).object_id,zoom.object_id);picture(recoveredMessage);
+  assert.equal(result(await c.tool('image_preview',zoomArgs)).object_id,zoom.object_id);
+  assert.equal((await c.tool('image_preview',{...zoomArgs,frequency_rect:[0,0,2,2]})).result.isError,true);
+  const reset=result(await c.tool('image_preview',{object_id:zoom.object_id,frequency_rect:null,request_id:'zoom-reset'}));
+  assert.deepEqual(reset.display.frequency_rect,[0,0,20,12]);assert.equal(reset.annotations[0].visibility,'visible');
+  assert.equal((await c.tool('image_preview',{object_id:frame.object_id,frequency_rect:[0,0,2,2],request_id:'zoom-wrong-domain'})).result.isError,true);
+  assert.equal((await c.tool('image_preview',{object_id:fft.object_id,frequency_rect:[0,0,21,12],request_id:'zoom-outside'})).result.isError,true);
+  assert.equal((await c.tool('image_preview',{object_id:fft.object_id,frequency_rect:[0,0,1.5,2],request_id:'zoom-fraction'})).error.code,-32602);
+  assert.equal((await c.tool('image_preview',{object_id:fft.object_id,interpolation:'auto-sharpen',request_id:'zoom-unknown-interpolation'})).error.code,-32602);
+  assert.deepEqual(readFileSync(f.source),source);
+ }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
+});

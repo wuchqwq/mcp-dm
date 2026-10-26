@@ -29,7 +29,7 @@ FFT frequency peaks are not confirmed lattice planes or phases. Whether the mode
 The experimental independent `image_*` tools also open uncalibrated uint16
 multi-frame TIFFs, compare the same ROI, revise displays, run external FFT and
 edit annotations anchored to image/frequency coordinates. Spectrum display
-filtering, enlargement and small arrows preserve the separate raw arrays. See
+recipes, local frequency zoom and small arrows preserve the full raw spectrum. See
 [multi-turn figures and overlays](docs/IMAGE_ANNOTATIONS.md). The default backend
 is unchanged.
 
