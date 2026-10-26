@@ -224,7 +224,7 @@ $ gms-compat inspect <install>/{DigitalMicrograph.exe,GMSImage.dll,GMSImageProce
                      %SystemRoot%/System32/mfc140.dll -o installed.json
 $ gms-compat audit installed.json
 modules present 5/5   hash matched 5/5   export bindings 46/46 present   missing 0
-non-export contracts 26
+non-export contracts 27
 capability states: EVIDENCE_COMPLETE 35 | CONTRACT_UNVERIFIABLE 7
                    EVIDENCE_INCOMPLETE 1 | REFUSED_BY_EVIDENCE 1
 ```
@@ -236,13 +236,54 @@ capability states: EVIDENCE_COMPLETE 35 | CONTRACT_UNVERIFIABLE 7
 2. **已用 ABI 面极窄**：`GMSImage.dll` 有 1033 个命名导出，证据只绑定 18 个（1.7%）；
    `GMSImageProcessing.dll` 328 个中绑定 27 个（8.2%）。其余导出全部处于“存在但未验证”状态，
    `audit` 不会因为它们存在就提高任何资格。
-3. **`GMS.dll` 的导出表几乎不携带信息**：它只有 64 个导出，而适配器在其中绑定 26 条
+3. **`GMS.dll` 的导出表几乎不携带信息**：它只有 64 个导出，而适配器在其中绑定 27 条
    **非导出**入口（文档工厂、SHOW、ROI、line extract、plot style）。这直接说明：
    对 `GMS.dll` 而言，导出表对照基本无效——`compare` 只能通过模块哈希变化提示风险，
-   26 条契约必须逐条人工重新定位。这正是 `compare` 输出 `manual_review` 的原因，
+   27 条契约必须逐条人工重新定位。这正是 `compare` 输出 `manual_review` 的原因，
    也是 P2 必须引入静态反汇编辅助的核心理由。
 
-### 6.6 退出码
+### 6.6 入口重定位结构分析（只读静态筛查）
+
+为回答“换构建后这 27 条非导出入口要怎么找回来”，对同一安装做了三项互不依赖的静态筛查。
+全部为只读、本机执行，结论只保留聚合数字，不记录任何地址或偏移。
+
+**（1）导出与地址层面：没有捷径。** 27 条入口全部位于 `.text`、16 字节对齐，
+且**没有一条**与任何导出同址，即不可能通过导出名解析到它们。
+
+**（2）调用图层面：从导出出发不可达。** 由 PE 异常表（`.pdata`）恢复 49,615 个函数区间，
+再扫描直接调用指令得到 88,254 条被调用者→调用者边（0 个调用点落在函数区间之外，
+可作为扫描完整性的交叉校验）。结果：
+
+- 27 条入口中只有 **1 条**能在 6 跳内到达任何导出函数；
+- **17 条**在整份 `.text` 中没有任何直接调用者——它们只经间接调用（虚表）、
+  窗口过程或脚本层注册到达。
+
+结论：**“顺着导出往下追”不能作为跨构建重定位策略**。
+
+**（3）函数边界层面：`.pdata` 会漏掉叶函数。** 27 条中有 6 条完全不落在任何
+`.pdata` 区间内。逐字节检查显示它们是被 `INT3` 填充包围的叶函数，典型形态为
+单条取字段指令后 `ret`、常量返回、或对另一函数的一条尾跳转。
+因此新构建的函数边界恢复不能只依赖 `.pdata`，必须同时识别叶函数岛。
+
+**（4）引用形态层面：三条重定位通道。** 统计入口地址在只读数据段/数据段中
+作为 8 字节对齐指针出现的次数，并按 RTTI（完整对象定位器 → 类型描述符）判定其是否
+落在某张虚表内：
+
+| 形态 | 条数 | 含义 |
+| --- | --- | --- |
+| `vtable_slot` | 8 | 位于具名类的虚表中（两类：显示对象族、直接图像源族） |
+| `data_pointer` | 5 | 在数据段出现一次，形态接近注册表条目，非虚表 |
+| `code_only` | 14 | 无任何对齐数据指针，只能从代码引用 |
+
+其中 2 条（`roi_raster_mapping`、`roi_raster_slice_id`）在 7 张继承自同一基类的
+虚表中占据**相同槽位**，说明它们是基类实现、派生类未覆盖——这对重定位是强信号：
+槽位号比地址稳定得多。
+
+这两处结论同时构成了对既有 profile 的独立复核：`docs`/`ABI_NOTES` 中“RasterImageDisplay
+vtable”与“直接 ImageSource_Simple 布局”的判断，在本轮通过类型描述符名称被独立复现，
+而不是引用原文。
+
+### 6.7 退出码
 
 | 码 | 含义 |
 | --- | --- |
@@ -251,7 +292,7 @@ capability states: EVIDENCE_COMPLETE 35 | CONTRACT_UNVERIFIABLE 7
 | 2 | 输入失败：不可解析/缺失/超限的 PE、非法清单、未知条目 |
 | 3 | `evidence render --check` 检出文档与 JSON 漂移 |
 
-### 6.7 实际执行结果
+### 6.8 实际执行结果
 
 环境：Windows，Python 3.13，仓库内 `python -B`。fixture 为自制合成 PE（无任何厂商代码）。
 
@@ -280,16 +321,16 @@ high_risk: GMSImage.dll ?FindByID...        -> image.lookup
 （`document.factory_show`、`document.holders`、`presentation.plot_style`、
 `roi.display_resolution`、`roi.geometry`、`roi.line_profile`），要求逐条重新定位。
 
-### 6.8 测试
+### 6.9 测试
 
-新增 `tests/gms_compat_pe_fixture.py`（合成 PE 生成器）与四个测试模块，共 **82 个用例**：
+新增 `tests/gms_compat_pe_fixture.py`（合成 PE 生成器）与四个测试模块，共 **83 个用例**：
 
 | 文件 | 覆盖 |
 | --- | --- |
 | `test_gms_compat_inspect.py`（16） | 版本/架构/哈希、转发导出、导入关系、缺失版本资源、截断/非 PE/空/超限输入、逐字节可复现、路径脱敏、目录预算 |
 | `test_gms_compat_compare.py`（19） | 完全一致但不授予资格、哈希变化、同名不同 RVA、同名同 RVA 仍未知、架构变化 CRITICAL、改名候选、转发变化、模块缺失/新增、证据映射、非导出契约、可复现性、CLI 退出码与非法清单 |
 | `test_gms_compat_audit.py`（14） | 完整构建全覆盖、序号绑定、缺失导出导致能力缺符号、模块缺失、哈希/架构不符、纯契约能力不可确认、BLOCKED 操作被拒、可复现性、CLI 退出码 |
-| `test_gms_compat_evidence.py`（33） | 清单自校验、指纹与 C++ profile 交叉核对、资格门禁的 15 项篡改拒绝用例、schema 契约一致、渲染幂等 |
+| `test_gms_compat_evidence.py`（34） | 清单自校验、指纹与 C++ profile 交叉核对、资格门禁的 16 项篡改/覆盖拒绝用例、schema 契约一致、渲染幂等 |
 
 关键负向断言（防止“候选自动变成 QUALIFIED”）：
 
@@ -366,7 +407,23 @@ gms-compat plan acceptance    --evidence candidate_evidence.json \
 - 任何“看起来一样”的签名或常量都不构成调用约定证明；
 - 非导出入口的定位结果必须记录为“候选 RVA + 证据锚点”，并强制 `manual_review`。
 
-### 7.6 提级路径（不可跳过）
+### 7.6 入口重定位分道（基于 §6.6 的静态筛查）
+
+P2 不应把“把旧 RVA 抄过来再试试”当作定位方法。按引用形态分三条通道，成本递增：
+
+| 通道 | 适用 | 方法 | 必须复核 |
+| --- | --- | --- | --- |
+| L1 RTTI 槽位 | 8 条虚表槽位形态 | 按类型描述符名称定位虚表起点，读取同一槽位号 | 该槽位的实际行为与参数形态；槽位号跨构建可漂移 |
+| L2 注册表条目 | 5 条单一数据指针形态 | 按注册条目结构（条目内函数指针 + 名称字符串）定位 | 条目字段顺序；名称是否随构建变化 |
+| L3 纯代码引用 | 14 条无数据引用形态 | 反汇编 + 惯用式匹配（叶 getter 通常 1–3 条指令，包装器是一条尾跳转） | 每条都必须重推调用形状与所有权 |
+
+三条通道的共同前提：**入口身份必须由行为复核确认，而不是由“找到了一个看起来对的函数”
+确认**。L1 的槽位号与 L2 的条目结构都只是搜索线索，不是 ABI 证据。
+
+对应的工具化建议：`gms-compat` 在 P2 增加一个只读的 `scaffold` 子命令，输出
+“待重定位清单 + 每条通道的搜索线索 + 各自的复核判定标准”，仍然不产出任何可调用绑定。
+
+### 7.7 提级路径（不可跳过）
 
 `CANDIDATE_DISABLED` → 离线合成测试通过 → 真实目标构建上的分组验收
 （数值 + 源不变 + 生命周期 + 正常退出）→ 独立人工审查 → 才允许修改
@@ -378,8 +435,10 @@ gms-compat plan acceptance    --evidence candidate_evidence.json \
 
 1. **x86 构建**：现有适配器只有 x64 调用形状；x86 需要 `__stdcall`/`__cdecl`/`__thiscall`
    独立建模，且 `mfc140` 分配器配对可能不同。
-2. **非导出入口的自动定位**：即使引入 Ghidra，也缺少“入口契约 → 函数”的稳定映射规则；
-   当前只能人工按调用图确认。
+2. **非导出入口的自动定位**：§6.6 已给出三条重定位通道（RTTI 槽位 / 注册表条目 /
+   纯代码惯用式），但每条都仍是“线索”而非“映射规则”：槽位号可能漂移，
+   注册表结构未闭合，纯代码引用需要逐条惯用式匹配。目前没有可离线判定
+   “找到的就是同一个函数”的判据，只能靠行为复核。
 3. **MSVC STL 版本差异**：`std::wstring` 32B 布局在别的 MSVC 运行时上可能变化，
    需要按 `mfc140` 版本的独立证据条目。
 4. **Fourier 复数表示**：`FFT`/`Packed_FFT` 的复数存储与 packing 仍未闭合。
@@ -387,6 +446,11 @@ gms-compat plan acceptance    --evidence candidate_evidence.json \
    对加壳或自修改镜像无意义（也不会被误判为兼容）。
 6. **compare 的能力映射依赖证据清单**：清单未覆盖的导出只会进 `high_risk` 且标
    `evidence_entry: null`，这是刻意的——宁缺勿猜。
+7. **槽位与条目结构只在单一构建上成立**：§6.6 的通道分类来自同一台安装，
+   尚无第二个构建可用于验证“槽位号/条目结构在版本间稳定”这一假设。
+   在拿到授权第二构建之前，该分类只能作为搜索线索，不能作为结论。
+8. **入口身份判定**：本轮只能证明“某个地址被某种结构引用”，无法证明
+   “该地址在另一构建上仍是同一语义的入口”。这是 P2 最需要补齐的一环。
 
 ---
 
