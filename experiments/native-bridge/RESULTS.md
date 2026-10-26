@@ -1,5 +1,28 @@
 # Native bridge validation matrix
 
+## Calibrated relay and crystallography continuation
+
+| Scope actually executed | Result and boundary |
+| --- | --- |
+| Fresh Windows C++ offline build | All 18 test executables PASS; adapter substitutes do not establish real-host behavior |
+| Complete independent Python discovery | 943 tests PASS, zero failures/skips; includes legacy backend compatibility and oracle fault injection |
+| Complete Windows Node/MCP discovery | 372 tests PASS, zero failures/skips; final recovery instructions included; fresh native fixtures and production import validator PASS |
+| Default mock backend selftest | 21 checks PASS; default configuration remains unchanged |
+| Synthetic real DM | Restricted float32 import/calibration/readback/reference lifecycle PASS within the normal-build scope below |
+| Actual researcher action | Candidate GUI arithmetic created a new image; fresh capture matched the independent expected array and preserved source/calibration. Same-ID in-place editing was not tested |
+| Actual MCP image and Chrome/3Dmol | Structure/simulation images observed; common orientation, camera-only drag, partial-periodic cell, helper reuse/closure and synthetic reflection comparison PASS |
+| New experimental-data and general ordinary-client acceptance | NOT_TESTED; neither follows from synthetic, protocol or Codex/browser observations |
+
+Independent review found and corrected calibration unit underflow, tiny-vector
+angle/period errors, incomplete matching and original-measurement binding gaps.
+Original failures remain distinct from the corrected complete regressions;
+no numerical threshold or ABI fingerprint was relaxed. Scientific exports
+reopened after normal host exit with exact arrays and retained sourced signed
+calibration. This is data handoff, not native SaveAs. See
+[calibration admission](../../docs/NATIVE_CALIBRATION_HANDOFF.md),
+[orientation](../../docs/STRUCTURE_ORIENTATION.md) and
+[comparison limits](../../docs/REFLECTION_COMPARISON.md).
+
 ## Numerical import: limited normal-build qualification
 
 The normal `dm_native_import` capability now admits only finite 2D float32 NPY

@@ -29,7 +29,9 @@ default v0.6 configuration is unchanged.
 | `structure_viewer_close` | Close the exact owned viewer and its aliases; recover this operation with the same close tool and original request ID |
 
 Write calls require a request ID saved before dispatch. Cancelled waiting does
-not stop the accepted worker; use `structure_result`, not a new request to retry.
+not stop an accepted scientific worker; query its original `structure_result`
+instead of creating another request. Viewer closure has a separate request
+namespace: query `structure_viewer_close` with its original ID and view object.
 Missing cell information permits observation and nonperiodic atomic geometry.
 Periodic simulation requires an actual full-rank periodic cell. Units follow the
 ASE input convention (Cartesian Å); this does not verify a user's experimental
