@@ -35,12 +35,14 @@ LEGACY_PRE_ROIS_CATALOG = {"dm_status", "dm_datasets", "dm_native_mean", "dm_nat
     "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read",
     "dm_native_result_info", "dm_native_release"}
 LEGACY_ROIS_CATALOG = LEGACY_PRE_ROIS_CATALOG | {"dm_native_rois"}
+LEGACY_PROFILE_CATALOG = LEGACY_ROIS_CATALOG | {"dm_native_profile"}
+LEGACY_PRE_IMPORT_CATALOG = LEGACY_PROFILE_CATALOG | {"dm_native_histogram", "dm_native_frame"}
 
 
 def valid_saved_catalog(value):
     return (type(value) is list and all(type(name) is str for name in value)
             and len(value) == len(set(value))
-            and set(value) in (LEGACY_PRE_ROIS_CATALOG, LEGACY_ROIS_CATALOG, CATALOG))
+            and set(value) in (LEGACY_PRE_ROIS_CATALOG, LEGACY_ROIS_CATALOG, LEGACY_PROFILE_CATALOG, LEGACY_PRE_IMPORT_CATALOG, CATALOG))
 
 
 def new_json(filename, value):

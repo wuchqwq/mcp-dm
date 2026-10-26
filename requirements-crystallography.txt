@@ -1,0 +1,6 @@
+# Optional external companion. Never install into GMS-managed Python.
+# Python >=3.10; pip selects compatible releases. Exact used versions are recorded.
+numpy>=1.26,<3
+scipy>=1.11,<2
+# Mature conventional/reciprocal cell metric for hexagonal candidates and CIF IO.
+ase>=3.26,<4

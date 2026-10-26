@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "microscopy-images": {
+      "command": "node",
+      "args": ["C:\\path\\to\\mcp-dm\\server.mjs"],
+      "env": {
+        "DM_MCP_BACKEND": "images",
+        "DM_IMAGE_PYTHON": "C:\\path\\to\\mcp-dm\\.venv-images\\Scripts\\python.exe",
+        "DM_IMAGE_WORKSPACE": "C:\\path\\to\\new-image-workspace"
+      }
+    }
+  }
+}

@@ -38,8 +38,10 @@ void validate_fft_finite_complex353(const NativeRef& image, const nb::FftImage35
 }
 
 void write_fft_frequency_grid353(std::ostringstream& stream, const nb::FftImage353& descriptor,
-                                 const std::array<CropAxisCalibration, 2>& calibration) {
-    stream << "{\"native_calibration_has_half_bin_offset\":true,\"axes\":[";
+                                 const std::array<CropAxisCalibration, 2>& calibration, bool pixel = false) {
+    stream << "{\"native_calibration_has_half_bin_offset\":true";
+    if (pixel) stream << ",\"coordinate_mode\":\"pixel\"";
+    stream << ",\"axes\":[";
     for (unsigned axis = 0; axis < 2; ++axis) {
         if (axis) stream << ',';
         const auto size = axis == 0 ? descriptor.width : descriptor.height;
@@ -48,11 +50,15 @@ void write_fft_frequency_grid353(std::ostringstream& stream, const nb::FftImage3
         const double zero = calibration[axis].zero;
         stream << "{\"dm_dimension\":" << axis << ",\"size\":" << size << ",\"dc_index\":" << dc
           << ",\"cycles_per_pixel_step\":" << 1.0 / size
-          << ",\"physical_frequency_step\":" << step << ",\"unit\":" << nb::quote(calibration[axis].unit)
-          << ",\"frequency_at_index_zero\":" << -static_cast<double>(dc) * step
+          << ",\"physical_frequency_step\":";
+        if (pixel) stream << "null,\"unit\":\"cycles_per_pixel\",\"native_calibration_scale\":" << step
+            << ",\"native_calibration_unit\":" << (calibration[axis].unit.empty() ? "null" : nb::quote(calibration[axis].unit));
+        else stream << step << ",\"unit\":" << nb::quote(calibration[axis].unit);
+        stream << ",\"frequency_at_index_zero\":" << -static_cast<double>(dc) * (pixel ? 1.0 / size : step)
           << ",\"native_calibrated_value_at_pixel_zero\":" << zero
           << ",\"native_calibration_dc_value\":" << zero + static_cast<double>(dc) * step
-          << ",\"coordinate_rule\":\"f(i)=(i-dc_index)*physical_frequency_step\"}";
+          << ",\"coordinate_rule\":" << nb::quote(pixel ? "f(i)=(i-dc_index)*cycles_per_pixel_step" :
+              "f(i)=(i-dc_index)*physical_frequency_step") << '}';
     }
     stream << "]}";
 }
@@ -61,6 +67,7 @@ std::string execute_fft(const NativeRequest& request) {
     require_ready();
     if (request.args.size() != 1) throw std::runtime_error("native_fft_requires_one_image_id");
     const auto operation = nb::fft_operation353(request.op);
+    const bool pixel = nb::pixel_mode353(request.op);
     // A retained record is authoritative lineage, not parsed receipt JSON or
     // the current front image. Reject unsupported complex sources before Find.
     const RetainedResult* retained_source = nullptr;
@@ -69,12 +76,14 @@ std::string execute_fft(const NativeRequest& request) {
         const auto found = retained_results.find(request.args[0]);
         if (found == retained_results.end() || found->second.data_type_code != 3 ||
             found->second.kind != ResultKind::NativeOperation || found->second.source_ids.size() != 1 ||
-            (operation == nb::FftOperation353::ComplexInverse ? found->second.operation != "FFT" :
-                (found->second.operation != "FFT" && found->second.operation != "IFFT")))
+            (operation == nb::FftOperation353::ComplexInverse ? nb::base_operation353(found->second.operation) != "FFT" :
+                (nb::base_operation353(found->second.operation) != "FFT" && nb::base_operation353(found->second.operation) != "IFFT")))
             throw std::runtime_error(operation == nb::FftOperation353::ComplexInverse ?
                 "native_ifft_requires_plugin_retained_fft" : "native_fft_component_requires_plugin_transform");
         retained_source = &found->second;
-        frequency_output = operation != nb::FftOperation353::ComplexInverse && retained_source->operation == "FFT";
+        if (pixel != nb::pixel_mode353(retained_source->operation))
+            throw std::runtime_error("native_fft_coordinate_mode_mismatch");
+        frequency_output = operation != nb::FftOperation353::ComplexInverse && nb::base_operation353(retained_source->operation) == "FFT";
     }
     auto function = api.real_fft;
     switch (operation) {
@@ -100,9 +109,13 @@ std::string execute_fft(const NativeRequest& request) {
         api.sum && api.mean && api.real_fft && api.ifft && api.real_component && api.imag_component && api.arg && api.norm);
     const auto plan = nb::fft_plan353(operation, source_descriptor,
                                      retained_result_bytes, retained_results.size());
+    if ((plan.width > nb::kFftLegacyMaximumDimension353 || plan.height > nb::kFftLegacyMaximumDimension353) &&
+        !qualified_capability353(nb::fft_large_capability353(operation, uint32_lineage)))
+        throw std::runtime_error(std::string("native_fft_large_operation_not_qualified:") +
+                                 nb::fft_large_capability353(operation, uint32_lineage));
     // Metadata and shared budget checks precede any vendor result allocation.
-    const auto source_calibration = crop_calibration(source.value.image);
-    const auto source_info = metadata(source.value.image);
+    const auto source_calibration = crop_calibration(source.value.image, !pixel);
+    const auto source_info = metadata(source.value.image, !pixel);
     if (retained_source && source_info != retained_source->metadata)
         throw std::runtime_error("native_fft_retained_metadata_changed");
     // Reject unrepresentable reciprocal axes before any native allocation.
@@ -130,7 +143,7 @@ std::string execute_fft(const NativeRequest& request) {
     else
         validate_native_finite_image(output.value, "native_fft_nonfinite_output");
     require_ready();
-    const auto output_calibration = crop_calibration(output.value.image);
+    const auto output_calibration = crop_calibration(output.value.image, !pixel);
     for (unsigned axis = 0; axis < 2; ++axis) {
         const auto size = axis == 0 ? plan.width : plan.height;
         const auto& actual = output_calibration[axis];
@@ -143,20 +156,21 @@ std::string execute_fft(const NativeRequest& request) {
         else if (!(actual == source_calibration[axis]))
             throw std::runtime_error("native_fft_component_calibration_mismatch");
     }
-    const auto output_info = metadata(output.value.image);
+    const auto output_info = metadata(output.value.image, !pixel);
     const auto source_after = fft_image353(source.value.image);
     if (source_after.id != source_descriptor.id || source_after.dimensions != source_descriptor.dimensions ||
         source_after.data_type != source_descriptor.data_type || source_after.packing != source_descriptor.packing ||
         source_after.width != source_descriptor.width || source_after.height != source_descriptor.height ||
-        crop_calibration(source.value.image) != source_calibration || metadata(source.value.image) != source_info)
+        crop_calibration(source.value.image, !pixel) != source_calibration || metadata(source.value.image, !pixel) != source_info)
         throw std::runtime_error("native_fft_source_metadata_changed");
     require_ready();
     const std::string semantics = std::string(nb::fft_representation353(operation)) +
         "; positive-sign centered forward; normalized negative-sign paired inverse; native values and calibration unchanged by bridge" +
         (uint32_lineage ? "; uint32 ancestry; DM rounds input to binary32 before Fourier transform; binary32-component results not lossless for arbitrary uint32 inputs; no bridge pixel cast" : "");
     auto stream = json_stream();
-    stream << "{\"backend\":\"digitalmicrograph-native\",\"operation\":" << nb::quote(request.op)
-      << ",\"source_image_id\":" << source_descriptor.id << ",\"image_id\":" << output_descriptor.id
+    stream << "{\"backend\":\"digitalmicrograph-native\",\"operation\":" << nb::quote(request.op);
+    if (pixel) stream << ",\"coordinate_mode\":\"pixel\"";
+    stream << ",\"source_image_id\":" << source_descriptor.id << ",\"image_id\":" << output_descriptor.id
       << ",\"source\":" << source_info << ",\"image\":" << output_info
       << ",\"operator\":" << nb::quote(nb::fft_operator353(operation));
     if (uint32_lineage) stream << ",\"dtype_semantics\":" <<
@@ -171,7 +185,7 @@ std::string execute_fft(const NativeRequest& request) {
       << ",\"intensity_calibration_applied\":false,\"inverse_restores_source_origin\":false"
       << ",\"intensity_calibration_policy\":" << nb::quote(nb::kFftIntensityPolicy353)
       << ",\"frequency_grid\":";
-    if (frequency_output) write_fft_frequency_grid353(stream, output_descriptor, output_calibration);
+    if (frequency_output) write_fft_frequency_grid353(stream, output_descriptor, output_calibration, pixel);
     else stream << "null";
     stream
       << ",\"semantics\":" << nb::quote(semantics) << ",\"output_bytes\":" << plan.output_bytes
@@ -186,6 +200,7 @@ std::string execute_fft(const NativeRequest& request) {
     require_ready();
     retain_native_result(output, output_descriptor.id, plan.output_bytes, request,
                          nb::fft_operator353(operation), {source_descriptor.id},
-                         {source_info}, output_info, semantics, uint32_lineage, result);
+                         {source_info}, output_info, semantics, uint32_lineage, result,
+                         plan.output_data_type == 3 ? nb::kFftOutputBytes353 : nb::kCropOutputBytes);
     return result;
 }

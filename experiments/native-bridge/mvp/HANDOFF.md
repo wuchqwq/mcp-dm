@@ -1,5 +1,177 @@
 # Native MVP continuation handoff
 
+## Limited numerical return and calibrated relay
+
+The structure/diffraction continuation adds `dm_native_import`, a separate
+bounded float32 NPY/JSON handoff into a new independent DM image. The normal
+build now admits only finite 2D float32 arrays up to 16,384 samples with
+real-space ASCII `nm` or reciprocal-space ASCII `1/nm` axes, on the exact
+fingerprint-matched GMS 3.53.4137.0 adapter. Empty/Unicode units and other dtypes
+remain unqualified/refused; a broader labeled diagnostic build cannot extend
+normal admission. The earlier candidate has limited actual-host
+MCP creation/readback, signed-calibration, original-ID recovery and explicit
+document-delivery evidence. A fresh synthetic session also passed independent
+same-host array/calibration and document ownership checks, limited to ASCII
+`nm`/`1/nm` units. Exact float32 bits, signed zero, axis order, signed scales,
+raw origins and physical zero were preserved. A shown image survived plugin
+RELEASE; pre-recorded, identity-bound STOP released hidden plugin-only results
+while shown images survived. Closing only the returned result's document then
+released that result, leaving the other shown arrays unchanged. These are
+after-return/idle observations. The host then exited normally and the installer
+removed only its manifest-owned candidate DLL; saved scientific NPY inputs
+reopened with unchanged hashes after exit. GUI backup files do not qualify
+native SaveAs. A later candidate trial included an actual researcher GUI
+arithmetic edit into a new image; fresh MCP READ/capture recovered the exact new
+values without changing the old snapshot/source or calibration.
+
+The final normal artifact was separately built without a qualification flag
+and checked in a fresh synthetic host: both admitted domains, exact independent
+array/calibration readback, source hashes, original-ID recovery/conflict and
+unit refusal before file/vendor work. RELEASE, saved original-request/PID-bound
+STOP, last document reference closure, normal exit and manifest-only removal
+were rechecked. Keep this short final-artifact qualification distinct from the
+candidate human-edit evidence; neither is general concurrent-edit acceptance.
+Keep this distinct from the previously qualified outbound and pixel operations.
+See [the relay contract](../../../docs/DM_NUMERIC_RELAY.md).
+
+A first live trial refused the staged file at the opened-path identity guard,
+before image creation. The original failure is retained. A narrow Windows
+packaged-app path-resolution correction passes offline checks, including exact
+ticket hashes and reparse rejection. A fresh synthetic host then passed the
+limited MCP path above, including external simulation and a native half-result
+captured/measured/returned to a new image. Preserve the initial failure and the
+legacy GMS Python getter's `1/Å` versus `1/?` FAIL. The earlier session was
+interrupted by restart; its unfinished checks remain incomplete. A fresh
+ASCII-unit trial does not repair or qualify Unicode. The earlier pixel-only
+external measurement is historical. Validated native READ/schema-1 captures
+now activate the shared versioned `image_calibrate` record, with native source,
+signed/mixed-unit axes and crop offsets. A later synthetic actual-host relay
+checked physical measurement after native crop/processing. See
+[calibration admission](../../../docs/NATIVE_CALIBRATION_HANDOFF.md). Unknown
+calibration remains pixel-only; real/reciprocal domains cannot be interchanged
+by a scale revision. Saved-FFT axes update without recalculating complex data.
+Broader import qualification remains HOLD; the limited normal admission is not
+a stable release or native SaveAs. Do not
+reuse an old session/failed request as fresh acceptance. A user-authorized
+forced exit does not qualify normal cleanup. STOP acknowledgement alone is not
+cleanup or normal exit.
+
+## Explicit pixel-mode continuation
+
+The `feature/pixel-image-workflow` branch preserves FRAME and the existing
+physical operation contracts. New CROP_PIXEL/FILTER_PIXEL/Fourier *_PIXEL
+requests have separate immutable identities, cycles-per-pixel scientific
+coordinates and profile groups. `native_pixel_crop`, `native_pixel_filters`
+and `native_pixel_fft` now have limited synthetic real-host qualification on
+the exact fingerprint-matched Windows x64 GMS 3.53.4137.0 build. The qualified
+artifact's frozen profile/test files were promoted without changing its native
+implementation. Ordinary float32/uint32 and uint16-through-FRAME working copies
+keep their existing dtype, size, finite-data and shared-pool guards. Missing
+units are allowed only in explicit pixel mode; finite origins/zero values,
+finite nonzero signed scales and consistent native getter formats remain
+required. Default physical mode and the default v0.6 backend are unchanged.
+
+Actual Node stdio MCP, independent same-host numerical/calibration/source
+checks, known READ context/FRAME ancestry, original-ID QUERY/duplicate/mode
+conflict, exact scalar-document delivery and independent after-idle lifetime
+checks passed within that synthetic scope. Original pre-saved STOP identity,
+owned cleanup, normal exit, manifest-only removal and post-exit NPY reopening
+were checked separately. A native QUERY cannot recover records across STOP,
+host exit or a new session. A tool receipt does not prove model viewing.
+
+Preserve the initial power-oracle FAIL: its binary64 expression followed by
+float32 storage did not match the native result's rounding on the new fixture.
+A separate round used new request IDs/objects and a predeclared reference with
+separate binary32 squares and addition, and passed exactly. No tolerance was
+widened or original record rewritten. This is bounded numerical qualification,
+not a vendor instruction-chain or arbitrary-input rounding proof. A read-only
+uncalibrated sequence then passed explicit frame/ROI, native FFT/component
+export, complete source protection and after-idle working-reference checks.
+Its saved native captures returned a fixed-range PNG through an explicit
+image_* stdio client, with fresh-client view recovery and Codex pixel viewing.
+General mathematical real-image FFT accuracy, ordinary native model clients
+and other clients remain unqualified. Native SaveAs, arbitrary image sizes and
+other GMS builds remain unsupported. Never replace a loaded DLL.
+
+Meanwhile [opt-in external image tools](../../../docs/PIXEL_IMAGE_WORKFLOW.md)
+provide a usable uint16 TIFF frame/ROI/view/comparison/FFT/annotation/export
+continuation without DM or a physical ruler. This is explicitly external
+processing, not a native fallback. Saved native numerical captures can enter
+the same tool interface through independent image-mode validation. PR #15's
+Python unqualified-producer and reused-FRAME-request gaps are corrected.
+
+## Current explicit sequence-frame continuation
+
+The native catalog has twenty established entries plus the separately gated
+import candidate described above. `dm_native_frame` selects an explicit
+rank-three ordinary uint16 source and zero-based DM dimension2 / NumPy axis0
+frame, makes an independent native slice, and explicitly converts it through
+DM to float32 without losing uint16 values. The output is a working image with
+its own ID/token, not the original uint16 object, a summed image or an inferred
+GUI current frame. Unknown units do not block this data copy or become physical
+units. Full XY output is bounded to 1,048,576 pixels, complete source storage
+to UINT32_MAX bytes, and the two-image peak uses the existing shared budget.
+
+The final artifact has limited synthetic actual-host/native-MCP qualification:
+independent complete values and source/calibration protection, original-ID
+recovery, READ/NPY with frozen frame ancestry, temporary-registry cleanup,
+precise SHOW/RELEASE and independent idle document-reference closure. Its own
+original STOP, remaining hidden-result release, normal exit/owned-plugin
+cleanup and post-exit numerical reopening were separately checked. Preserve
+the earlier exceptional cleanup attempt as failed/incomplete evidence; do not
+replace it with the passing new-session result.
+
+Save request IDs before FRAME and later side effects. `frame_ancestry` identifies
+the original frame only; each derived operation still owns its current values,
+coordinates and scientific meaning. Mixed/changed lineage is unresolved.
+Whole-sequence operations, arbitrary FFT dimensions, larger filters, missing-unit
+physical interpretation and model-client qualification do not follow from
+FRAME. Ordinary model-client status remains NOT_TESTED. Exact build/module gates,
+default v0.6 and the independent external-analysis boundary are unchanged.
+The small converted-frame crop/arithmetic/filter/Fourier continuation and its
+saved ancestry passed separately using existing numerical references. Authorized
+read-only TIFF pages also passed full-plane chunked handoff, independent page
+comparison and unchanged full source/file checks. Missing units remain unknown;
+these checks do not admit arbitrary whole-frame FFT sizes or larger filters.
+See [FRAME](NATIVE_FRAME.md), [workflow](NATIVE_WORKFLOW.md) and the private
+current-run verdict for concrete evidence without publishing source data.
+
+## Current bounded Fourier continuation
+
+The explicit native backend admits larger v2 Fourier records through separate
+operation/dtype capability groups. Qualified forward FFT and scalar components
+use power-of-two axes 4..1024; complex outputs have an 8 MiB allowance while
+scalar/other outputs keep their existing 4 MiB limit. The shared 16 MiB/32-object
+pool and known validation-image accounting remain enforced. Large uint32-lineage
+IFFT is unqualified; a 1024-square inverse also exceeds the known shared budget.
+Historical integer inverse precision failures remain unchanged.
+
+Limited synthetic real-host checks cover native numerical outputs, calibration,
+explicit document delivery, original-ID QUERY, released references, complete
+scientific NPY reopening and separate after-idle invalidity. This is not blanket
+qualification for experimental data, other builds or an ordinary model client.
+FILTER retains its separate 5..256 admission and READ retains 16,384-sample
+blocks. See [FFT readiness](FFT_READINESS.md) and
+[precision boundaries](../../../docs/NATIVE_FFT_PRECISION.md).
+
+The external crystallography companion accepts the corresponding v2 mathematical
+grids. Valid collinear observations retain measurements/overlays with
+`NEEDS_REVIEW`; malformed identities, options, references and search-budget
+failures still reject. Index limits and finite point selection are explained in
+[the gate guide](../../../docs/CRYSTALLOGRAPHY_GATES.md). No scientific tolerance
+is enlarged to obtain a desired phase.
+
+Host/session termination ends live recovery. Keep incomplete source-after,
+reference cleanup and normal-exit evidence separate from saved-file verification;
+never reconstruct it from a new process. Reopen original files read-only and
+start new operations with fresh caller-known identities when continuing in an
+explicitly prepared new session.
+
+A separate read-only forward workflow now has its own actual-host numerical,
+source-protection, scientific-file reopening, original STOP/document ownership,
+after-idle cleanup and normal-exit checks. Its bounded PASS neither repairs an
+interrupted historical session nor qualifies inverse accuracy or phase identity.
+
 ## Current integration: GUI measurement, display and scientific files
 
 The independent `integration/native-gui-measurements-20261025` branch retains
@@ -44,7 +216,7 @@ qualification of later display/histogram changes.
 
 ## Current continuation: GUI line to native one-dimensional profile
 
-The native catalog now has nineteen entries, adding `dm_native_profile` and
+The earlier nineteen-entry stage added `dm_native_profile` and
 ROIS version 2 line geometry. `native_line_profile` has limited synthetic
 prepared-host qualification and profile admission is enabled. The final
 qualified artifact also passed its own fresh-host confirmation, with loaded

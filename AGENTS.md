@@ -4,6 +4,29 @@ This is a Windows DigitalMicrograph MCP bridge for post-acquisition scientific a
 
 ## Product boundary
 
+The explicitly selected `image_*` tools are a separate lightweight external
+image route, including independent uint16 multi-page TIFF input without DM.
+See docs/PIXEL_IMAGE_WORKFLOW.md. They may use mature external libraries for
+pixel-domain display/FFT/measurement, with immutable source/frame/ROI and
+software provenance. They are never a fallback for a failed `dm_*` call.
+Missing physical calibration does not block pixel exploration; do not invent
+physical spacings, phase units, frame depth or square physical pixels. Keep
+user-supplied interpretation/calibration separate and revisable. The independent
+image_calibrate record binds signed XY to an exact image/sequence and coordinate
+domain. Validated native READ/schema-1 captures activate that same versioned
+record with native provenance; user corrections create new sourced revisions.
+See docs/NATIVE_CALIBRATION_HANDOFF.md. Legacy context scale notes are not
+operational calibration. Retain its source,
+scope, revision and unknown uncertainty through measurements, physical bars and
+saved-FFT axes without rewriting scientific arrays. Changing or withdrawing
+that record requires a fresh render before annotation/export; old objects stay
+historical. The optional loopback panel invokes these same MCP tools and uses
+the same anchors/IDs, never a second image-state database. See
+docs/UNIFIED_IMAGE_TRIAL.md. Preserve
+native qualification gates. The three native pixel groups have limited
+synthetic real-host qualification on the exact pinned build; a new operator,
+dtype or build still needs its own qualification, regardless of tool schema.
+
 The core product is a reliable DM tool interface: inspect data, view images,
 execute explicit post-acquisition operations and return calibrated results.
 Do not require every task to capture, compute every operator or produce a report.
@@ -11,6 +34,7 @@ Reports/replay are optional examples retained for compatibility, not the core
 acceptance gate. Keep native APIs, coordinate contracts, source protection and
 honest errors. Do not add an agent framework, scheduler, report platform or
 4D features as part of scope cleanup. Scope decisions are in docs/SCOPE_AUDIT.md.
+Current product direction is [the interactive microscopy workflow](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md): make a verified DM image viewable to the Agent, support explicit non-destructive display recipes, local FFT visualization, revisable annotations and multi-turn researcher corrections. This is a proposed user workflow, not permission to claim unimplemented native display controls, a model-visible image or arbitrary DM write-back. Preserve source pixels and calibration; distinguish presentation mapping from scientific derived data and external computation.
 
 For future native operations, DigitalMicrograph is the processing engine.
 The MCP facade and C++ plugin adapt explicit image IDs/parameters to verified
@@ -32,7 +56,49 @@ call boundaries only. Never count them as production tool support, bind them
 to arbitrary vendor addresses, or add them to the shipping plugin/catalog
 before per-operator ABI, scientific and ownership qualification.
 
+## Explicit structure and numerical relay scope
+
+The structure/diffraction companion is now an optional composable tool route,
+not a mandatory phase-identification pipeline. `structure_*` uses ASE and an
+explicit external diffsims kinematic engine in its own environment; the local
+3Dmol viewer changes only the camera during interaction. Shared zone-axis
+records explicitly orient a display copy and the simulation; see
+docs/STRUCTURE_ORIENTATION.md. Saved experimental reciprocal measurements can
+be compared to un-rasterized simulated reflections with explicit registration;
+see docs/REFLECTION_COMPARISON.md. These are geometric comparisons, not unique
+phase or intensity proofs. See docs/STRUCTURE_DIFFRACTION_TOOLS.md and
+docs/STRUCTURE_VIEWER_LIFECYCLE.md for partial-cell viewing and owned helper
+reuse/closure.
+It is not a native fallback, and an experimental FFT is not a simulated SAED
+intensity image. Preserve generic cells, cell-free XYZ observation, source
+snapshots, software/approximation parameters and candidate uncertainty.
+
+The explicitly authorized `dm_native_import` is a numerical handoff
+exception to the earlier outbound-only workflow: bounded finite float32 NPY,
+source/provenance hashes, signed raw-index calibration and a new independent DM
+image. No arbitrary scripts, hidden casts, DM tag writes or source overwrite.
+The normal adapter now admits only the separately qualified, finite 2D float32
+subset of at most 16,384 samples: real-space ASCII `nm` or reciprocal-space
+ASCII `1/nm`. Other units, empty-unit image coordinates and dtypes remain
+unqualified/refused. A broader diagnostic qualification build must not be
+represented as normal-build support. No new build fingerprint is admitted.
+Candidate human re-edit/recapture and final normal-artifact import/readback/
+ownership checks are separate evidence scopes. See docs/DM_NUMERIC_RELAY.md. Mature external
+scientific tools may produce this explicit input; do not label their computation
+DM-native or present a display PNG as scientific intensity.
+
 ## Architecture and ownership
+
+The explicit external `crystallography/` companion is authorized separately by
+the crystallographic workflow in ROADMAP.md and docs/DIFFRACTION_NEXT_STAGE.md.
+It consumes fixed schema-1 numerical captures, performs external NumPy/SciPy/ASE
+measurement and bounded FCC/BCC/HCP comparison, and never imports Gatan APIs or
+falls back for a missing native operator. Its independent Python >=3.10
+dependencies must not enter GMS-managed Python. Preserve automatic-centre HOLDs,
+shared uncertainty, cycles versus radians, mathematical FFT axes, fixed CIF
+parameters, source hashes and explicit candidate ambiguity. HCP is a hexagonal
+metric with a basis hypothesis, not cubic P or a chemical phase proof. See
+docs/CRYSTALLOGRAPHY_WORKFLOW.md before changing this companion.
 
 - `server.mjs`: zero-dependency Node >=18 stdio MCP facade, strict tool schemas, serialized loopback requests, timeouts/cancellation. Stdout is MCP JSON only; diagnostics belong on stderr.
 - `bridge/dm_bridge.py`: Python 3.7-compatible host integration, a genuine DM backend and an explicit synthetic mock backend. `DigitalMicrograph` imports successfully only inside its host; do not fake a successful real backend.
@@ -54,10 +120,45 @@ before per-operator ABI, scientific and ownership qualification.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has nineteen entries: dm_status,
+The separate experimental native catalog has twenty-one qualified-interface entries, each with its own restricted scope: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
-dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile and dm_native_histogram.
+dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_frame, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile, dm_native_histogram and the limited dm_native_import.
+
+Explicit `coordinate_mode:"pixel"` on crop/filter/Fourier selects separate
+`*_PIXEL` request identities and the qualified native_pixel_crop,
+native_pixel_filters or native_pixel_fft group. Ordinary float32/uint32 scopes
+retain their dtype, dimension, finite-data, numeric-calibration and pool guards;
+only the spatial-unit prerequisite is relaxed. Default/physical mode keeps its
+original requirements. Pixel Fourier axes are cycles_per_pixel, independent of
+preserved raw signed native calibration. uint16 enters through qualified FRAME
+conversion only. Known READ/NPY Fourier context and FRAME ancestry must not be
+lost under generic unknown-source compatibility. The initial binary64-expression
+power oracle FAIL remains historical; a separate fresh-request synthetic round
+passed its predeclared exact stepwise binary32 reference. This is bounded
+qualification, not an arbitrary-input rounding proof or lossless Fourier claim.
+Normal STOP/exit, after-idle reference cleanup and post-exit files were checked;
+live recovery remains same-session only. An authorized uncalibrated uint16
+sequence also passed explicit frame/ROI and native FFT/component data-handoff
+checks with unchanged source memory/file. Saved native captures were displayed
+to Codex through an explicit image_* stdio client. This proves the recorded
+path, not general real-image Fourier accuracy or ordinary native model-client
+qualification. See docs/PIXEL_IMAGE_WORKFLOW.md.
+
+`dm_native_frame` is a separate `native_frame` capability for explicit rank-three
+ordinary uint16 sources: DM dimension2 / NumPy axis0, never the GUI current frame
+or a summed image. DM makes an independent slice and explicitly converts it to
+float32; every uint16 value remains exact. The complete XY plane is bounded to
+1,048,576 pixels and source storage to UINT32_MAX bytes. Preserve source/selected
+frame identity, all three source axes, raw copied calibration and unapplied
+intensity calibration; unknown units do not block this data copy. Do not enable
+uint16 globally for old 2D tools or infer time, spatial Z, phase or physical units.
+FRAME requires a pre-saved request ID and inherits the existing QUERY/release
+contract. Frozen `frame_ancestry` identifies the original frame only; current
+values/coordinates follow their own operation metadata. Mixed or changed lineage
+is unresolved, never a guessed frame. See experiments/native-bridge/mvp/NATIVE_FRAME.md;
+its exact-build final artifact has limited synthetic real-host qualification.
+Unknown numerical-calibration cases retain their separately recorded test scope.
 The corrected ROIS direct-source-layout/mapping has limited synthetic real-host
 qualification and its profile admission is enabled. The final qualified artifact
 also passed its separate actual-host source/ROI and final-reference checks. A catalog entry is not capability
@@ -231,9 +332,23 @@ remain errors, without silent conversion or a backend fallback.
   operations share the bounded retained-result pool; they do not edit sources.
 - New FFT/complex submissions require native_fourier_operation version 2;
   version 1 remains explicitly recognizable for historical QUERY only.
-  The qualified real-input scope admits float32 or separately qualified uint32,
-  limited to ordinary-packing power-of-two dimensions
-  4..256, full-complex output and complete spatial calibration. Forward uses
+  The base real-input scope remains ordinary-packed float32 or separately
+  qualified uint32, power-of-two dimensions 4..256 and, in default physical
+  mode, complete spatial calibration. Explicit pixel mode still requires
+  valid finite numeric calibration and its separate pixel capability.
+  Version 2 can admit dimensions 4..1024 and at most 1,048,576
+  pixels; an axis above 256 requires the matching per-operation,
+  source-dtype-lineage large capability. Inspect native_fft_large,
+  native_ifft_large, native_real_large, native_imag_large, native_phase_large,
+  native_power_large and their native_uint32_*_large counterparts individually;
+  forward admission does not qualify inverse or components. Large uint32 IFFT
+  remains unqualified. Historical v1 records retain the old 256/65,536 bounds.
+  Fourier complex outputs may use 8 MiB, scalar outputs 4 MiB; the common pool
+  remains 16 MiB/32 objects, including known validation temporaries on admission.
+  A retained 1024-square spectrum plus IFFT output/validation needs 20 MiB and
+  must fail before native allocation, even when inverse is otherwise qualified.
+  RESULT_INFO/RELEASE accept the bounded Fourier retention descriptor without
+  increasing other operators' limits. Forward uses
   positive exponent, no normalization and fftshift data; inverse uses negative
   exponent divided by width*height and resets spatial origin to zero. Inverse
   accepts only this plugin's retained FFT, and components only its retained
@@ -266,7 +381,9 @@ describe the fixed-build dtype contract, not nonexistent native flag getters.
 MEAN/SUMMARY use DM reductions with a 2,097,152-pixel conservative exact-integer
 sum budget. Fractional means remain binary64. uint32 CROP admits at most
 4,194,304 source pixels and 4 MiB output, preserves uint32 and requires complete
-spatial calibration. Uint32 SHOW, arithmetic, Fourier and filters have four
+spatial calibration in default physical mode; qualified pixel mode preserves
+unknown units with valid numeric calibration. Uint32 SHOW, arithmetic, Fourier
+and filters have four
 separate profile groups and their own UINT32_OPERATIONS_ACCEPTANCE.md evidence.
 Arithmetic is DM binary64 computation then float32 storage; FFT first rounds
 the uint32 source to binary32 and outputs complex64. Neither is arbitrary

@@ -4,11 +4,101 @@
 
 This is the entry point for an agent helping a researcher install or use the MCP. For code changes, also read AGENTS.md and the relevant implementation/tests. Do not treat instructions for using tools as permission to modify the repository, install dependencies, upload data or change unrelated client settings.
 
+Planned interactive microscopy tasks (image return, iterative display/FFT adjustments, editable spot/streak/twin/defect annotations) are described in [the product roadmap](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md). They are **not** automatically part of the connected tool catalog. Check actual capabilities and client image-display behavior before attempting or claiming any step; preserve numeric versus display distinctions.
+
 For Fourier-derived READ/NPY data, preserve both native DM calibration and
 `scientific_semantics.coordinate_axes`; see [scientific handoff](docs/SCIENTIFIC_HANDOFF.md).
 Unknown context is not permission to guess the frequency origin or phase units.
+Native Fourier keeps its base 4..256 scope; v2 extension up to power-of-two
+axes 1024/1,048,576 pixels requires per-operation/source-lineage large
+capabilities and the unchanged 16 MiB shared pool (1024² IFFT exceeds it;
+large uint32 IFFT remains unqualified). FILTER stays 5..256 and READ stays
+16,384 samples per block; see [Fourier limits](experiments/native-bridge/mvp/FFT_READINESS.md).
 
 ## 1. User goal and division of work
+
+Optional `structure_*` tools read generic CIF/XYZ, query ASE geometry and run
+explicit diffsims kinematic electron diffraction in an independent environment;
+see [structure tools and approximation limits](docs/STRUCTURE_DIFFRACTION_TOOLS.md).
+They are composable with the image tools and never required for viewing a TIFF.
+Use `structure_orient` for a sourced three-index UVW direction in the actual
+cell; share its `orientation_id` between view and simulation instead of guessing
+Euler angles. `structure_compare` accepts committed reciprocal `image_measure`
+records and explicit registration. It does not identify a unique phase or
+compare HRTEM/ptychography FFT intensities with SAED. Equivalent interactive
+views reuse their helper; recover `structure_viewer_close` with that same tool's
+original ID, separately from scientific `structure_result` requests.
+The [bounded native import](docs/DM_NUMERIC_RELAY.md) creates a new
+numerical DM image only when its separate adapter group is qualified; an image
+file or SHOW of an existing result is not a general scientific import.
+Normal-build admission is only finite 2D float32 up to 16384 pixels, with
+real-space `nm` or reciprocal-space `1/nm`. Use the reported native capability,
+pre-save the request ID, and explicitly SHOW the resulting image when required.
+
+For independent uint16 multi-frame TIFF or pixel-only exploration, the opt-in
+`image_*` tools provide explicit frame/ROI, fixed-range comparison, MCP image
+return, external FFT, revisable annotations/context and numerical export.
+See [pixel image tools](docs/PIXEL_IMAGE_WORKFLOW.md). These do not require DM,
+physical units or a crystallographic classification. Select external tools
+explicitly; never present them as an automatic native fallback. The default
+catalog/configuration is unchanged. Other TIFF dtypes are not yet supported.
+
+Use `image_calibrate` when the user states a real-space XY scale. Bind it to one
+explicit image or TIFF sequence, keep the actual `source_text`, signed X/Y
+values, length unit and unknown/supplied uncertainty. Do not substitute the
+documentation's example numbers for experimental calibration. The resulting
+immutable wrapper is the input for later frame/view/FFT/measurement calls.
+An older saved FFT can explicitly attach the same record using
+`calibration_object_id`; exact source/scope checks prevent cross-image reuse.
+Physical frequency divides the original cycles/pixel by each signed axis
+scale, without a `2π` factor; `image_measure` can return a reciprocal period.
+After revising/withdrawing calibration, preview the new wrapper to redraw
+scale bars or frequency axes and remeasure; interpretations require review.
+Old exported versions remain immutable. Legacy `image_context.xy_scale` is
+descriptive only, never silently promoted to operational calibration.
+User calibration does not imply a phase unit, frame depth, axial resolution
+or unique phase identification. See [the calibrated interaction contract](docs/IMAGE_ANNOTATIONS.md#user-stated-xy-calibration).
+An admitted native READ capture automatically activates its validated physical
+axes through this same record, with `source:"native_dm_capture"`; do not ask the
+user to repeat an available scale. Unknown or conflicting axes remain pixel-only.
+Preserve raw origins, signed steps, crop offsets, domain and version; corrections
+create user revisions rather than rewriting the native record. See
+[native calibration admission](docs/NATIVE_CALIBRATION_HANDOFF.md).
+
+For a combined trial checkout and client configuration, use
+[the unified trial guide](docs/UNIFIED_IMAGE_TRIAL.md). The optional
+[loopback panel](docs/LOCAL_IMAGE_PANEL.md) lets the researcher point, draw and
+drag using the same saved IDs/anchors. Use `image_panel_open/current/show`
+for launch, exact selection and result handoff. Retain IDs internally; the user
+does not copy paths or JSON. Dirty drafts queue incoming results. The panel
+does not automatically start an Agent turn. For one mark correction, prefer
+`image_annotate(updates:[...])` over rebuilding the whole annotation list.
+
+For multi-turn overlays, use exact source IDs and source/frequency coordinates,
+then preview the annotated object directly to revise the display. Lines, arrows
+and polygons retain anchors across resizing. FFT previews can explicitly apply
+display-only Gaussian smoothing/background suppression, enlarge the figure and
+label cycles/pixel axes. Keep arrows small and outside the evidence; inspect
+the returned image before calling a plot usable. See [annotation and figure
+recipes](docs/IMAGE_ANNOTATIONS.md). Filtered PNGs never replace complex NPY.
+For ordinary FFT figures start with `image_preview(display_preset:"fft_detail")`:
+an unfiltered log-amplitude view with a recorded percentile display range.
+Inspect it before applying filters. Keep fine texture and streaks visible;
+do not assume that a black background or smooth bright blobs are improvements.
+Use sparse short cyan arrows by default (3px width, 6px head, maximum24px
+shaft); use `color:"orange"` for an explicitly proposed second-phase candidate.
+Arrow tips stay anchored; only the displayed tail is shortened. Scientific
+status remains separate: an orange arrow does not confirm a second phase.
+Published reciprocal masks/indices require their own evidence and calibration.
+`fft_detail` revision 2 uses gamma 0.8 for slightly darker midtones, with no
+default smoothing/background subtraction. To keep a user's current limits,
+revise only gamma on their existing view. Use `image_preview.frequency_rect`
+for an absolute half-open window in the original FFT bin grid, omit to inherit
+and pass null to restore full. Original spectrum ID/DC/bin spacing and full
+complex NPY stay unchanged; preserve full-spectrum and zoomed PNGs together.
+When a narrow frequency window looks soft after enlargement, use
+`interpolation:"nearest"` to inspect original sampled bins, or reduce the
+display size. Do not add smoothing/sharpening to manufacture apparent detail.
 
 The researcher may normally work through DM's GUI and use external Python for specialized analysis. Do not require them to learn DM scripting or force every request through a capture/report pipeline.
 
@@ -27,11 +117,12 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 | Backend | Scope in this checkout | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Eighteen catalog entries in this feature checkout; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
+| Opt-in native | Twenty established entries plus limited separately qualified numeric import; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope; FRAME has its own qualification. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
-This feature checkout's native catalog has nineteen
-tools, including qualified limited arithmetic, Fourier/components, filters,
+This feature checkout's native catalog has twenty established entries plus
+the separately qualified limited `dm_native_import`. Established tools include
+qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect
 `native_capabilities` and its reason fields, not the tool count alone. See the
@@ -39,6 +130,36 @@ is selected before ABI calls; other builds remain unsupported. Inspect
 native crop/processing → numeric READ → explicit NPY handoff → external example.
 The new [lifecycle/chunked handoff guide](docs/NATIVE_LIFECYCLE_HANDOFF.md) covers exact retention tokens, `dm_native_result_info`/`dm_native_release`, pre-saved IDs, a fixed complete-region export command, original source-creation parameters, and the independent file verifier. Its multi-READ mode is separate from the older optional single-READ mean example.
 The integration remains experimental and is not a stable native release.
+
+For a rank-three ordinary uint16 sequence, the explicit
+[`dm_native_frame`](experiments/native-bridge/mvp/NATIVE_FRAME.md) contract selects
+zero-based `frame_index` on DM dimension2 / NumPy axis0. It creates a separate
+float32 XY working copy through DM native slice/cast operations; values 0..65535
+remain exact. Save `request_id` before submission. Do not select a summed image
+or infer the currently displayed frame, time, spatial Z or physical units.
+Unknown units may remain unknown. READ/NPY preserves the converted dtype and
+original frame ancestry; SHOW and later processing retain their own gates.
+FRAME has **LIMITED_SYNTHETIC_REAL_HOST_PASS** within its recorded scope; tool discovery alone
+does not authorize a call when `native_frame` is unavailable.
+
+For a source without spatial units, explicitly select `coordinate_mode:"pixel"`
+on `dm_crop`, `dm_native_filter`, `dm_native_fft` and `dm_native_complex`, and
+check the matching `native_pixel_crop`, `native_pixel_filters` or
+`native_pixel_fft` capability. These groups have limited synthetic real-host
+qualification on the pinned build for float32/uint32; a uint16 sequence first
+uses FRAME's exact float32 working copy. Default/physical mode still requires
+usable spatial calibration. Pixel mode preserves raw calibration and unknown
+units, but still rejects invalid numeric calibration, unsafe calls, types,
+dimensions and budgets. It does not relax filter/Fourier sizes or qualify
+arbitrary whole-frame processing. Pixel Fourier coordinates are
+`cycles_per_pixel`; preserve those mathematical axes separately from DM's raw
+signed calibration. The initial power-oracle FAIL is preserved beside a passing
+fresh-request stepwise-binary32 reference trial. A read-only uncalibrated
+sequence passed explicit frame/ROI, native FFT/component export and source
+protection checks; its saved native captures returned a viewable image through
+an explicit image_* stdio client. General real-image Fourier accuracy and
+ordinary native model clients remain unqualified. See
+[pixel-mode scope](docs/PIXEL_IMAGE_WORKFLOW.md#qualified-native-pixel-continuation).
 
 The new read-only `dm_native_rois` links an explicit image ID to document/display
 and rectangle ROI identities; inspect `native_gui_rois` before using it. Its
@@ -81,7 +202,9 @@ all document-held or stack-held objects have already been destroyed.
 The initial uint32 subset covers ordinary-packed 2D metadata, raw mean/SUMMARY,
 same-dtype crop, preview and READ. Mean/SUMMARY stop at 2,097,152 pixels; uint32
 crop sources stop at 4,194,304 pixels and outputs at 4 MiB (1,048,576 pixels),
-with complete spatial calibration. Preview permits at most 4,194,304 source
+with complete spatial calibration in default physical mode; the separately
+qualified pixel mode permits unknown units with valid numeric calibration.
+Preview permits at most 4,194,304 source
 pixels and 128x128 display samples. READ permits that source bound and at most
 16,384 ROI samples, preserving exact little-endian uint32 bytes as `<u4` NPY
 through the explicit encoder. The optional external example records an exact
@@ -199,7 +322,7 @@ Cancellation stops waiting; it does not prove DM stopped. Never automatically re
 
 For native crop, save and supply `request_id` before dispatch, together with the session and parameters. Query `dm_native_result` with that original ID in the same live session. Preserve `queued`, `running`, `failed` and `unknown` as distinct outcomes. There is no promised recovery after native STOP, host exit or a different session.
 
-The same requirement applies to native show, unary, binary, FFT, complex and
+The same requirement applies to native frame, show, unary, binary, FFT, complex and
 filter calls, and the separate file encoder's handoff ID. NB2 QUERY retains the
 original operation, normalized arguments and result schema. Save the original
 records; do not infer operation identity from a few result fields. Use the
@@ -227,3 +350,14 @@ For the explicit GUI selection → native 1D measurement → document/NPY handof
 follow [the short workflow](docs/NATIVE_GUI_MEASUREMENTS.md). Preserve every
 side-effect request ID before submission; histogram raw bins, native uint32
 counts and binary64 transport are distinct.
+
+For diffraction/lattice tasks, use the optional [crystallography companion](docs/CRYSTALLOGRAPHY_WORKFLOW.md)
+after a bounded native numerical handoff. Run ASE/NumPy/SciPy in a separate
+environment through the documented checkout CLI; this is external computation,
+not an added MCP/native tool or a fallback. Prefer automatic spots and a
+qualified Friedel-pair centre; use mathematical grid DC for native FFT exports.
+Only ask for missing calibration, unresolved centre/identity or additional
+scientific evidence. Compare FCC/BCC/HCP jointly, retain P ambiguity, unknown
+uncertainties, measured vectors and alternatives. A complete run is not a unique
+chemical phase identification. Preserve request IDs and use verify for existing
+files; do not overwrite or automatically resubmit an unknown DM operation.

@@ -912,6 +912,89 @@ test("Fourier v2 validates exact transform semantics and separate mathematical/n
   } finally {await host.close();}
 });
 
+test('larger Fourier v2 transport retains exact operation, shape, byte budgets and immutable QUERY identity',async()=>{
+  // Metadata-only protocol fixtures: no large native operation is performed.
+  // Square1024 inverse is deliberately not used as a pool-capacity claim.
+  const cases=[['FFT',[512,512],false],['FFT',[1024,1024],false],['FFT',[1024,1024],false,true],['IFFT',[512,1024],false],
+    ...['REAL','IMAG','VENDOR_ARG','VENDOR_NORM'].flatMap(op=>[[op,[1024,1024],false],[op,[512,1024],true]])];
+  const host=await fakeHost(({socket,request,reply})=>{
+    const [operation,shape,spatial,unsigned]=cases[Number(request.id.split('-').at(-1))];
+    const result=fourierFixture(operation,77,{shape,spatial});
+    if(unsigned) {
+      result.source=imageMetadata(77,{shape,unsigned:true});
+      result.dtype_semantics={input_dtypes:['uint32'],output_dtype:'complex64',selection:'DM native operator output; no bridge pixel cast',
+        precision:'complex binary32 result; not lossless for arbitrary uint32 inputs'};
+    }
+    socket.end(JSON.stringify(reply('completed',result,{...identity(operation,[77]),result_version:2}))+'\n');
+  });
+  try {
+    for(let index=0;index<cases.length;++index) {
+      const [operation,shape,,unsigned]=cases[index],id='large-fourier-'+index;
+      const submitted=await host.bridge.execute(operation,[77],{requestId:id}),result=submitted.result;
+      assert.deepEqual(result.image.shape,shape);assert.equal(result.image.pixels,shape[0]*shape[1]);
+      assert.equal(result.output_bytes,shape[0]*shape[1]*(['FFT','IFFT'].includes(operation)?8:4));
+      if(unsigned) assert.equal(result.dtype_semantics.precision,'complex binary32 result; not lossless for arbitrary uint32 inputs');
+      assert.deepEqual((await host.bridge.query(id)).result,result);
+      if(result.frequency_grid) assert.deepEqual(result.frequency_grid.axes.map(axis=>axis.dc_index),[shape[1]/2,shape[0]/2]);
+    }
+  } finally {await host.close();}
+});
+
+test('larger Fourier guards reject oversize, nondyadic, laundered metadata, wrong types and enlarged filters',async()=>{
+  const cases=[
+    {op:'FFT',shape:[1024,2048]}, {op:'FFT',shape:[512,1000]},
+    {op:'FFT',shape:[1024,1024],change:r=>r.source.shape[0]=512},
+    {op:'FFT',shape:[1024,1024],change:r=>r.source.pixels=65536},
+    {op:'FFT',shape:[1024,1024],change:r=>r.image.pixels=65536},
+    {op:'FFT',shape:[1024,1024],change:r=>r.validation_peak_new_image_bytes=1048576*8},
+    {op:'FFT',shape:[1024,1024],change:r=>r.output_bytes=0x100000000},
+    {op:'FFT',shape:[1024,1024],change:r=>r.source.id=78},
+    {op:'REAL',shape:[1024,1024],change:r=>r.image.dtype='uint32'},
+    {op:'REAL',shape:[1024,1024],change:r=>r.representation='full_complex'},
+    {op:'REAL',shape:[1024,1024],resultType:'native_image_operation'},
+    {op:'FFT',shape:[512,512],version:1,change:r=>Object.assign(r,{normalization:'vendor_defined',centering:'vendor_defined',phase_units:'vendor_defined'})},
+    {op:'FILTER',shape:[512,512]},
+  ];
+  const host=await fakeHost(({socket,request,reply})=>{
+    const entry=cases[Number(request.id.split('-').at(-1))],args=entry.op==='FILTER'?[77,1]:[77];
+    let result;
+    if(entry.op==='FILTER') {
+      result=derivedFixture('FILTER',args);result.source=imageMetadata(77,{shape:entry.shape});result.image=imageMetadata(99,{shape:entry.shape});
+      result.output_bytes=result.validation_peak_new_image_bytes=entry.shape[0]*entry.shape[1]*4;
+    } else result=fourierFixture(entry.op,77,{shape:entry.shape});
+    entry.change?.(result);
+    socket.end(JSON.stringify(reply('completed',result,{...identity(entry.op,args),result_version:entry.version??(entry.op==='FILTER'?1:2),
+      ...(entry.resultType?{result_type:entry.resultType}:{})}))+'\n');
+  });
+  try {
+    for(let index=0;index<cases.length;++index) {
+      const entry=cases[index],id='large-reject-'+index,args=entry.op==='FILTER'?[77,1]:[77];
+      if(entry.version!==1) await assert.rejects(host.bridge.execute(entry.op,args,{requestId:id}),error=>error.details.code==='NATIVE_PROTOCOL');
+      await assert.rejects(host.bridge.query(id),error=>error.details.code==='NATIVE_PROTOCOL');
+    }
+  } finally {await host.close();}
+});
+
+test('Fourier output ID zero is rejected for large v2 submissions and historical v1 QUERY',async()=>{
+  const operations=['FFT','IFFT','REAL','IMAG','VENDOR_ARG','VENDOR_NORM'];
+  const host=await fakeHost(({socket,request,reply})=>{
+    const historical=request.id==='zero-historical';
+    const operation=historical?'REAL':operations[Number(request.id.split('-').at(-1))];
+    const result=fourierFixture(operation,77,{shape:historical?[4,8]:[1024,1024]});
+    result.image_id=result.image.id=0;
+    if(historical) Object.assign(result,{normalization:'vendor_defined',centering:'vendor_defined',phase_units:'vendor_defined'});
+    socket.end(JSON.stringify(reply('completed',result,{...identity(operation,[77]),result_version:historical?1:2}))+'\n');
+  });
+  try {
+    for(let index=0;index<operations.length;++index) {
+      const id='zero-fourier-'+index;
+      await assert.rejects(host.bridge.execute(operations[index],[77],{requestId:id}),error=>error.details.code==='NATIVE_PROTOCOL');
+      await assert.rejects(host.bridge.query(id),error=>error.details.code==='NATIVE_PROTOCOL');
+    }
+    await assert.rejects(host.bridge.query('zero-historical'),error=>error.details.code==='NATIVE_PROTOCOL');
+  } finally {await host.close();}
+});
+
 test("Fourier v2 uses exact float32 reciprocal calibration and preserves the actual native zero", async () => {
   const result = fourierFixture("FFT"), source = result.source.calibration[0], native = result.image.calibration[0], axis = result.frequency_grid.axes[0];
   source.scale = Math.fround(0.3);

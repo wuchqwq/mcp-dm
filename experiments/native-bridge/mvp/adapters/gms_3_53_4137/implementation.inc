@@ -11,6 +11,8 @@
 #include "roi_contract.hpp"
 #include "line_profile_contract.hpp"
 #include "histogram_contract.hpp"
+#include "frame_contract.hpp"
+#include "adapters/gms_3_53_4137/import_contract.hpp"
 #include "adapters/gms_3_53_4137/profile.hpp"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -51,6 +53,8 @@ using Binary = NativeRef* (*)(NativeRef*, const NativeRef*, const NativeRef*);
 using Packing = nb::NativePacking353* (*)(const void*, nb::NativePacking353*);
 using RealValue = double (*)(const void*, const nb::NativeDataIndex2D353*);
 using Crop = NativeRef* (*)(const void*, NativeRef*, const nb::NativeDataSlice353*);
+using ImageConvert = NativeRef* (*)(NativeRef*, const NativeRef*, std::uint32_t);
+using IntensityCalibration = void (*)(void*, float*, float*, void*);
 // LinePlot style flag: getter returns the byte, setter compares, stores, repaints.
 using PlotStyleGet = bool (*)(const void*);
 using PlotStyleSet = void (*)(void*, bool);
@@ -74,6 +78,8 @@ struct Api {
     Packing packing = nullptr;
     RealValue real_value = nullptr;
     Crop crop = nullptr;
+    ImageConvert image_convert = nullptr;
+    IntensityCalibration intensity_calibration = nullptr;
     Delete destroy = nullptr;
     VendorFree deallocate = nullptr;
     GetDocument get_document = nullptr;
@@ -106,6 +112,8 @@ struct RetainedResult {
     // Frozen scientific context of a HISTOGRAM; never parsed from mutable UI.
     std::string histogram_axis_context = "null", histogram_axis_unit{};
     std::array<float, 3> histogram_axis_values{};
+    std::string frame_ancestry = "null";
+    std::string import_context = "null";
 };
 std::map<std::uint32_t, RetainedResult> retained_results;
 std::uint64_t retained_result_bytes = 0;
@@ -359,18 +367,54 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
                           const std::vector<std::string>& source_metadata,
                           const std::string& output_metadata, const std::string& semantics,
                           bool uint32_lineage = false,
-                          const std::string& scientific_result = "null") {
+                          const std::string& scientific_result = "null",
+                          std::uint64_t maximum_output_bytes = nb::kCropOutputBytes,
+                          const std::string& frame_result = "null") {
     require_ready();
     if (!output.value.image || !output_id || api.id(output.value.image) != output_id || retained_results.count(output_id))
         throw std::runtime_error("native_result_output_identity_invalid");
-    if (!bytes || bytes > nb::kCropOutputBytes) throw std::runtime_error("native_result_output_over_budget");
+    // Only the validated full-complex Fourier producer can opt into 8 MiB.
+    // No other operation, scalar component or arbitrary retained image inherits
+    // this exception; the shared pool and its transactional checks are unchanged.
+    if (maximum_output_bytes != nb::kCropOutputBytes &&
+        !(maximum_output_bytes == nb::kFftOutputBytes353 &&
+          (nb::base_operation353(request.op) == "FFT" || nb::base_operation353(request.op) == "IFFT") && api.dtype(output.value.image) == 3 &&
+          scientific_result != "null" && nb::valid_json(scientific_result)))
+        throw std::runtime_error("native_result_output_limit_invalid");
+    if (!bytes || bytes > maximum_output_bytes) throw std::runtime_error("native_result_output_over_budget");
     if (retained_results.size() >= nb::kCropRetainedCount) throw std::runtime_error("native_result_retention_capacity");
     if (retained_result_bytes > nb::kCropRetainedBytes || bytes > nb::kCropRetainedBytes - retained_result_bytes)
         throw std::runtime_error("native_result_retained_bytes_over_budget");
-    const auto kind = request.op == "CROP" ? ResultKind::Crop : request.op == "UNARY" ? ResultKind::Unary :
+    const auto kind = nb::base_operation353(request.op) == "CROP" ? ResultKind::Crop : request.op == "UNARY" ? ResultKind::Unary :
                       request.op == "BINARY" ? ResultKind::Binary : ResultKind::NativeOperation;
     RetainedResult retained{output.value, bytes, kind, api.dtype(output.value.image), request.op, request.id,
                             vendor_operator, source_ids, source_metadata, output_metadata, semantics, uint32_lineage};
+    for (const auto source_id : source_ids) {
+        const auto parent = retained_results.find(source_id);
+        if (parent != retained_results.end() && parent->second.import_context != "null") {
+            const bool same = source_ids.size() == 1 && source_metadata.size() == 1 && source_metadata[0] == parent->second.metadata;
+            retained.import_context = same ? parent->second.import_context : "{\"schema_version\":1,\"status\":\"unresolved_lineage\"}";
+        }
+    }
+    if (frame_result != "null") {
+        if (request.op != "FRAME" || request.args.size() != 2 || !nb::valid_json(frame_result))
+            throw std::runtime_error("native_frame_ancestry_invalid");
+        retained.frame_ancestry = "{\"schema_version\":1,\"status\":\"tracked_frame\",\"request_id\":" +
+            nb::quote(request.id) + ",\"normalized_args\":[" + std::to_string(request.args[0]) + ',' +
+            std::to_string(request.args[1]) + "],\"result\":" + frame_result +
+            ",\"scope\":\"original frame identity only; current values and coordinates follow current operation metadata\"}";
+    } else {
+        const bool single_operation = nb::base_operation353(request.op) == "CROP" || request.op == "UNARY" || nb::base_operation353(request.op) == "FILTER" ||
+                                      nb::is_fft_operation353(request.op);
+        for (std::size_t i = 0; i < source_ids.size(); ++i) {
+            const auto parent = retained_results.find(source_ids[i]);
+            if (parent == retained_results.end() || parent->second.frame_ancestry == "null") continue;
+            const bool same = source_ids.size() == 1 && source_metadata.size() == 1 &&
+                              source_metadata[0] == parent->second.metadata;
+            retained.frame_ancestry = single_operation && same ? parent->second.frame_ancestry :
+                "{\"schema_version\":1,\"status\":\"unresolved_lineage\"}";
+        }
+    }
     if (scientific_result != "null") {
         if (!nb::is_fft_operation353(request.op) || !nb::valid_json(scientific_result))
             throw std::runtime_error("native_result_scientific_context_invalid");
@@ -402,7 +446,7 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
             retained.scientific_args = inherited->scientific_args;
             retained.scientific_offset = inherited->scientific_offset;
             retained.scientific_processing = inherited->scientific_processing;
-            if (request.op == "CROP") {
+            if (nb::base_operation353(request.op) == "CROP") {
                 for (unsigned axis = 0; axis < 2; ++axis) {
                     if (request.args.at(1 + axis) > UINT32_MAX - retained.scientific_offset[axis])
                         throw std::runtime_error("native_result_scientific_offset_overflow");
@@ -501,8 +545,8 @@ std::string metadata(void* image, bool strict_calibration = true, const char* ra
     auto s = json_stream();
     s << "{\"id\":" << api.id(image) << ",\"name\":" << nb::quote(name.utf8(1024))
       << ",\"ndim\":" << ndim << ",\"data_type_code\":" << code
-      << ",\"dtype\":" << (rank_one ? (code == nb::kProfileFloat64Code353 ? "\"float64\"" : "\"uint32\"") : code == 2 ? "\"float32\"" : code == 3 ? "\"complex64\"" : code == nb::kUint32Code353 ? "\"uint32\"" : "null");
-    if (code == nb::kUint32Code353) s << ",\"is_integer\":true,\"is_unsigned\":true";
+      << ",\"dtype\":" << (rank_one ? (code == nb::kProfileFloat64Code353 ? "\"float64\"" : "\"uint32\"") : code == 2 ? "\"float32\"" : code == 3 ? "\"complex64\"" : code == nb::kUint32Code353 ? "\"uint32\"" : code == nb::kFrameUint16Code353 ? "\"uint16\"" : "null");
+    if (code == nb::kUint32Code353 || code == nb::kFrameUint16Code353) s << ",\"is_integer\":true,\"is_unsigned\":true";
     const auto packing = api.packing ? packing_style(image) : UINT32_MAX;
     s << ",\"packing_style\":" << (api.packing ? std::to_string(packing) : "null")
       << ",\"shape\":[";
@@ -562,7 +606,7 @@ struct CropAxisCalibration {
         return zero == other.zero && scale == other.scale && origin == other.origin && unit == other.unit;
     }
 };
-CropAxisCalibration crop_axis_calibration(void* image, std::uint32_t axis) {
+CropAxisCalibration crop_axis_calibration(void* image, std::uint32_t axis, bool require_units = true) {
     CropAxisCalibration result;
     float raw_scale = 0;
     {
@@ -573,12 +617,12 @@ CropAxisCalibration crop_axis_calibration(void* image, std::uint32_t axis) {
     }
     require_ready();
     if (!std::isfinite(result.zero) || !std::isfinite(result.scale) || result.scale == 0 ||
-        !std::isfinite(result.origin) || raw_scale != result.scale || result.unit.empty())
+        !std::isfinite(result.origin) || raw_scale != result.scale || (require_units && result.unit.empty()))
         throw std::runtime_error("native_crop_requires_valid_calibration");
     return result;
 }
-std::array<CropAxisCalibration, 2> crop_calibration(void* image) {
-    return {crop_axis_calibration(image, 0), crop_axis_calibration(image, 1)};
+std::array<CropAxisCalibration, 2> crop_calibration(void* image, bool require_units = true) {
+    return {crop_axis_calibration(image, 0, require_units), crop_axis_calibration(image, 1, require_units)};
 }
 std::array<float, 3> histogram_axis_values353(void* image, std::string& units) {
     float zero = 0, scale = 0, origin = 0, raw_scale = 0; VendorString unit;
@@ -614,6 +658,8 @@ std::string execute_show(const NativeRequest& request) {
     const auto id = request.args[0];
     const auto owned = retained_results.find(id);
     if (!id || owned == retained_results.end()) throw std::runtime_error("native_show_requires_plugin_result");
+    if (owned->second.operation == "IMPORT" && !qualified_capability353("native_numeric_import_display"))
+        throw std::runtime_error("native_operation_not_qualified:native_numeric_import_display");
     const bool uint32 = owned->second.data_type_code == nb::kUint32Code353;
     // A true rank-one result has its own delivery group. It is never admitted by
     // the 2D display group, and no tool may relabel it as a [1,N] raster. The
@@ -634,7 +680,7 @@ std::string execute_show(const NativeRequest& request) {
     if (uint32 && !one_dimensional) {
         require_uint32_operation353("native_uint32_display", api.get_document && api.show_document &&
             api.destroy_document_holder && api.destroy_window && api.packing);
-        const bool filter = owned->second.operation == "FILTER" && owned->second.uint32_operation_lineage &&
+        const bool filter = nb::base_operation353(owned->second.operation) == "FILTER" && owned->second.uint32_operation_lineage &&
             (owned->second.vendor_operator == "GMSImageProcessing::SmoothFilter" ||
              owned->second.vendor_operator == "GMSImageProcessing::SharpenFilter");
         if (owned->second.kind != ResultKind::Crop && !filter)
@@ -691,7 +737,7 @@ std::string execute_show(const NativeRequest& request) {
           << ",\"retained_operation\":" << nb::quote(owned->second.operation)
           << ",\"one_dimensional_display\":" << one_dimensional_metadata;
     }
-    if (uint32 && !one_dimensional) s << ",\"image\":" << metadata(image.value.image);
+    if (uint32 && !one_dimensional) s << ",\"image\":" << metadata(image.value.image, !nb::pixel_mode353(owned->second.operation));
     s << '}';
     auto result = s.str();
     if (!nb::valid_json(result)) throw std::runtime_error("native_show_result_invalid");
@@ -727,6 +773,7 @@ std::string execute_show(const NativeRequest& request) {
     return result;
 }
 std::string execute_crop(const NativeRequest& request) {
+    const bool pixel = request.op == "CROP_PIXEL";
     if (request.args.size() != 5) throw std::runtime_error("native_crop_requires_id_and_rect");
     ImageRef source(api.find_id, request.args[0]);
     void* source_image = source.value.image;
@@ -740,6 +787,10 @@ std::string execute_crop(const NativeRequest& request) {
         if (packing_style(source_image) != 1) throw std::runtime_error("native_uint32_requires_ordinary_packing");
     }
     const auto width = api.dimension(source_image, 0), height = api.dimension(source_image, 1);
+    if (pixel && (!api.packing || packing_style(source_image) != 1))
+        throw std::runtime_error("native_pixel_crop_requires_ordinary_packing");
+    if (pixel && static_cast<std::uint64_t>(width) * height > 4194304)
+        throw std::runtime_error("native_pixel_crop_source_over_budget");
     if (uint32 && static_cast<std::uint64_t>(width) * height > nb::kUint32SourcePixels353)
         throw std::runtime_error("native_uint32_crop_source_over_budget");
     const auto plan = nb::crop_plan(width, height,
@@ -747,9 +798,9 @@ std::string execute_crop(const NativeRequest& request) {
         retained_crop_bytes, retained_crops.size());
     if (!api.crop) throw std::runtime_error("native_crop_symbol_unavailable");
     // All dimensions, rectangle and retained-output budgets precede allocation.
-    const auto source_info = metadata(source_image);
+    const auto source_info = metadata(source_image, !pixel);
     require_ready();
-    const auto source_calibration = crop_calibration(source_image);
+    const auto source_calibration = crop_calibration(source_image, !pixel);
     ImageRef output;
     if (api.crop(source_image, &output.value, &plan.slice) != &output.value || !output.value.image)
         throw std::runtime_error("native_crop_no_output_reference");
@@ -759,12 +810,12 @@ std::string execute_crop(const NativeRequest& request) {
     if (output_image == source_image || !output_id || output_id == request.args[0] || retained_crops.count(output_id))
         throw std::runtime_error("native_crop_output_identity_invalid");
     if (api.ndim(output_image) != 2 || api.dtype(output_image) != source_code ||
-        (uint32 && packing_style(output_image) != 1) ||
+        ((uint32 || pixel) && packing_style(output_image) != 1) ||
         api.dimension(output_image, 0) != plan.width || api.dimension(output_image, 1) != plan.height)
         throw std::runtime_error("native_crop_output_descriptor_mismatch");
-    const auto output_info = metadata(output_image);
+    const auto output_info = metadata(output_image, !pixel);
     require_ready();
-    const auto output_calibration = crop_calibration(output_image);
+    const auto output_calibration = crop_calibration(output_image, !pixel);
     std::array<nb::CropZeroCheck, 2> zero_checks;
     for (unsigned axis = 0; axis < 2; ++axis) {
         const auto& before = source_calibration[axis];
@@ -781,11 +832,13 @@ std::string execute_crop(const NativeRequest& request) {
     if (api.id(source_image) != request.args[0] || api.ndim(source_image) != 2 || api.dtype(source_image) != source_code ||
         (uint32 && packing_style(source_image) != 1) ||
         api.dimension(source_image, 0) != width || api.dimension(source_image, 1) != height ||
-        crop_calibration(source_image) != source_calibration || metadata(source_image) != source_info)
+        crop_calibration(source_image, !pixel) != source_calibration || metadata(source_image, !pixel) != source_info)
         throw std::runtime_error("native_crop_source_descriptor_changed");
     require_ready();
     auto s = json_stream();
-    s << "{\"backend\":\"digitalmicrograph-native\",\"source_image_id\":" << request.args[0]
+    s << "{\"backend\":\"digitalmicrograph-native\"";
+    if (pixel) s << ",\"coordinate_mode\":\"pixel\"";
+    s << ",\"source_image_id\":" << request.args[0]
       << ",\"image_id\":" << output_id << ",\"requested_rect\":";
     write_rect(s, plan.rect);
     s << ",\"effective_rect\":"; write_rect(s, plan.rect);
@@ -940,6 +993,8 @@ std::string execute_arithmetic(const NativeRequest& request) {
 #include "plot_style.inc"
 #include "line_profile_adapter.inc"
 #include "histogram_adapter.inc"
+#include "frame_adapter.inc"
+#include "import_adapter.inc"
 #include "result_release.inc"
 } // namespace
 
@@ -1010,6 +1065,10 @@ void initialize_native() {
         api.deallocate = symbol<VendorFree>(mfc, MAKEINTRESOURCEA(1487));
         api.crop = optional_symbol<Crop>(image,
             "?GetSubSliceAsImage@Image@GMS@@QEBA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSlice@Imaging@4@@Z");
+        api.image_convert = optional_symbol<ImageConvert>(processing,
+            "?ImageConvert@GMSImageProcessing@@YA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBV23@K@Z");
+        api.intensity_calibration = optional_symbol<IntensityCalibration>(image,
+            "?GetIntensityCalibration@Image@GMS@@QEAAXAEAM0AEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z");
         try {
             api.get_document = rva_symbol<GetDocument>(gms, entry_rva("image_get_or_create_document"));
             api.show_document = rva_symbol<ShowDocument>(gms, entry_rva("image_document_show"));
@@ -1022,6 +1081,7 @@ void initialize_native() {
         initialize_roi353(gms);
         initialize_plot_style353(gms);
         initialize_histogram353(image, processing);
+        initialize_import353(image);
         initialize_line_profile353(gms, image);
         gate_error.clear();
     } catch (const std::exception& error) { gate_error = error.what(); }
@@ -1052,6 +1112,7 @@ static std::string execute_operation(const NativeRequest& request) {
           << ",\"supported_build\":\"3.53.4137.0-x64\",\"binary_gate\":" << (gate_error.empty() ? "true" : "false")
           << ",\"host_pid\":" << GetCurrentProcessId() << ",\"host_thread\":" << host_thread
           << ",\"resident_python_required\":false,\"arbitrary_script\":false,\"requires_idle_host\":true"
+          << ",\"import_qualification_build\":" << (nb::gms353::kImportQualificationBuild353 ? "true" : "false")
           << ",\"capabilities\":[";
         bool first = true;
         const auto capability = [&s, &first](const char* name, bool enabled) {
@@ -1084,12 +1145,23 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("binary_uint32_to_float32_2d", available("native_uint32_image_arithmetic", arithmetic));
         capability("filter_small_uint32_2d", available("native_uint32_filters", filters));
         capability("fourier_uint32_small_2d", available("native_uint32_fft", fourier));
+        for (const auto operation : {nb::FftOperation353::RealForward, nb::FftOperation353::ComplexInverse,
+             nb::FftOperation353::Real, nb::FftOperation353::Imag,
+             nb::FftOperation353::VendorArg, nb::FftOperation353::VendorNorm}) {
+            for (const auto uint32_lineage : {false, true}) {
+                const auto* group = nb::fft_large_capability353(operation, uint32_lineage);
+                capability(group, available(group, fourier &&
+                    (!uint32_lineage || qualified_capability353("native_uint32_fft"))));
+            }
+        }
         capability("release_plugin_result_reference", available("native_result_release", true));
         capability("native_line_profile", available("native_line_profile", line_api353.ready() && roi_api353.ready()));
         capability("show_profile_float64_1d_visible_document", available("native_profile_display", display && api.packing));
         capability("show_histogram_uint32_1d_visible_document", available("native_histogram_display", display && api.packing));
         capability("native_histogram_axis", available("native_histogram_axis", histogram_api353.set_dimension_calibration && api.calibration));
         capability("native_histogram", available("native_histogram", api.packing && histogram_api353.ready() && api.minimum && api.maximum));
+        capability("native_frame", available("native_frame", api.crop && api.image_convert && api.intensity_calibration && api.packing));
+        capability("native_numeric_import", available("native_numeric_import", import_api353.set_real_value && histogram_api353.create_image && histogram_api353.set_dimension_calibration && api.real_value && api.packing));
         capability("read_gui_rectangle_rois", available("native_gui_rois", roi_api353.ready() && api.packing));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
@@ -1098,26 +1170,38 @@ static std::string execute_operation(const NativeRequest& request) {
     }
     require_ready();
     if (request.op == "ROIS") return execute_rois353(request);
+    if (request.op == "IMPORT") return execute_import353(request);
     if (request.op == "PROFILE") return execute_line_profile353(request);
     if (request.op == "HISTOGRAM") {
         if (!qualified_capability353("native_histogram"))
             throw std::runtime_error("native_operation_not_qualified:native_histogram");
         return execute_histogram353(request);
     }
-    if (request.op == "UNARY" || request.op == "BINARY" || request.op == "FILTER" || request.op == "PREVIEW" || request.op == "READ" || nb::is_fft_operation353(request.op)) {
+    if (request.op == "FRAME") {
+        if (!qualified_capability353("native_frame"))
+            throw std::runtime_error("native_operation_not_qualified:native_frame");
+        return execute_frame353(request);
+    }
+    if (nb::pixel_mode353(request.op)) {
+        const auto base = nb::base_operation353(request.op);
+        const char* group = base == "CROP" ? "native_pixel_crop" : base == "FILTER" ? "native_pixel_filters" : "native_pixel_fft";
+        if (!qualified_capability353(group))
+            throw std::runtime_error(std::string("native_operation_not_qualified:") + group);
+    }
+    if (request.op == "UNARY" || request.op == "BINARY" || nb::base_operation353(request.op) == "FILTER" || request.op == "PREVIEW" || request.op == "READ" || nb::is_fft_operation353(request.op)) {
         const char* group = request.op == "UNARY" || request.op == "BINARY" ? "native_image_arithmetic" :
-            request.op == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
+            nb::base_operation353(request.op) == "FILTER" ? "native_filters" : request.op == "PREVIEW" ? "native_preview" :
             request.op == "READ" ? "native_read" : "native_fft";
         if (!qualified_capability353(group))
             throw std::runtime_error(std::string("native_operation_not_qualified:") + group);
         if (request.op == "UNARY" || request.op == "BINARY") return execute_arithmetic(request);
-        if (request.op == "FILTER") return execute_filter(request);
+        if (nb::base_operation353(request.op) == "FILTER") return execute_filter(request);
         if (request.op == "PREVIEW") return execute_preview(request);
         if (request.op == "READ") return execute_read(request);
         return execute_fft(request);
     }
     if (request.op == "SHOW") return execute_show(request);
-    if (request.op == "CROP") return execute_crop(request);
+    if (nb::base_operation353(request.op) == "CROP") return execute_crop(request);
     if (request.op == "DATASETS") {
         auto count = api.count();
         if (count > 128) throw std::runtime_error("dataset_enumeration_over_budget");
@@ -1180,7 +1264,14 @@ static std::string execute_operation(const NativeRequest& request) {
                 if (!size) throw std::runtime_error("invalid_image_dimensions");
                 s << size;
             }
-            s << "]}";
+            s << ']';
+            const auto imported = retained_results.find(request.args[0]);
+            if (imported != retained_results.end() && imported->second.import_context != "null") {
+                if (imported->second.value.image != image.value.image) throw std::runtime_error("native_info_source_provenance_identity_mismatch");
+                s << ",\"external_import\":" << imported->second.import_context
+                  << ",\"external_import_scope\":\"creation identity only; current values/calibration are fresh and may differ\"";
+            }
+            s << '}';
             return s.str();
         }
         require_ready();
@@ -1275,6 +1366,7 @@ void shutdown_native() {
     api = Api{};
     roi_api353 = RoiApi353{};
     line_api353 = LineApi353{};
+    import_api353 = ImportApi353{};
     gate_error = "native_adapter_stopped";
 }
 bool nb353_ready() { return gate_error.empty() && !fatal_abi; }

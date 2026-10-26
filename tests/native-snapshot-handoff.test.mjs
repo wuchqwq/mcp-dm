@@ -8,6 +8,7 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {handoff, strictJson, validateSavedSnapshot} from '../tools/native_snapshot_handoff.mjs';
 import {readFixture, imageMetadata} from './fixtures/native-operations.mjs';
+import {frameHandoffFixture} from './fixtures/native-frame-handoff.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const readJson = filename => JSON.parse(fs.readFileSync(filename, 'utf8'));
@@ -78,6 +79,57 @@ assert hashlib.sha256((p/'input.npy').read_bytes()).hexdigest()==i['input_sha256
 assert hashlib.sha256(json.dumps(i,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()==m['input_metadata_sha256']
 print('independent uint32 bytes/hash PASS')`;
   assert.match(execFileSync('python', ['-c', script, path.join(directory, 'capture')], {encoding: 'utf8'}), /uint32 bytes\/hash PASS/);
+});
+
+test('FRAME-derived saved READ preserves original rank3 uint16 identity without changing f32 NPY storage',t=>{
+  const dir=temporary(t),frame=frameHandoffFixture({unknownUnits:true}),value=payload({source:frame.result.image});
+  value.source_provenance=frame.provenance;value.frame_ancestry=frame.ancestry;
+  const data=Buffer.alloc(value.raw_bytes);[0,32767,32768,65535,1,65534].forEach((n,i)=>data.writeFloatLE(n,i*4));
+  value.values_base64=data.toString('base64');const first=invoke(dir,prepare(dir,value));
+  assert.equal(first.dtype,'float32');const target=path.join(dir,'capture'),info=readJson(path.join(target,'input.json'));
+  assert.deepEqual(info.frame_ancestry,frame.ancestry);assert.deepEqual(readJson(path.join(target,'capture.json')).frame_ancestry,frame.ancestry);
+  assert.equal(info.source_metadata.id,77);assert.equal(info.frame_ancestry.result.source.id,31);
+  assert.equal(info.frame_ancestry.result.frame_axis.unit,null);assert.equal(info.working_calibration_xy[0].unit,null);
+  assert.equal(info.calibration_complete,false);
+  const script=String.raw`import sys,numpy as np
+from crystallography.capture import load_capture
+c=load_capture(sys.argv[1],'diffraction',expected_session='a'*32,expected_host_pid=1234)
+assert c.array.dtype==np.dtype('<f4') and c.array.tolist()==[[0,32767,32768],[65535,1,65534]]
+assert c.provenance['frame_ancestry']['normalized_args']==[31,1]
+assert c.metadata['working_calibration_xy'][0]['unit'] is None
+assert c.provenance['frame_ancestry']['result']['frame_axis']['calibrated_value']==.75
+c.assert_unchanged()
+print('independent original uint16 frame and f32 storage PASS')`;
+  assert.match(execFileSync(process.env.DM_TEST_PYTHON||'python',['-c',script,target],{encoding:'utf8'}),/uint16 frame and f32 storage PASS/);
+});
+
+test('scientific snapshots refuse unresolved, missing or mismatched direct FRAME ancestry before creating output',t=>{
+  const frame=frameHandoffFixture(),base=payload({source:frame.result.image});
+  base.source_provenance=frame.provenance;base.frame_ancestry=frame.ancestry;
+  base.values_base64=Buffer.alloc(base.raw_bytes).toString('base64');
+  for(const mutate of [r=>delete r.frame_ancestry,r=>r.frame_ancestry=null,
+    r=>r.frame_ancestry={schema_version:1,status:'unresolved_lineage'},r=>r.frame_ancestry.normalized_args[1]=2,
+    r=>r.frame_ancestry.result.source.id=32,r=>r.frame_ancestry.result.dtype_conversion.lossless_values=false,
+    r=>r.frame_ancestry.result.frame_axis.role='time',r=>r.frame_ancestry.result.frame_axis.unit='nm',
+    r=>r.frame_ancestry.result.image.calibration[0].scale=2,r=>r.source_provenance.request_id='other-frame']) {
+    const dir=temporary(t),value=structuredClone(base);mutate(value);
+    assert.throws(()=>invoke(dir,prepare(dir,value)));assert.equal(fs.existsSync(path.join(dir,'capture')),false);
+  }
+});
+
+test('finite negative, fractional or out-of-range direct FRAME pixels cannot become a successful scientific capture',t=>{
+  const frame=frameHandoffFixture(),base=payload({source:frame.result.image});
+  base.source_provenance=frame.provenance;base.frame_ancestry=frame.ancestry;
+  for(const value of [-1,-32768,.5,65536]) {
+    const dir=temporary(t),data=Buffer.alloc(base.raw_bytes);data.writeFloatLE(value,0);
+    assert.throws(()=>invoke(dir,prepare(dir,{...base,values_base64:data.toString('base64')})),/uint16|FRAME|unsigned/);
+    assert.equal(fs.existsSync(path.join(dir,'capture')),false);
+  }
+});
+
+test('legacy READ snapshots retain absent frame ancestry instead of inventing historical evidence',t=>{
+  const dir=temporary(t);invoke(dir,prepare(dir));
+  for(const name of ['input.json','capture.json'])assert.equal(Object.hasOwn(readJson(path.join(dir,'capture',name)),'frame_ancestry'),false);
 });
 
 test('a saved native operation snapshot encodes its actual output dtype, independently of ancestor input dtype', t => {

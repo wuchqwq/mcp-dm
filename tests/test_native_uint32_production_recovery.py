@@ -46,9 +46,23 @@ class Uint32ProductionRecoveryTests(unittest.TestCase):
 
     def test_known_pre_rois_catalog_keeps_original_bytes_and_queries_only(self):
         # Synthetic historical-catalog simulation, never edits a real receipt.
-        self.original["catalog"].remove("dm_native_rois")
-        self.original["catalog"].remove("dm_native_profile")
+        for name in ("dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_frame", "dm_native_import"):
+            self.original["catalog"].remove(name)
         self.assertEqual(len(self.original["catalog"]), 16)
+        save(self.original_path, self.original)
+        self.original_bytes = self.original_path.read_bytes()
+        self.resume()
+        self.assertEqual(self.original_path.read_bytes(), self.original_bytes)
+        self.assertEqual(self.f.created, 32)
+        self.assertEqual(len(self.f.producer_ops), 32)
+        self.assertEqual(len(self.f.report["resume"]["queries"]), 32)
+        self.assertEqual(self.f.run()["status"], "PASS_BOUNDED_UINT32_OPERATIONS")
+
+    def test_known_pre_import_catalog_keeps_historical_bytes_and_queries_only(self):
+        # Explicit prior20-tool history remains history; the new live child
+        # still reports the exact current21-tool catalog and creates nothing.
+        self.original["catalog"].remove("dm_native_import")
+        self.assertEqual(len(self.original["catalog"]), 20)
         save(self.original_path, self.original)
         self.original_bytes = self.original_path.read_bytes()
         self.resume()
@@ -98,14 +112,20 @@ class SavedCatalogTests(unittest.TestCase):
     def test_only_exact_known_historical_and_current_sets_can_resume(self):
         current = sorted(C["CATALOG"])
         legacy = sorted(C["LEGACY_PRE_ROIS_CATALOG"])
-        self.assertEqual(len(current), 18)
+        self.assertEqual(len(current), 21)
         self.assertEqual(len(legacy), 16)
         self.assertTrue(C["valid_saved_catalog"](current))
         self.assertTrue(C["valid_saved_catalog"](legacy))
         self.assertEqual(len(C["LEGACY_ROIS_CATALOG"]), 17)
         self.assertTrue(C["valid_saved_catalog"](sorted(C["LEGACY_ROIS_CATALOG"])))
+        self.assertEqual(len(C["LEGACY_PROFILE_CATALOG"]), 18)
+        self.assertTrue(C["valid_saved_catalog"](sorted(C["LEGACY_PROFILE_CATALOG"])))
+        self.assertEqual(len(C["LEGACY_PRE_IMPORT_CATALOG"]), 20)
+        self.assertEqual(C["LEGACY_PRE_IMPORT_CATALOG"] | {"dm_native_import"}, C["CATALOG"])
+        self.assertTrue(C["valid_saved_catalog"](sorted(C["LEGACY_PRE_IMPORT_CATALOG"])))
         for value in [None, {}, current + [current[0]], current + ["dm_unknown"],
-                      legacy[:-1], [*legacy[:-1], "dm_native_rois"], legacy + [True]]:
+                      legacy[:-1], [*legacy[:-1], "dm_native_rois"], legacy + [True],
+                      sorted(C["LEGACY_PROFILE_CATALOG"] | {"dm_native_histogram"})]:
             with self.subTest(catalog=value):
                 self.assertFalse(C["valid_saved_catalog"](value))
 

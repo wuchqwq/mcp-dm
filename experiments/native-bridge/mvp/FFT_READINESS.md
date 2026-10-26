@@ -2,7 +2,7 @@
 
 原生 Fourier 已接入指定构建适配器，科学计算由 DM 的 Real_FFT、IFFT、Real、
 Imag、Arg 和 Norm 完成。MCP/C++ 不另写 FFT、幅值、功率或滤波算法，也不回退
-到旧 Python FFT。当前十六工具目录和显式使用方法见
+到旧 Python FFT。当前原生工具目录和显式使用方法见
 [原生工作流](NATIVE_WORKFLOW.md)，逐项证据见 [操作验收](OPERATIONS_ACCEPTANCE.md)。
 
 第一新合成宿主的 prepared 调用、独立数学、源保护、输出独立性、预览及
@@ -21,19 +21,41 @@ exit 0 并完成 manifest 移除；退出后的新外部运行仍可核验原 NP
 
 ## 目前的窄门
 
-- FFT：显式 float32 2D、ordinary packing、finite、完整有效空间标定；每轴
-  为 4–256 的二次幂，最多 65,536 像素。Real_FFT 的返回路径由 DM 自身转换为
-  full complex，结果按 complex64 元数据处理，不把 packed 数据猜成普通数组。
+- FFT：显式 float32 或单独获准的 uint32 2D、ordinary packing、finite、完整
+  有效空间标定；基础范围仍为每轴 4–256 的二次幂、最多 65,536 像素。
+  v2 的尺寸上限为每轴 4–1024 的二次幂、总计不超过 1,048,576 像素，任一轴
+  超过 256 时还必须具备对应算子与源类型谱系的大尺寸能力。Real_FFT 的返回路径
+  由 DM 自身转换为 full complex，按 complex64 元数据处理，不猜测 packed 布局。
+  uint32 由 DM 转为 binary32 后计算，不是无损整数变换。
+- 大尺寸能力按 `native_fft_large`、`native_ifft_large`、`native_real_large`、
+  `native_imag_large`、`native_phase_large`、`native_power_large` 分开；uint32
+  来源使用各自的 `native_uint32_*_large`。分量及逆变换继承源谱系，不能因存储
+  已变为 complex64 就跳过 uint32 门禁。以 `dm_status.native_capabilities` 的
+  实际可用性和原因字段为准；找到符号或正变换可用不等于其它操作已获准。
+  大尺寸 uint32 IFFT 仍未资格确认。v1 历史 QUERY 保留旧 256／65,536 上限，
+  不将新范围追溯写入旧回执。
 - IFFT：只接受本插件仍持有的 FFT 结果；当前数学证据是 real-input 的
   Hermitian 频谱配对，不接受任意外部复数图或声称测完所有非 Hermitian 输入。
 - 分量：只接受本插件仍持有的 FFT/IFFT 结果，生成独立 float32；phase 为弧度，
   power 为平方幅值。ID 和 immutable creation record 决定来源，不解析名字或前台图。
-- 共享结果池最多 32 项／16 MiB，单结果最多 4 MiB；已知验证临时图计入入场预算。
-  厂商内部 FFT 工作区未完全界定，小输入限制不是整个宿主工作集的上界。
+- Fourier complex64 单结果最多 8 MiB，标量 float32 结果最多 4 MiB；共享池
+  仍为 32 项／16 MiB。已持有的结果及已知验证临时图均计入入场预算，因此尺寸
+  合法不保证资源足够。1024² 频谱仍被插件持有时，IFFT 的已知峰值为 20 MiB
+  （原谱 8 MiB＋输出 8 MiB＋验证临时图 4 MiB），必须拒绝，不调用原生变换。
+  预算检查可先于资格检查失败；不能把预算错误当作未资格操作已被执行的证据。
+  厂商内部 FFT 工作区未完全界定，池限制不是整个宿主工作集的上界。
+- 其它算子不随 Fourier 扩尺寸：FILTER 仍为每轴 5–256、最多 65,536 像素，
+  尚未扩展到任意整张大图；READ 每块仍不超过 16,384 个标量样本。
+  完整标量区域使用已有分块 NPY/schema-1 交接，保留每块身份和标定，不能借此
+  把 complex64 频谱伪装成已实现的复数 READ 或原生 SaveAs。
 
 正常失败会释放尚未提交的 owned reference；成功提交的结果由插件持有至
 正常 STOP/cleanup。客户端取消不等于厂商计算取消；有副作用的提交前先保存
 session、request_id 和参数，状态不确定时只 QUERY 同 ID，不自动重发。
+同 ID 同参数保留原记录，同 ID 改参数拒绝；恢复仅限仍可查询的同一原生会话。
+需要让文档继续持有结果时，先对明确结果 ID 执行 SHOW，再以原 retention token
+执行 RELEASE；RELEASE 只释放插件引用。原创建 QUERY 仍是历史快照，新的
+RESULT_INFO 才检查当前可用性。STOP 或宿主退出后不承诺请求记录恢复。
 
 ## v2 明确的数值与坐标
 
@@ -73,5 +95,7 @@ Preview 已实现有界显示采样及 PNG content；它不等于定量导出或
 不是第一宿主历史 prepared v1 harness。
 原生 SaveAs/Open 的路径、格式、禁止覆盖和失败语义仍未资格确认。
 
-其它 GMS 版本、Unicode、任意复数输入和大尺寸不得自动继承 PASS。增加版本
+以上历史小尺寸验收不自动资格确认大尺寸扩展；尺寸、算子、类型和当前加载产物
+需要对应的独立数值、源保护与生命周期证据。其它 GMS 版本、Unicode 和任意复数
+输入也不得自动继承 PASS。增加版本
 必须独立绑定 ABI、模块身份、数值、标定及生命周期，见 [版本步骤](ADAPTERS.md)。

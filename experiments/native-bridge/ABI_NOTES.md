@@ -1,5 +1,35 @@
 # Fixed-build native adapter ABI notes
 
+## Restricted numerical import
+
+The numerical-import implementation reuses the pinned exported CreateImage
+and dimension-calibration interfaces plus exported SetRealValue/GetRealValue
+with the existing two-dimensional DataIndex contract. It adds no private RVA,
+pixel-buffer layout, arbitrary file reader or script execution interface.
+Input is an exact hash-bound, finite float32 NPY/JSON ticket; signed raw-origin
+calibration and every written value are read back before retention. Existing
+image identities are held and checked to reject an aliased output before writes.
+The normal build admits a separately qualified small float32 subset with ASCII
+`nm` real-space or `1/nm` reciprocal axes. Final normal-artifact synthetic-host
+value, calibration and document-lifetime checks are distinct from export/signature
+evidence and adapter substitutes. Other units, dtypes and builds remain
+unqualified; the broader diagnostic build cannot extend that scope. See
+[RESULTS](RESULTS.md) and [the relay contract](../../docs/DM_NUMERIC_RELAY.md).
+
+## Explicit sequence-frame copy
+
+The version-specific `native_frame` group reuses the independent slice-copy
+interface with an explicit rank-three uint16 source and complete XY descriptor.
+Its optional exported `GMSImageProcessing::ImageConvert` binding creates an
+independent float32 result. Both returned strong references are checked; the
+uint16 temporary is released before committing the retained float32 result.
+No opaque pixel-lock layout, bridge cast or new memory search is involved.
+Binding availability alone does not qualify the group. Its exact-build value,
+calibration and ownership acceptance is recorded separately in
+[the FRAME contract](mvp/NATIVE_FRAME.md) and [RESULTS](RESULTS.md).
+
+## Original static adapter evidence
+
 These notes describe a narrow x64 adapter for GMS 3.53.4137.0. The findings
 below were checked against local export tables and machine code. They are
 **static evidence**, not a claim that the new adapter has executed successfully

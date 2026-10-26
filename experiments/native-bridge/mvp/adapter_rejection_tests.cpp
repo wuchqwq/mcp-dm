@@ -33,7 +33,17 @@ int main() {
             {{"test", "READ", {17, 0, 0, 1, 1}}, "native_read"},
             {{"test", "ROIS", {17}}, "native_gui_rois"},
             {{"test", "PROFILE", {17,31,9,7,2,1,7,1,1}}, "native_line_profile"},
-            {{"test", "HISTOGRAM", {17,4,0,1098907648}}, "native_histogram"}
+            {{"test", "HISTOGRAM", {17,4,0,1098907648}}, "native_histogram"},
+            {{"test", "FRAME", {17,0}}, "native_frame"},
+            {{"test", "IMPORT", std::vector<std::uint32_t>(27, 0)}, "native_numeric_import"},
+            {{"test", "CROP_PIXEL", {17,0,0,2,2}}, "native_pixel_crop"},
+            {{"test", "FILTER_PIXEL", {17,1}}, "native_pixel_filters"},
+            {{"test", "FFT_PIXEL", {17}}, "native_pixel_fft"},
+            {{"test", "IFFT_PIXEL", {17}}, "native_pixel_fft"},
+            {{"test", "REAL_PIXEL", {17}}, "native_pixel_fft"},
+            {{"test", "IMAG_PIXEL", {17}}, "native_pixel_fft"},
+            {{"test", "VENDOR_ARG_PIXEL", {17}}, "native_pixel_fft"},
+            {{"test", "VENDOR_NORM_PIXEL", {17}}, "native_pixel_fft"}
         };
         // A former preparation variable cannot bypass version or group gates.
         SetEnvironmentVariableA("DM_NATIVE_QUALIFY_OPERATIONS", "1");
@@ -58,7 +68,7 @@ int main() {
         selected_adapter.capabilities.clear();
         for (const auto& operation : operations)
             must_reject(operation.first, std::string("native_capability_unavailable:") + operation.second);
-        for (const auto* group : {"native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_gui_rois", "native_line_profile", "native_histogram"}) {
+        for (const auto* group : {"native_image_arithmetic", "native_fft", "native_filters", "native_preview", "native_read", "native_gui_rois", "native_line_profile", "native_histogram", "native_frame"}) {
             selected_adapter.capabilities.clear();
             for (const auto& spec : nb::gms353::profile().capabilities)
                 selected_adapter.capabilities.push_back({spec.name, spec.scope, "synthetic observation",
@@ -66,6 +76,21 @@ int main() {
             check(selected_adapter.available("native_datasets") && selected_adapter.available("native_statistics"));
             for (const auto& operation : operations) if (std::string(operation.second) == group)
                 must_reject(operation.first, std::string("native_capability_unavailable:") + group);
+        }
+        // Coordinate qualification supplements, never replaces, the original
+        // operator binding/qualification. Inject a candidate observation only.
+        for (const auto* missing : {"native_crop","native_filters","native_fft"}) {
+            selected_adapter.capabilities.clear();
+            for (const auto& spec:nb::gms353::profile().capabilities)
+                selected_adapter.capabilities.push_back({spec.name,spec.scope,"synthetic observation",
+                    std::string(spec.name)!=missing && (spec.qualified || std::string(spec.name).find("native_pixel_")==0)});
+            for (const auto& operation:operations) {
+                const auto base=nb::base_operation353(operation.first.op);
+                if (nb::pixel_mode353(operation.first.op) && ((base=="CROP" && std::string(missing)=="native_crop") ||
+                    (base=="FILTER" && std::string(missing)=="native_filters") ||
+                    (nb::is_fft_operation353(base) && std::string(missing)=="native_fft")))
+                    must_reject(operation.first,std::string("native_capability_unavailable:")+missing);
+            }
         }
         check(execute_native({"healthy_core", "INFO", {17}}) == "{}");
         check(implementation_calls == 1 && native_calls == 0);

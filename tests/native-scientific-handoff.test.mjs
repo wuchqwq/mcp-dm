@@ -9,8 +9,8 @@ import {nativeScientificSemantics, validateNativeDataSnapshot} from '../lib/nati
 import {handoff, validateSavedSnapshot} from '../tools/native_snapshot_handoff.mjs';
 import {fourierFixture, readFixture} from './fixtures/native-operations.mjs';
 
-function fixture(operation = 'REAL', {spatial = false, crop = [0, 0], shape, roi} = {}) {
-  const producer = fourierFixture(operation, 77, {spatial});
+function fixture(operation = 'REAL', {spatial = false, crop = [0, 0], shape, roi, transformShape} = {}) {
+  const producer = fourierFixture(operation, 77, {spatial,...(transformShape?{shape:transformShape}:{})});
   const source = structuredClone(producer.image);
   if (crop.some(Boolean) || shape) {
     source.id = 101; source.shape = shape || [3, 6];
@@ -49,6 +49,47 @@ test('mathematical DC remains zero while both signed native half-bin offsets rem
   }
 });
 
+test('1024 Fourier context hands off only bounded scalar ROI with original mathematical axes and exact NPY values',t=>{
+  const root=temp(t),{read,args,saved}=fixture('VENDOR_NORM',{transformShape:[1024,1024],roi:[448,448,576,576]});
+  validateNativeDataSnapshot(read,args);const semantics=nativeScientificSemantics(read);
+  assert.deepEqual(read.shape,[128,128]);assert.equal(read.sample_count,16384);assert.equal(read.raw_bytes,65536);
+  assert.equal(semantics.representation,'squared_magnitude');assert.deepEqual(semantics.coordinate_axes.map(a=>a.transform_size),[1024,1024]);
+  assert.deepEqual(semantics.coordinate_axes.map(a=>a.dc_index_in_roi),[64,64]);
+  for(const axis of semantics.coordinate_axes) {
+    assert.equal(axis.calibrated_value_at_pixel_zero+64*axis.scale,0);
+    assert.equal(axis.native_minus_mathematical_zero,-0.5*axis.scale);
+  }
+  const filename=path.join(root,'read.json');fs.writeFileSync(filename,JSON.stringify(saved));
+  const captured=handoff({workspace:root,output:'capture',requestId:'save-large-context',snapshot:filename});
+  assert.deepEqual(captured.shape_yx,[128,128]);
+  const script=String.raw`import base64,json,sys,numpy as np
+from pathlib import Path
+p=Path(sys.argv[1]);s=json.loads((p/'read.json').read_text());i=json.loads((p/'capture/input.json').read_text());a=np.load(p/'capture/input.npy',allow_pickle=False)
+assert a.shape==(128,128) and a.dtype==np.dtype('<f4')
+assert a.tobytes()==base64.b64decode(s['values_base64'])
+assert i['scientific_context']['result']['image']['shape']==[1024,1024]
+assert i['scientific_semantics']['representation']=='squared_magnitude'
+for axis in i['scientific_semantics']['coordinate_axes']:
+ assert axis['transform_size']==1024 and axis['dc_index_in_roi']==64
+ assert axis['calibrated_value_at_pixel_zero']+64*axis['scale']==0
+print('bounded large-context NPY PASS')`;
+  assert.match(execFileSync('python',['-c',script,root],{encoding:'utf8'}),/large-context NPY PASS/);
+});
+
+test('large Fourier scalar context rejects oversized/nondyadic producers and identity/dtype laundering',()=>{
+  for(const transformShape of [[2048,1024],[1000,512]]) {
+    const {read,args}=fixture('REAL',{transformShape,roi:[0,0,2,2]});assert.throws(()=>validateNativeDataSnapshot(read,args));
+  }
+  for(const change of [r=>r.scientific_context.result.source.pixels=65536,
+    r=>r.scientific_context.result.image.pixels=65536,r=>r.scientific_context.result.image.dtype='complex64',
+    r=>r.scientific_context.result.source_image_id++,r=>r.scientific_context.original_operation='FFT',
+    r=>r.scientific_context.result.representation='phase_radians',r=>r.scientific_context.result_version=1,
+    r=>r.source_provenance.source_image_ids=[88],r=>r.source_provenance.source_image_ids=[77,77]]) {
+    const {read,args}=fixture('REAL',{transformShape:[1024,1024],roi:[0,0,2,2]});change(read);
+    assert.throws(()=>validateNativeDataSnapshot(read,args),change.toString());
+  }
+});
+
 test('crop then READ ROI accumulates offsets, including DC outside a selected region', () => {
   const {read, args} = fixture('IMAG', {crop: [1, 1], shape: [3, 6], roi: [2, 1, 5, 3]});
   validateNativeDataSnapshot(read, args); const semantic = nativeScientificSemantics(read);
@@ -56,6 +97,42 @@ test('crop then READ ROI accumulates offsets, including DC outside a selected re
   assert.deepEqual(semantic.coordinate_axes.map(a => a.dc_index_in_roi), [1, 0]);
   const outside = fixture('REAL', {roi: [5, 0, 8, 2]}).read;
   assert.equal(nativeScientificSemantics(outside).coordinate_axes[0].dc_index_in_roi, -1);
+});
+
+test('scientific context rejects zero output IDs and foreign Fourier results behind matching axes', () => {
+  for (const operation of ['REAL', 'IMAG', 'VENDOR_ARG', 'VENDOR_NORM']) {
+    for (const foreign of ['zero', 'different-result', 'reused-request', 'binary']) {
+      const {read,args}=fixture(operation,{transformShape:[1024,1024],roi:[0,0,2,2]});
+      if(foreign==='zero') {
+        read.source_image_id=read.source.id=read.scientific_context.result.image_id=read.scientific_context.result.image.id=0;
+        args[0]=0;
+      } else {
+        read.source_image_id=read.source.id=args[0]=101;
+        if(foreign==='different-result') read.source_provenance={operation,request_id:'foreign-component',source_image_ids:[88],semantics:'unrelated'};
+        if(foreign==='reused-request') read.source_provenance.operation='CROP';
+        if(foreign==='binary') read.source_provenance={operation:'BINARY',request_id:'foreign-binary',source_image_ids:[99,100],semantics:'unresolved'};
+      }
+      assert.throws(()=>validateNativeDataSnapshot(read,args),`${operation} ${foreign}`);
+      assert.throws(()=>nativeScientificSemantics(read),`${operation} ${foreign} direct helper`);
+    }
+  }
+});
+
+test('legitimate full-size crops and recorded scalar processing preserve tracked Fourier coordinates', () => {
+  const full=fixture('REAL',{shape:[4,8]});
+  validateNativeDataSnapshot(full.read,full.args);
+  assert.equal(nativeScientificSemantics(full.read).representation,'real_component');
+  for(const [operation,step] of [['UNARY','GMSImageProcessing::Square'],['FILTER','GMSImageProcessing::SmoothFilter']]) {
+    const {read,args}=fixture('REAL',{crop:[1,1],shape:[3,6],roi:[0,0,2,2]});
+    read.source_provenance={operation,request_id:'processed-result',source_image_ids:[100],semantics:'recorded scalar processing'};
+    read.scientific_context.postprocessing=[step];
+    validateNativeDataSnapshot(read,args);
+    assert.equal(nativeScientificSemantics(read).representation,'processed_scalar');
+    read.scientific_context.postprocessing=[];
+    assert.throws(()=>validateNativeDataSnapshot(read,args),`${operation} missing processing step`);
+    read.scientific_context.postprocessing=[operation==='UNARY'?'GMSImageProcessing::SobelFilter':'GMSImageProcessing::Abs'];
+    assert.throws(()=>validateNativeDataSnapshot(read,args),`${operation} foreign processing step`);
+  }
 });
 
 for (const [operation, representation, phase] of [

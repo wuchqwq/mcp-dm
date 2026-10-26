@@ -1,0 +1,5 @@
+# Explicit external image workspace. Never install into GMS-managed Python.
+numpy>=1.23,<3
+Pillow>=10.1,<13
+tifffile>=2023.7.10,<2027
+scipy>=1.10,<2

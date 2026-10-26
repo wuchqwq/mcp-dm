@@ -5,13 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {NativeBridge, validRequestId} from '../lib/native_bridge.mjs';
-import {canonical, strictJson, newTarget, validateSavedSnapshot, encodeNpyHeader, packageInfo} from './native_snapshot_handoff.mjs';
+import {NativeBridge, validRequestId, validateNativeFrame} from '../lib/native_bridge.mjs';
+import {canonical, strictJson, newTarget, validateSavedSnapshot, encodeNpyHeader, packageInfo, captureFrameAncestry} from './native_snapshot_handoff.mjs';
 
 const check=(yes,message)=>{if(!yes)throw new Error(message);};
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const equal=(a,b)=>canonical(a)===canonical(b);
 const uint=n=>Number.isInteger(n)&&n>=0&&n<=0xffffffff;
+const PIXEL_OPERATIONS=new Map(['CROP','FILTER','FFT','IFFT','REAL','IMAG','VENDOR_ARG','VENDOR_NORM'].map(base=>[base+'_PIXEL',base]));
 const LIMIT=Object.freeze({samplesPerBlock:16384,sourcePixels:4194304,blocks:512,savedResponseBytes:128*1024,
   diskBytes:96*1024*1024,ioBufferBytes:65536});
 export const REGION_LIMITS=LIMIT;
@@ -80,12 +81,14 @@ function readSnapshot(reply,request) {
 function descriptor(snapshot) {
   const r=snapshot.result;
   return {source:r.source,scientific_context:r.scientific_context??null,source_provenance:r.source_provenance,
-    source_provenance_scope:r.source_provenance_scope,coordinate_mapping_policy:r.coordinate_mapping_policy,dtype:r.dtype};
+    source_provenance_scope:r.source_provenance_scope,coordinate_mapping_policy:r.coordinate_mapping_policy,dtype:r.dtype,
+    frame_ancestry:captureFrameAncestry(r)};
 }
 function creationRecord(reply,snapshot,parameters) {
   const provenance=snapshot.result.source_provenance;
-  const schemas={CROP:[5,'image_crop'],UNARY:[2,'native_image_operation'],BINARY:[3,'native_image_operation'],FILTER:[2,'native_image_operation'],
+  const schemas={FRAME:[2,'native_frame_copy'],CROP:[5,'image_crop'],UNARY:[2,'native_image_operation'],BINARY:[3,'native_image_operation'],FILTER:[2,'native_image_operation'],
     FFT:[1,'native_fourier_operation'],IFFT:[1,'native_fourier_operation'],REAL:[1,'native_fourier_operation'],IMAG:[1,'native_fourier_operation'],VENDOR_ARG:[1,'native_fourier_operation'],VENDOR_NORM:[1,'native_fourier_operation']};
+  for(const [name,base] of PIXEL_OPERATIONS)schemas[name]=schemas[base];
   const contract=schemas[provenance?.operation];
   check(contract&&reply?.protocol==='NB2'&&reply.session===parameters.session&&reply.host_pid===parameters.hostPid&&reply.id===provenance.request_id&&
     reply.state==='completed'&&reply.original_operation===provenance.operation&&reply.result_type===contract[1]&&
@@ -94,6 +97,15 @@ function creationRecord(reply,snapshot,parameters) {
     reply.result?.backend==='digitalmicrograph-native'&&reply.result.image_id===snapshot.result.source_image_id&&equal(reply.result.image,snapshot.result.source)&&
     equal(provenance.source_image_ids,reply.normalized_args.slice(0,reply.original_operation==='BINARY'?2:1)),
   'Original source creation record mismatch; no reconstructed processing parameters');
+  if(PIXEL_OPERATIONS.has(provenance.operation))check(reply.result.coordinate_mode==='pixel'&&
+    (PIXEL_OPERATIONS.get(provenance.operation)==='CROP'||reply.result.operation===provenance.operation),
+    'Original pixel source creation mode/operation mismatch');
+  if(provenance.operation==='FRAME') {
+    validateNativeFrame(reply.result,reply.normalized_args);
+    const ancestry=captureFrameAncestry(snapshot.result),{retention,native_receipt,...payload}=reply.result;void retention;void native_receipt;
+    check(ancestry?.request_id===reply.id&&equal(ancestry.normalized_args,reply.normalized_args)&&equal(ancestry.result,payload),
+      'Original FRAME creation record differs from frozen frame ancestry');
+  }
   return {file:'source-creation.json',sha256:hash(jsonBytes(reply)),request_id:reply.id,original_operation:reply.original_operation,
     normalized_args:reply.normalized_args,scope:'original immediate source creation only; earlier ancestry is not traversed'};
 }
@@ -254,6 +266,7 @@ export async function handoffRegion({workspace:workspaceArg,output,requestId,ima
       shape_yx:plan.shape,dtype:info.dtype,source_image_id:imageId,source_rect_xyxy:rect,native_session:session,host_pid:hostPid,
       blocks:journal.blocks,input_sha256:fileHash,pixel_sha256:pixelHash,input_metadata_sha256:hash(canonical(info)),
       pixel_capture_atomic:false,dm_file_save:false,source_write_requested:false,budgets:plan,
+      ...(Object.hasOwn(info,'frame_ancestry')?{frame_ancestry:info.frame_ancestry}:{}),
       capture_consistency:info.capture_consistency,completed_utc:new Date().toISOString()};
     const manifestPath=path.join(target,'capture.json');check(json(manifestPath).capture_id===journal.capture_id,'Mutable manifest ownership changed');
     const manifestFd=fs.openSync(manifestPath,'r+');try{update(manifestFd,manifest);}finally{fs.closeSync(manifestFd);}

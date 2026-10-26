@@ -11,15 +11,18 @@ import {NativeBridge} from "../lib/native_bridge.mjs";
 import {operationFixture, readFixture, imageMetadata, uint32BinaryFixture, uint32OperationFixture} from "./fixtures/native-operations.mjs";
 import {guiRoisFixture} from './fixtures/native-rois.mjs';
 import {profileFixture,profileArgs} from './fixtures/native-profile.mjs';
+import {frameHandoffFixture} from './fixtures/native-frame-handoff.mjs';
+import {pixelCropFixture,pixelFilterFixture,pixelFourierFixture} from './fixtures/native-pixel.mjs';
 import {histogramFixture,histogramArgs,histogramIntensityFixture,histogramIndexAxisFixture,histogramShowFixture} from './fixtures/native-histogram.mjs';
 
 const serverPath = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const resultTypes = {STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop", RELEASE: "native_result_release", RESULT_INFO: "native_result_availability", ROIS: "native_gui_rois", PROFILE:"native_line_profile"};
+const resultTypes = {FRAME: "native_frame_copy", STATUS: "status", DATASETS: "datasets", INFO: "image_info", MEAN: "native_mean", SUMMARY: "native_summary", CROP: "image_crop", SHOW: "image_delivery", STOP: "ipc_stop", RELEASE: "native_result_release", RESULT_INFO: "native_result_availability", ROIS: "native_gui_rois", PROFILE:"native_line_profile"};
 Object.assign(resultTypes, {UNARY: "native_image_operation", BINARY: "native_image_operation", FILTER: "native_image_operation", PREVIEW: "native_preview", READ: "native_data_snapshot",
   FFT: "native_fourier_operation", HISTOGRAM: "native_histogram", IFFT: "native_fourier_operation", REAL: "native_fourier_operation", IMAG: "native_fourier_operation", VENDOR_ARG: "native_fourier_operation", VENDOR_NORM: "native_fourier_operation"});
+for (const base of ['CROP','FILTER','FFT','IFFT','REAL','IMAG','VENDOR_ARG','VENDOR_NORM'])resultTypes[base+'_PIXEL']=resultTypes[base];
 const nativeCatalog = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
-  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile", "dm_native_histogram"];
+  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_frame", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_import"];
 
 // Contract emulation only: no DM process/vendor computation is used here.
 function summaryFixture(imageId = 77) {
@@ -80,6 +83,33 @@ function toolOutput(message, expectedError = false) {
   return JSON.parse(message.result.content[0].text);
 }
 
+test('explicit MCP pixel mode has separate wire identity and original-ID QUERY, never a physical fallback',async()=>{
+  const saved=new Map();
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.operation!=='QUERY'){
+      const output=request.operation==='CROP_PIXEL'?pixelCropFixture():request.operation==='FILTER_PIXEL'?pixelFilterFixture(Number(request.args[1])):pixelFourierFixture(request.operation);
+      saved.set(request.id,output);
+    }
+    socket.end(JSON.stringify(reply('completed',saved.get(request.id)))+'\n');
+  });
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_ANALYSIS_PYTHON:'must-never-run.exe'});
+  try {
+    await client.init();
+    const cases=[['dm_crop',{rect:[1,2,5,6]},'CROP_PIXEL'],['dm_native_filter',{operation:'smooth'},'FILTER_PIXEL'],
+      ['dm_native_fft',{direction:'forward'},'FFT_PIXEL'],['dm_native_fft',{direction:'inverse'},'IFFT_PIXEL'],
+      ...[['real','REAL_PIXEL'],['imaginary','IMAG_PIXEL'],['phase','VENDOR_ARG_PIXEL'],['power','VENDOR_NORM_PIXEL']].map(([component,op])=>['dm_native_complex',{component},op])];
+    for(let index=0;index<cases.length;index++){
+      const [name,args,op]=cases[index],request_id='pixel-mcp-'+index;
+      const response=await client.tool(name,{image_id:77,...args,coordinate_mode:'pixel',request_id});assert.notEqual(response.result?.isError,true,JSON.stringify(response));const output=toolOutput(response);
+      assert.equal(output.coordinate_mode,'pixel');assert.equal(output.native_receipt.original_operation,op);
+      assert.deepEqual((await client.tool('dm_native_result',{request_id})).result.content,response.result.content);
+    }
+    const before=host.requests.length;
+    assert.equal((await client.tool('dm_native_fft',{image_id:77,direction:'forward',coordinate_mode:'guess',request_id:'badmode'})).error.code,-32602);
+    assert.equal(host.requests.length,before);
+  }finally{await client.close();await host.close();}
+});
+
 test("existing native MCP tools carry uint32 statistics/crop/preview/READ without changing either catalog", async () => {
   const source = imageMetadata(77, {unsigned: true}), rect = [1, 1, 4, 3];
   const summary = {...summaryFixture(), image: source, minimum: 0, maximum: 4294967295, sum: 4294967295, mean: 4294967295 / source.pixels};
@@ -96,7 +126,7 @@ test("existing native MCP tools carry uint32 statistics/crop/preview/READ withou
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 19);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, nativeCatalog.length);
     const calls = [["dm_native_mean", {}], ["dm_native_summary", {}], ["dm_crop", {rect}],
       ["dm_native_preview", {max_width: 2, max_height: 2}], ["dm_native_read", {rect}]];
     for (let index = 0; index < calls.length; ++index) {
@@ -127,7 +157,7 @@ test("typed uint32 binary and described SHOW preserve actual output metadata thr
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 19);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, nativeCatalog.length);
     const result = toolOutput(await client.tool("dm_native_binary", {left_image_id: 77, right_image_id: 78, operation: "add", request_id: "candidate-binary"}));
     assert.equal(result.image.dtype, "float32"); assert.deepEqual(result.sources.map(source => source.dtype), ["uint32", "uint32"]);
     assert.match(result.dtype_semantics.precision, /not lossless/);
@@ -150,7 +180,7 @@ test("MCP maps uint32 unary/filter/forward FFT enums to their actual native resu
   });
   const client = mcpClient({DM_MCP_BACKEND: "native", DM_NATIVE_SESSION: host.session, DM_ANALYSIS_PYTHON: "must-never-start.exe"});
   try {
-    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, 19);
+    await client.init(); assert.equal((await client.rpc("tools/list")).result.tools.length, nativeCatalog.length);
     const calls = [["dm_native_unary", {operation: "negate"}, "float32"], ["dm_native_unary", {operation: "abs"}, "float32"],
       ["dm_native_unary", {operation: "square"}, "float32"], ["dm_native_filter", {operation: "smooth"}, "uint32"],
       ["dm_native_filter", {operation: "sobel"}, "float32"], ["dm_native_filter", {operation: "laplace"}, "float32"],
@@ -214,6 +244,50 @@ async function nativeHost(handler) {
 
 const profileToolArgs = (request_id = 'saved-profile') => ({image_id:77,document_id:31,display_id:9,roi_id:4,
   expected_line:[2,1,5,1],width:1,request_id});
+
+test('FRAME requires caller-saved identity and exact zero-based selection before connecting to a host',async()=>{
+  const host=await nativeHost(()=>assert.fail('Invalid FRAME must not connect to the native pipe'));
+  const client=mcpClient({DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session});
+  try {
+    await client.init();const tool=(await client.rpc('tools/list')).result.tools.find(t=>t.name==='dm_native_frame');
+    assert.deepEqual(tool.inputSchema.required,['image_id','frame_index','request_id']);
+    const valid={image_id:31,frame_index:0,request_id:'pre-saved-frame'};
+    for(const args of [{image_id:31,frame_index:0},{...valid,request_id:''},{...valid,image_id:0},
+      {...valid,image_id:'front'},{...valid,frame_index:-1},{...valid,frame_index:1.5},
+      {image_id:31,request_id:'missing-index'},{...valid,frame_index:2**32},{...valid,script:'arbitrary'}])
+      assert.equal((await client.tool('dm_native_frame',args)).error.code,-32602);
+    assert.equal(host.requests.length,0);
+  } finally {await client.close();await host.close();}
+});
+
+test('FRAME accepted then cancelled is recovered by a fresh MCP client without creating a second object',async()=>{
+  const id='pre-saved-frame-cancellation',fixture=frameHandoffFixture({index:1,unknownUnits:true});
+  const result={...fixture.result,retention:{token:8,creation_request_id:id,state_at_creation:'plugin_retained',
+    identity_scope:'bridge token in this native session, not a host image ID'}};
+  let accepted,completed=false,created=0;const observed=new Promise(resolve=>accepted=resolve);
+  const host=await nativeHost(({socket,request,reply})=>{
+    if(request.operation==='FRAME') {
+      if(JSON.stringify(request.args.map(Number))!=='[31,1]') {
+        socket.end(JSON.stringify(reply('failed',undefined,{code:'id_conflict',error:'same ID changed source or frame'}))+'\n');return;
+      }
+      assert.equal(created,0);created++;socket.end(JSON.stringify(reply('queued'))+'\n');accepted();
+    } else socket.end(JSON.stringify(completed?reply('completed',result):reply('running'))+'\n');
+  });
+  const env={DM_MCP_BACKEND:'native',DM_NATIVE_SESSION:host.session,DM_MCP_TIMEOUT_MS:'1000',DM_ANALYSIS_PYTHON:'must-not-start.exe'};
+  const first=mcpClient(env);let second;
+  try {
+    await first.init();first.send({id:902,method:'tools/call',params:{name:'dm_native_frame',arguments:{image_id:31,frame_index:1,request_id:id}}});
+    await observed;first.send({method:'notifications/cancelled',params:{requestId:902}});await first.rpc('ping');
+    assert.equal(first.messages.some(message=>message.id===902),false);await first.close();completed=true;
+    second=mcpClient(env);await second.init();const recovered=toolOutput(await second.tool('dm_native_result',{request_id:id}));
+    assert.equal(recovered.image_id,result.image_id);assert.equal(recovered.frame_index,1);
+    assert.equal(recovered.source.dtype,'uint16');assert.equal(recovered.image.dtype,'float32');
+    assert.equal(recovered.image.calibration_complete,false);
+    assert.equal(toolOutput(await second.tool('dm_native_frame',{image_id:31,frame_index:2,request_id:id}),true).native_receipt.code,'id_conflict');
+    assert.deepEqual(toolOutput(await second.tool('dm_native_result',{request_id:id})),recovered);
+    assert.equal(created,1);
+  } finally {await first.close();if(second)await second.close();await host.close();}
+});
 
 test('HISTOGRAM MCP publishes bin-index semantics and rejects missing saved IDs before dispatch',async()=>{
   const host=await nativeHost(()=>assert.fail('invalid histogram reached host'));
@@ -1016,7 +1090,7 @@ test("native SUMMARY exposes only four raw reductions with explicit image ID and
   try {
     const init = await client.init(); assert.match(init.instructions, /dm_native_summary/); assert.match(init.instructions, /四个原生摘要/);
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 19);
+    assert.equal(catalog.length, nativeCatalog.length);
     const summary = catalog.find(tool => tool.name === "dm_native_summary");
     assert.deepEqual(summary.inputSchema.required, ["image_id"]);
     assert.equal(summary.inputSchema.properties.image_id.type, "integer");
@@ -1133,7 +1207,7 @@ test("new native tools expose finite enums and require saved side-effect IDs bef
   try {
     await client.init();
     const catalog = (await client.rpc("tools/list")).result.tools;
-    assert.equal(catalog.length, 19); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
+    assert.equal(catalog.length, nativeCatalog.length); assert.deepEqual(catalog.map(tool => tool.name), nativeCatalog);
     for (const name of nativeCatalog.slice(7, 12)) assert.ok(catalog.find(tool => tool.name === name).inputSchema.required.includes("request_id"));
     const preview = catalog.find(tool => tool.name === "dm_native_preview");
     assert.deepEqual(preview.inputSchema.required, ["image_id"]);
@@ -1296,7 +1370,7 @@ test("native READ requires explicit bounded half-open ROI and rejects paths or i
   try {
     await client.init();
     const catalog = (await client.rpc("tools/list")).result.tools, read = catalog.find(tool => tool.name === "dm_native_read");
-    assert.equal(catalog.length, 19); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
+    assert.equal(catalog.length, nativeCatalog.length); assert.deepEqual(read.inputSchema.required, ["image_id", "rect"]);
     assert.match(read.description, /16384/); assert.match(read.description, /不生成图片.*不保存文件/);
     for (const args of [{}, {image_id: 77}, {rect: [0, 0, 1, 1]}, {image_id: "front", rect: [0, 0, 1, 1]},
       {image_id: "77", rect: [0, 0, 1, 1]}, {image_id: -1, rect: [0, 0, 1, 1]}, {image_id: 77, rect: []},

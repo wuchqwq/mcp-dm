@@ -1,5 +1,12 @@
 # GMS native adapter compatibility
 
+Explicit `native_pixel_crop`, `native_pixel_filters` and `native_pixel_fft`
+are separate optional groups. Their `*_PIXEL` operations preserve unknown
+units and mathematical pixel coordinates rather than inventing a ruler. The
+current public profile leaves all three **unqualified/disabled** pending their
+own synthetic real-host trial; new C++/Node offline controls do not qualify DM.
+The existing default physical operations and module fingerprints are unchanged.
+
 The common Node MCP, NB2 request records, named pipe, host-thread dispatch and
 retained-result lifecycle are shared. Vendor layouts, typed calls, module
 fingerprints, exports and RVAs belong to a version adapter. Loading the plugin
@@ -30,7 +37,7 @@ Its four additional operation groups do not admit another GMS build or expand
 the underlying five-module fingerprint gate.
 
 The line/profile continuation adds `native_line_profile` and ROIS version 2
-under this same exact adapter. The catalog now has nineteen entries. Limited
+under this same exact adapter. The catalog now has twenty entries. Limited
 prepared synthetic-host acceptance passed explicit GUI line identity, true 1D
 float64 extraction/NPY, unchanged source/GUI/documents, original-ID recovery,
 RELEASE/STOP after-idle invalidation and normal exit/removal. Profile admission
@@ -106,7 +113,7 @@ export name nor a synthetic call marks a scientific operation qualified.
 
 Capability names include `native_statistics`, `native_crop`, `native_display`,
 `native_image_arithmetic`, `native_fft`, `native_filters`, `native_preview`,
-`native_read`, `native_gui_rois`, `native_line_profile` and `native_save`. Each profile declares qualification, scope and
+`native_read`, `native_frame`, `native_gui_rois`, `native_line_profile` and `native_save`. Each profile declares qualification, scope and
 required symbols or entry contracts. The five added groups are now qualified
 for the bounded scope below; status reports `LIMITED_REAL_HOST` only when their
 complete required bindings are available. This is a profile declaration backed
@@ -123,6 +130,16 @@ qualified available groups and no candidate-execution bypass. A catalog listing
 or a broader default Python tool does not override admission. Native SaveAs
 remains unqualified; the explicit saved-READ-to-NPY encoder does not implement
 DM file saving.
+
+`native_frame` is isolated from the 2D uint32/float32 groups. Its bounded input
+is an explicitly identified ordinary uint16 rank-three sequence and zero-based
+DM dimension2 index; native slice copying and native conversion produce a
+separate float32 XY image without changing uint16 values. The plane is at most
+1,048,576 pixels, complete source storage at most UINT32_MAX bytes, and the
+two-image temporary peak is reserved before allocation. Unknown calibration
+stays explicit. Required symbols alone do not qualify this extension; its
+final artifact has **LIMITED_SYNTHETIC_REAL_HOST_PASS**. It does not qualify
+another build, a changed DLL or an ordinary model client. See [FRAME](NATIVE_FRAME.md).
 
 Uint32 has five separate dtype capabilities: `native_uint32_mean`,
 `native_uint32_statistics`, `native_uint32_crop`, `native_uint32_preview` and

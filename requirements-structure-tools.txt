@@ -1,0 +1,8 @@
+# Optional external tools; install in a separate environment, never GMS Python.
+# This is not part of the default v0.6 installation.
+numpy>=1.26,<3
+scipy>=1.11,<2
+ase>=3.26,<4
+matplotlib>=3.8,<4
+pillow>=10,<13
+diffsims==0.7.0

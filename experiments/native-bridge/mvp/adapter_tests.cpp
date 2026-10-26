@@ -806,6 +806,120 @@ void show_tests() {
         check(failed);
     }
 }
+void fft_window_contract_tests() {
+    // Pure planning is independent of capability qualification and performs no
+    // vendor call. Admission still requires the exact operation/dtype group.
+    using Op = nb::FftOperation353;
+    constexpr std::uint64_t mib = 1024ull * 1024;
+    const auto rejected_plan = [](Op op, nb::FftImage353 source, std::uint64_t bytes,
+                                  std::size_t count, const char* expected) {
+        std::string error;
+        try { (void)nb::fft_plan353(op, source, bytes, count); }
+        catch (const std::runtime_error& failure) { error = failure.what(); }
+        check(error == expected);
+    };
+    for (const auto dtype : {2u, 11u}) {
+        nb::FftImage353 source{17, 2, dtype, 1, 1024, 1024};
+        const auto plan = nb::fft_plan353(Op::RealForward, source, 4 * mib, 30);
+        check(plan.width == 1024 && plan.height == 1024 && plan.pixels == 1048576);
+        check(plan.output_data_type == 3 && plan.output_bytes == 8 * mib);
+        check(plan.peak_new_bytes == 12 * mib && plan.peak_new_images == 2);
+        rejected_plan(Op::RealForward, source, 4 * mib + 1, 0, "native_fft_retained_bytes_over_budget");
+        rejected_plan(Op::RealForward, source, 0, 31, "native_fft_retention_capacity");
+        rejected_plan(Op::RealForward, source, 16 * mib + 1, 0, "native_fft_retained_bytes_over_budget");
+        rejected_plan(Op::RealForward, source, 0, 33, "native_fft_retention_capacity");
+        for (const auto width : {2048u, UINT32_MAX}) {
+            source.width = width;
+            rejected_plan(Op::RealForward, source, 0, 0, "native_fft_input_over_budget");
+        }
+        for (const auto width : {1u, 2u, 3u, 6u, 257u, 1023u}) {
+            source.width = width;
+            rejected_plan(Op::RealForward, source, 0, 0, "native_fft_requires_power_of_two_dimensions_4_to_1024");
+        }
+        source.width = 1024; source.height = 512;
+        const auto rectangular = nb::fft_plan353(Op::RealForward, source, 10 * mib, 30);
+        check(rectangular.output_bytes == 4 * mib && rectangular.peak_new_bytes == 6 * mib);
+        source.width = 512; source.height = 1024;
+        check(nb::fft_plan353(Op::RealForward, source, 0, 0).output_bytes == rectangular.output_bytes);
+        source.width = source.height = 4;
+        check(nb::fft_plan353(Op::RealForward, source, 0, 0).pixels == 16);
+    }
+    const nb::FftImage353 complex{100, 2, 3, 1, 1024, 1024};
+    // A 1024^2 paired inverse needs 8 MiB input + 8 MiB result + 4 MiB
+    // finite-check image: it must fail without releasing or evicting the input.
+    rejected_plan(Op::ComplexInverse, complex, 8 * mib, 1, "native_fft_retained_bytes_over_budget");
+    const auto inverse = nb::fft_plan353(Op::ComplexInverse, {100,2,3,1,1024,512}, 4 * mib, 1);
+    check(inverse.output_bytes == 4 * mib && inverse.peak_new_bytes == 6 * mib);
+    for (const auto op : {Op::Real, Op::Imag, Op::VendorArg, Op::VendorNorm}) {
+        const auto component = nb::fft_plan353(op, complex, 12 * mib, 31);
+        check(component.output_data_type == 2 && component.output_bytes == 4 * mib);
+        check(component.peak_new_bytes == 4 * mib && component.peak_new_images == 1);
+        rejected_plan(op, complex, 12 * mib + 1, 1, "native_fft_retained_bytes_over_budget");
+        check(std::string(nb::fft_large_capability353(op, false)) != nb::fft_large_capability353(op, true));
+    }
+    check(nb::kCropOutputBytes == 4 * mib && nb::kCropRetainedBytes == 16 * mib && nb::kCropRetainedCount == 32);
+
+    // Rejection at production admission cannot invoke an FFT, a finite-check
+    // component, or allocate a second object. Complete symbols do not bypass
+    // a not-yet-qualified size group. This remains useful during staged promotion.
+    const auto original = fake;
+    inject_fake(); operation_tracking = true;
+    fake.width = fake.height = 512;
+    for (const auto dtype : {2u,11u}) {
+        fake.code = dtype;
+        const auto* group = nb::fft_large_capability353(Op::RealForward, dtype == 11);
+        if (qualified_capability353(group)) continue;
+        const auto calls = operation_calls;
+        const auto images = registry.size();
+        std::string error;
+        try { (void)execute_native({"large_unqualified", "FFT", {17}}); }
+        catch (const std::runtime_error& failure) { error = failure.what(); }
+        check(error == std::string("native_fft_large_operation_not_qualified:") + group);
+        check(operation_calls == calls && registry.size() == images && retained_results.empty());
+        check(retained_result_bytes == 0 && fake.references == 1);
+    }
+    operation_tracking = false; fake = original;
+    // Retention-only ownership surrogates: no pixel buffer or numerical claim.
+    // Exercise the explicit Fourier exception and ensure it cannot enlarge
+    // arbitrary producer limits or accept a forged scalar/full-complex tag.
+    const auto make_output = [](ImageRef& out, std::uint32_t dtype) {
+        auto image = std::make_unique<FakeImage>();
+        image->id = next_image_id++; image->generated = true; image->code = dtype;
+        image->width = image->height = 1024;
+        registry.emplace(image->id, image.get()); out.value.image = image.release();
+    };
+    for (const auto& test : std::vector<std::pair<NativeRequest,std::uint32_t>>{
+         {{"bad_limit", "FILTER", {17,1}},3}, {{"bad_scalar", "FFT", {17}},2}}) {
+        ImageRef output; make_output(output,test.second);
+        std::string error;
+        try { retain_native_result(output,api.id(output.value.image),8*mib,test.first,"surrogate",{17},{"{}"},
+                                   "{}","test",false,"{}",nb::kFftOutputBytes353); }
+        catch(const std::runtime_error& failure) { error=failure.what(); }
+        check(error=="native_result_output_limit_invalid");
+        check(output.value.image && retained_results.empty() && retained_result_bytes==0);
+    }
+    {
+        ImageRef output; make_output(output,3);
+        const auto id=api.id(output.value.image);
+        const NativeRequest request{"large_retention", "FFT", {17}};
+        std::string error;
+        try { retain_native_result(output,id,8*mib,request,"surrogate",{17},{"{}"},"{}","test",false,"{}"); }
+        catch(const std::runtime_error& failure) { error=failure.what(); }
+        check(error=="native_result_output_over_budget" && output.value.image && retained_results.empty());
+        error.clear();
+        try { retain_native_result(output,id,8*mib+1,request,"surrogate",{17},{"{}"},"{}","test",false,"{}",nb::kFftOutputBytes353); }
+        catch(const std::runtime_error& failure) { error=failure.what(); }
+        check(error=="native_result_output_over_budget" && output.value.image && retained_results.empty());
+        error.clear();
+        try { retain_native_result(output,id,8*mib,request,"surrogate",{17},{"{}"},"{}","test",false,"null",nb::kFftOutputBytes353); }
+        catch(const std::runtime_error& failure) { error=failure.what(); }
+        check(error=="native_result_output_limit_invalid" && output.value.image && retained_results.empty());
+        retain_native_result(output,id,8*mib,request,"surrogate",{17},{"{}"},"{}","test",false,"{}",nb::kFftOutputBytes353);
+        check(!output.value.image && retained_result_bytes==8*mib && retained_results.at(id).bytes==8*mib);
+    }
+    shutdown_native(); inject_fake();
+    check(retained_results.empty() && retained_result_bytes==0 && registry.size()==1 && fake.references==1);
+}
 void production_operation_tests() {
     check(retained_results.empty() && host_documents.empty() && host_windows.empty());
     fake = FakeImage{};
@@ -910,11 +1024,11 @@ void production_operation_tests() {
     // calls, descriptor guards, temporary cleanup and retention, not FFT math.
     const auto arithmetic_width = fake.width, arithmetic_height = fake.height;
     const auto arithmetic_pixels = fake.pixels;
-    fake.width = 257;
+    fake.width = 2048;
     reject("FFT", {17}, "native_fft_input_over_budget"); fake.width = 3;
-    reject("FFT", {17}, "native_fft_requires_power_of_two_dimensions_4_to_256");
+    reject("FFT", {17}, "native_fft_requires_power_of_two_dimensions_4_to_1024");
     fake.width = 6; fake.height = 4;
-    reject("FFT", {17}, "native_fft_requires_power_of_two_dimensions_4_to_256");
+    reject("FFT", {17}, "native_fft_requires_power_of_two_dimensions_4_to_1024");
     fake.width = 4; fake.height = 4; fake.pixels.assign(16, 1.25f);
     // Unsupported/unowned complex sources fail before invoking even Find.
     api.find_id = find_throw_fake;
@@ -1010,6 +1124,9 @@ void production_operation_tests() {
     reject("FILTER", {17,1}, "native_filter_requires_dimensions_at_least_5");
     const auto small_width = fake.width, small_height = fake.height;
     const auto small_pixels = fake.pixels;
+    fake.width = 257; fake.height = 5;
+    for (std::uint32_t kind = 1; kind <= 4; ++kind)
+        reject("FILTER", {17,kind}, "native_filter_input_over_budget");
     fake.width = 5; fake.height = 5; fake.pixels.assign(25, -1.5f);
     for (std::uint32_t kind = 1; kind <= 4; ++kind) {
         const auto result = execute_native({"synthetic_filter_" + std::to_string(kind), "FILTER", {17,kind}});
@@ -1131,6 +1248,7 @@ int main() {
         summary_tests();
         crop_tests();
         show_tests();
+        fft_window_contract_tests();
         production_operation_tests();
         std::cout << "PASS adapter surrogate: " << assertions << " assertions; no DM loaded\n";
         return 0;
