@@ -1,0 +1,29 @@
+name: PR27 isolated closeout review
+on:
+  push:
+    branches: [validation/pr27-closeout-20261027]
+    paths: ['.github/workflows/pr27-review.yml', '.review/pr27/**']
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2e189236144ef94260175ffd6b0293ae75171521
+          persist-credentials: false
+      - name: Export exact public source, not runtime data
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 2e189236144ef94260175ffd6b0293ae75171521
+          mkdir -p "$RUNNER_TEMP/pr27-source"
+          git archive --format=zip HEAD > "$RUNNER_TEMP/pr27-source/source-2e18923.zip"
+          git ls-tree -r HEAD > "$RUNNER_TEMP/pr27-source/source-tree.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/pr27-source/source-commit.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr26-pinned-public-source
+          path: ${{ runner.temp }}/pr27-source/
+          retention-days: 7
