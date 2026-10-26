@@ -44,8 +44,10 @@ or unique phase identification. See [the calibrated interaction contract](docs/I
 For a combined trial checkout and client configuration, use
 [the unified trial guide](docs/UNIFIED_IMAGE_TRIAL.md). The optional
 [loopback panel](docs/LOCAL_IMAGE_PANEL.md) lets the researcher point, draw and
-drag using the same saved IDs/anchors. Its explicit selection-file handoff does
-not automatically start an Agent turn. For one mark correction, prefer
+drag using the same saved IDs/anchors. Use `image_panel_open/current/show`
+for launch, exact selection and result handoff. Retain IDs internally; the user
+does not copy paths or JSON. Dirty drafts queue incoming results. The panel
+does not automatically start an Agent turn. For one mark correction, prefer
 `image_annotate(updates:[...])` over rebuilding the whole annotation list.
 
 For multi-turn overlays, use exact source IDs and source/frequency coordinates,

@@ -23,11 +23,16 @@ import process from "node:process";
 import { NativeBridge, NativeBridgeError, validRequestId } from "./lib/native_bridge.mjs";
 import { nativePreviewImage } from "./lib/native_preview.mjs";
 import {ImageWorkspace, imageTools, IMAGE_INSTRUCTIONS} from './lib/image_workspace.mjs';
+import {ImagePanelManager, imagePanelTools, IMAGE_PANEL_INSTRUCTIONS} from './lib/image_panel_mcp.mjs';
 
 const BACKEND = process.env.DM_MCP_BACKEND === undefined ? "python" : process.env.DM_MCP_BACKEND;
 if (!["python", "native", "images"].includes(BACKEND)) throw new Error("DM_MCP_BACKEND must be python, native or images; no implicit backend fallback");
 const imageWorkspace = process.env.DM_IMAGE_WORKSPACE || BACKEND === 'images'
   ? new ImageWorkspace({workspace:process.env.DM_IMAGE_WORKSPACE}) : null;
+const imagePanels = imageWorkspace ? new ImagePanelManager({workspace:imageWorkspace.workspace,python:imageWorkspace.python,inspect:async object_id=>{
+  const result=await imageWorkspace.call('image_info',{object_id});
+  if(result.isError)throw new Error('Image object inspection failed');
+}}) : null;
 const BRIDGE_HOST = process.env.DM_BRIDGE_HOST || "127.0.0.1";
 const BRIDGE_PORT = Number(process.env.DM_BRIDGE_PORT || 8765);
 const TIMEOUT_MS = Number(process.env.DM_MCP_TIMEOUT_MS || 30000);
@@ -753,6 +758,11 @@ function validate(value, schema, label = "arguments") {
 }
 
 async function callTool(name, args, signal) {
+  if (imagePanels && imagePanelTools.some(t=>t.name===name)) {
+    const entry=imagePanelTools.find(t=>t.name===name);
+    args=args===undefined?{}:args;validate(args,entry.inputSchema);
+    return imagePanels.call(name,args,signal);
+  }
   if (imageWorkspace && imageTools.some(t=>t.name===name)) {
     const entry=imageTools.find(t=>t.name===name);
     args=args===undefined?{}:args;validate(args,entry.inputSchema);
@@ -831,11 +841,11 @@ async function handle(msg) {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-      instructions: (BACKEND === 'images' ? '' : BACKEND === "native" ? NATIVE_INSTRUCTIONS : INSTRUCTIONS) + (imageWorkspace ? '\n'+IMAGE_INSTRUCTIONS : ''),
+      instructions: (BACKEND === 'images' ? '' : BACKEND === "native" ? NATIVE_INSTRUCTIONS : INSTRUCTIONS) + (imageWorkspace ? '\n'+IMAGE_INSTRUCTIONS+'\n'+IMAGE_PANEL_INSTRUCTIONS : ''),
     });
   }
   if (method === "ping") return ok(id, {});
-  if (method === "tools/list") return ok(id, { tools: [...(BACKEND === 'images' ? [] : BACKEND === "native" ? nativeTools : tools), ...(imageWorkspace ? imageTools : [])] });
+  if (method === "tools/list") return ok(id, { tools: [...(BACKEND === 'images' ? [] : BACKEND === "native" ? nativeTools : tools), ...(imageWorkspace ? [...imageTools,...imagePanelTools] : [])] });
   if (method === "tools/call") {
     if (!params || typeof params.name !== "string") return fail(id, -32602, "需要工具名称");
     if (running.has(id)) return fail(id, -32600, "Duplicate in-flight request id");

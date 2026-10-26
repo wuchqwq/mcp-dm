@@ -8,6 +8,13 @@ IDs. It is not a chat application, native DM display or a second analysis engine
 
 ## Open an existing image object
 
+When the opt-in image workspace is configured, the Agent calls
+`image_panel_open(object_id, request_id)` and opens its returned loopback URL.
+The researcher does not enter IDs, JSON or paths. The Agent retains `panel_id`
+internally. The owned helper survives MCP client disconnect; querying the same
+original request reuses that panel. Stopped/unknown launches are not restarted
+automatically. The CLI below remains available for explicit manual setup.
+
 Use the integration branch containing `tools/image_panel.mjs` and configure the
 same independent Python environment and output workspace as the Agent's
 `image_*` tools. No new browser framework or package is required. In PowerShell:
@@ -37,9 +44,9 @@ process interaction.
   Integer processing rectangles snap outward to bin/pixel edges; the exact
   rectangle is displayed **before** submission. Scientific annotations retain
   their continuous original coordinates. There is no hidden clipping.
-- Click a peak/location, draw a line or short arrow, give it a stable ID and
-  save. Select an existing ID, choose **拖动已有标注**, and drag a handle or
-  the whole shape. **保存这条标记** submits one sparse update, retaining every
+- Click a peak/location, draw a line or short arrow and save; its internal ID
+  is generated automatically. In the default selection mode, directly click
+  and drag an existing mark or its small endpoint handles. **保存这条标记** submits one sparse update, retaining every
   other mark and its anchor. Color and candidate/confirmed/retracted status
   remain separate. Orange is a proposed second-phase display convention only.
 - A line can be measured; an FFT point is measured relative to mathematical
@@ -48,9 +55,10 @@ process interaction.
   values can be returned; no scale means pixel/cycles-per-pixel results only.
 - Gamma and display limits update a **PNG approximation draft** immediately.
   Quantization and clipping in the existing PNG cannot be recovered locally.
-  Clicking **提交显示调整** invokes `image_preview` once, re-rendering the saved
+  Clicking **保存显示** invokes `image_preview` once, re-rendering the saved
   scientific array; it does not execute another FFT. The saved rendering is
-  authoritative. Annotations in the temporary draft may also change brightness.
+  authoritative. A verified clean PNG, saved marks and gesture drafts use separate canvas layers;
+  grayscale adjustments do not recolor the marks.
   Reopening a saved annotated object resolves its explicit render-base recipe
   through `image_info`, so gamma, limits and axes match the visible PNG. The
   separate `effective_display` and `display_source_object_id` fields identify
@@ -65,33 +73,34 @@ process interaction.
   The original source remains read-only. There is no arbitrary target-path
   browser API and existing output directories are refused by the real tool.
 
-Zooming the canvas and scrolling pan the **display**, leaving scientific
+Mouse-centred wheel zoom and Space/middle-button drag pan the **display**, leaving scientific
 coordinates unchanged. Imported scalar frequency arrays without a full FFT
 grid retain array-index semantics; the panel does not invent original
 frequency/real-space mapping. A selection must remain in one exact panel.
 
 ## Return the current choice to the Agent
 
-Click **把选择交给 Agent** after selecting. The latest record contains the
-current immutable object ID, original spatial/frequency coordinates, exact
-panel mapping and last operation. The Agent reads the printed `selection_path`:
+A completed gesture publishes its exact source/frequency coordinates without
+running scientific computation. Say “look here” or “continue”; the Agent calls
+`image_panel_current` and chooses the next ordinary `image_*` tool. There is
+**no automatic model wake**. The returned PNG is the saved view; `edit_state`
+separately identifies unsaved display/annotation drafts, including a bound
+`annotation_edit` with its scientific coordinate domain.
 
-```powershell
-node tools/image_panel.mjs --selection 'C:\analysis\image-workspace\panel-journals\SESSION\current-selection.json'
-```
+The Agent sends an existing result through `image_panel_show`, binding the
+inspected object and draft revision. The browser polls a small authenticated
+revision endpoint and displays a clean new result in the same panel. Dirty or
+newer drafts queue it for explicit acceptance. Late worker responses cannot
+switch the visible base under a newer gesture. A queued result is another saved
+branch: accepting it does not merge annotations or overwrite older objects.
 
-The Agent can then call `image_info` on that object and compose its next tool
-call. Users do not type object IDs or JSON for routine gestures after launch.
-Initial launch still needs the Agent/terminal to provide an existing ID and
-paths; the panel is not yet registered as an MCP launch tool. Reading a record
-does not automatically trigger an Agent turn or send a message.
-
-An Agent that already has the private panel URL can use same-origin typed
-`POST /api/action` with `X-Panel-Token`, `expected_object_id`, `action:"show"`
-and `params:{object_id:NEW_ID}` to display an explicit existing revision. There
-is no global mutable "latest image": external Agent-created objects are not
-silently substituted for a user's current view. Competing browser edits to
-the same old view return HTTP 409; refresh and inspect rather than overwrite.
+Undo/redo is bounded local draft history, not deletion of scientific records.
+Saving a mark preserves an independent display draft. Unsaved edits are not
+promised across a page reload; a surviving dirty lease requires an explicit
+discard rather than silently reporting a clean view. Save requests are
+serialized, while local zoom/pan/selection remain available. The original
+selection-file CLI remains a compatibility path, not required for routine MCP
+handoff.
 
 Each side-effect call receives a request ID saved and flushed to a private
 request journal **before dispatch**. Errors include the original ID. After a
