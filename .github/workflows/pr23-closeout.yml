@@ -2,33 +2,105 @@ name: PR23 isolated closeout evidence
 on:
   push:
     branches: [validation/pr23-closeout-20261027]
+    paths: [.github/workflows/pr23-closeout.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  source:
-    runs-on: ubuntu-latest
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: candidate
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 4f590f398fd4823426dc08a3b1317d5b15dcd06f
-          fetch-depth: 0
+          path: validation
           persist-credentials: false
-      - name: Export exact public source and ancestor proof
-        shell: bash
+      - uses: actions/checkout@v4
+        with:
+          ref: 4f590f398fd4823426dc08a3b1317d5b15dcd06f
+          path: candidate
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply exact-base patch in isolated checkout
         run: |
-          mkdir -p evidence
-          git archive --format=zip -o evidence/pr23-source.zip HEAD
-          git rev-parse HEAD HEAD^{tree} > evidence/source-identity.txt
-          git ls-tree -r HEAD > evidence/source-blobs.txt
-          git ls-remote origin refs/heads/main > evidence/main-at-check.txt
-          for pair in main:5eac70caf2f7e584e599355052a77f33b3a12664 12:c8723c1a5a47334a50198319fa3f5e76530905da 13:e1edc521375991f96df675c6d22b65bf91d1a50a 14:370909aa978a64d8c904e90d12f288e6f3e688fd 15:3c7fa255959520ad0462b7f58513aedb55eb9eda 16:228d61267c4ddaa9508d8b9a5bb1fa41dbb6e964 17:228d61267c4ddaa9508d8b9a5bb1fa41dbb6e964 18:6ecda05d7715bdd41347d1575721c6c1f1182ef7 19:490051a26d5d361709eaf6408ac71458920ac0dc 20:7c53edf897d0976b59083b885d99cdb9c738c1eb 21:27e49357723295d3693c4d6076339c7b7750318b 22:9486a6a474e7528a7f03dfa2524376f1f9bf8da0; do
-            label=${pair%%:*}; sha=${pair#*:}
-            git merge-base --is-ancestor "$sha" HEAD
-            echo "$label $sha INCLUDED" >> evidence/ancestors.txt
-          done
+          git config core.autocrlf false
+          git reset --hard 4f590f398fd4823426dc08a3b1317d5b15dcd06f
+          python ../validation/.review/apply_closeout.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check exact local-reviewed blobs
+        shell: python
+        run: |
+          import json,subprocess,os
+          from pathlib import Path
+          expected = {"README.en.md":"4907dbab838c83ca643426511bfbf6cbf3536084","README.md":"9b387ce542ac315d921376251fff7be9bf4da9cb","docs/LOCAL_IMAGE_PANEL.md":"f49b86b69d92d3e00d3bb00f9f91812419391edb","docs/NATIVE_CALIBRATION_HANDOFF.md":"4bdf9b9b8b0098e79a1206adaca27491a271de2c","docs/UNIFIED_IMAGE_TRIAL.md":"46d1ed8f73ecf90b198c51446b5d5d8402cf5cc1","tests/image-panel-reciprocal.test.mjs":"7d6410f4804b5c80f43eeb1206836b9342e60756","tests/image-panel-ui.test.mjs":"4613820e262e9c2a9bb048a6f7b698fbeba684a4","tests/test_native_calibration_handoff.py":"1a0168cb05fba3a0c009a012174c63fed30d1181","tools/image_calibration.py":"ff5b7b51e4fc6d9b2f6ccaca96dfa04943970ff7","tools/image_panel.mjs":"83546548b38b5bb809e25289d95213105892559c","tools/image_workspace.py":"8ad2da565bd13ef5f5eea5f51a7a8263461759cc","ui/image-panel/app.mjs":"e52593e36ccfcb6c36aa9740242b249f910f8738","ui/image-panel/index.html":"87c1a08ba1bfaac37643d8e398c234ad77e706cb"}
+          for name,digest in expected.items():
+              p=Path(name);p.write_text(p.read_text(encoding='utf-8'),encoding='utf-8',newline='\n')
+              actual=subprocess.check_output(['git','hash-object',name],text=True).strip()
+              assert actual==digest,(name,actual,digest)
+          evidence=Path(os.environ['RUNNER_TEMP'])/'pr23-evidence';evidence.mkdir(exist_ok=True)
+          (evidence/'expected-blobs.json').write_text(json.dumps(expected,indent=2))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['node','--check','tools/image_panel.mjs'],check=True)
+          subprocess.run(['node','--check','ui/image-panel/app.mjs'],check=True)
+      - name: Install independent test dependencies
+        run: |
+          python -m pip install -r requirements-dev.txt -r requirements-structure-tools.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip freeze | Out-File -Encoding utf8 "$env:RUNNER_TEMP/pr23-evidence/python-environment.txt"
+      - name: Full Python and relevant actual-MCP Node checks
+        shell: python
+        run: |
+          import subprocess,os,sys,glob,json,time
+          from pathlib import Path
+          evidence=Path(os.environ['RUNNER_TEMP'])/'pr23-evidence'
+          env={**os.environ,'DM_IMAGE_PYTHON':sys.executable,'DM_ANALYSIS_PYTHON':sys.executable,'DM_TEST_PYTHON':sys.executable,'DM_STRUCTURE_PYTHON':sys.executable,'PYTHONUTF8':'1','MPLBACKEND':'Agg'}
+          files=sorted(set(glob.glob('tests/image-*.test.mjs')+glob.glob('tests/structure-workspace-mcp.test.mjs')+glob.glob('tests/structure-viewer*.test.mjs')+['tests/native-calibration-mcp.test.mjs']))
+          commands=[('python-full',[sys.executable,'-B','-m','unittest','discover','-s','tests','-p','test_*.py','-v']),('node-related',['node','--test',*files]),('default-mock',['node','selftest.mjs'])]
+          results=[]
+          for label,command in commands:
+              start=time.monotonic()
+              with (evidence/(label+'.log')).open('wb') as stream:
+                  completed=subprocess.run(command,stdout=stream,stderr=subprocess.STDOUT,env=env,timeout=600)
+              row={'name':label,'command':command,'exit_code':completed.returncode,'seconds':time.monotonic()-start};results.append(row)
+              (evidence/'results.json').write_text(json.dumps(results,indent=2))
+              print(row,flush=True)
+              print((evidence/(label+'.log')).read_text(encoding='utf-8',errors='replace')[-3500:],flush=True)
+              if completed.returncode: raise SystemExit(completed.returncode)
+      - name: Publish only unchanged tested application files to review branch
+        shell: python
+        run: |
+          import json,os,subprocess
+          from pathlib import Path
+          evidence=Path(os.environ['RUNNER_TEMP'])/'pr23-evidence'
+          expected=json.loads((evidence/'expected-blobs.json').read_text())
+          for name,digest in expected.items():
+              assert subprocess.check_output(['git','hash-object',name],text=True).strip()==digest,name
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          untracked=set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          assert changed|untracked==set(expected),(changed,untracked)
+          branch='review/pr23-closeout-20261027';base='4f590f398fd4823426dc08a3b1317d5b15dcd06f'
+          remote=subprocess.check_output(['git','ls-remote','origin','refs/heads/'+branch],text=True).split()
+          assert remote and remote[0]==base,'Review branch moved; do not overwrite'
+          subprocess.run(['git','config','user.name','mcp-dm review'],check=True)
+          subprocess.run(['git','config','user.email','41898282+github-actions[bot]@users.noreply.github.com'],check=True)
+          subprocess.run(['git','add','--',*expected],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          with (evidence/'closeout.patch').open('wb') as stream:subprocess.run(['git','diff','--cached','--binary'],stdout=stream,check=True)
+          subprocess.run(['git','commit','-m','fix(images): retain reciprocal centres and complete calibrated panel measurement'],check=True)
+          head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip();(evidence/'tested-commit.txt').write_text(head+'\n')
+          subprocess.run(['git','archive','--format=zip','-o',str(evidence/'tested-source.zip'),'HEAD'],check=True)
+          subprocess.run(['git','push','origin','HEAD:refs/heads/'+branch],check=True)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pr23-pinned-source
-          path: evidence/
-          retention-days: 7
+          name: pr23-closeout-windows
+          path: ${{ runner.temp }}/pr23-evidence/
+          retention-days: 14
