@@ -44,7 +44,8 @@ jobs:
       - name: Reproduce new regressions on untouched PR26 production code
         shell: python
         run: |
-          import pathlib, subprocess, unittest, json
+          import pathlib, subprocess, unittest, json, sys
+          sys.path.insert(0,str(pathlib.Path.cwd()))
           assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()=='b7ad3d56bb5ec0955505d04d58402379ab216249'
           evidence=pathlib.Path('../evidence');evidence.mkdir()
           source=pathlib.Path('../payload/.review/test_pr26_closeout.py').read_text(encoding='utf-8')
@@ -54,6 +55,7 @@ jobs:
               result=unittest.TextTestRunner(stream=stream,verbosity=2).run(suite)
           data={'tests':result.testsRun,'failures':len(result.failures),'errors':len(result.errors),'skips':len(result.skipped)}
           (evidence/'baseline.json').write_text(json.dumps(data),encoding='utf-8');print(data)
+          if result.testsRun!=7:print((evidence/'baseline-regressions.log').read_text(encoding='utf-8'))
           assert result.testsRun==7 and len(result.failures)+len(result.errors)==6 and not result.skipped
       - name: Apply exact reviewed edits and bind source hashes
         shell: python
@@ -78,7 +80,8 @@ jobs:
       - name: Complete Python discovery with scientific dependencies
         shell: python
         run: |
-          import unittest,pathlib,json
+          import unittest,pathlib,json,sys
+          sys.path.insert(0,str(pathlib.Path.cwd()))
           suite=unittest.defaultTestLoader.discover('tests',pattern='test_*.py')
           with pathlib.Path('../evidence/full-python.log').open('w',encoding='utf-8') as stream:
               result=unittest.TextTestRunner(stream=stream,verbosity=2).run(suite)
