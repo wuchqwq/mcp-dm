@@ -1,0 +1,61 @@
+    def test_reciprocal_scale_revision_preserves_dc_and_recomputes_zero(self):
+        from crystallography.reflection_compare import measurement_vector
+        frame, _ = self.opened("reciprocal-mixed")
+        original = copy.deepcopy(frame["xy_calibration"])
+        source_bytes = Path(frame["array_path"]).read_bytes()
+        revised = self.ok("calibrate", object_id=frame["object_id"], scope="image",
+                          coordinate_domain="reciprocal_space",
+                          xy_scale={"x": .2, "y": -.4, "unit": "1/nm"},
+                          source_text="Synthetic scale-only correction; centre unchanged")
+        record = revised["xy_calibration"]
+        self.assertEqual(record["dc_index_xy"], [6, 2])
+        self.assertEqual(record["dc_identity_source"], original["dc_identity_source"])
+        np.testing.assert_allclose(record["physical_zero_xy"], [-1.2, .8], atol=1e-15, rtol=0)
+        view = self.ok("view", object_id=revised["object_id"], rect=[2, 1, 15, 10])
+        result = self.ok("measure", object_id=view["object_id"], points=[[6, 2], [10, 5]])
+        self.assertEqual(result["dc_reference_point_index"], 0)
+        self.assertAlmostEqual(result["d_spacing"], 1 / math.hypot(.8, -1.2))
+        np.testing.assert_allclose(result["physical_points_xy"], [[0, 0], [.8, -1.2]], atol=1e-15, rtol=0)
+        np.testing.assert_allclose(measurement_vector(result)["q_xy_inv_angstrom"], [.08, -.12], atol=1e-15, rtol=0)
+        self.assertEqual(self.ok("get", object_id=frame["object_id"])["xy_calibration"], original)
+        self.assertEqual(Path(frame["array_path"]).read_bytes(), source_bytes)
+
+    def test_reciprocal_revision_inherits_domain_and_preserves_dc_through_withdrawal(self):
+        frame, _ = self.opened("reciprocal-mixed")
+        revised = self.ok("calibrate", object_id=frame["object_id"], scope="image",
+                          xy_scale={"x": .02, "y": -.04, "unit": "1/angstrom"},
+                          source_text="Synthetic unit/scale correction, same origin")
+        self.assertEqual(revised["xy_calibration"]["coordinate_domain"], "reciprocal_space")
+        np.testing.assert_allclose(revised["xy_calibration"]["physical_zero_xy"], [-.12, .08], rtol=0, atol=1e-15)
+        withdrawn = self.ok("calibrate", object_id=revised["object_id"], scope="image", xy_scale=None,
+                            source_text="Withdraw only the physical scale, not the recorded pixel centre")
+        self.assertEqual(withdrawn["xy_calibration"]["dc_index_xy"], [6, 2])
+        measured = self.ok("measure", object_id=withdrawn["object_id"], points=[[6, 2], [10, 5]])
+        self.assertIsNone(measured["physical_frequency_magnitude"])
+        self.assertIsNone(measured["d_spacing"])
+        restored = self.ok("calibrate", object_id=withdrawn["object_id"], scope="image",
+                           xy_scale={"x": .2, "y": -.4, "unit": "1/nm"}, source_text="Restore sourced scale")
+        self.assertEqual(restored["xy_calibration"]["revision"], 4)
+        measured = self.ok("measure", object_id=restored["object_id"], points=[[6, 2], [10, 5]])
+        self.assertAlmostEqual(measured["d_spacing"], 1 / math.hypot(.8, -1.2))
+        self.assertFalse(self.call("calibrate", object_id=restored["object_id"], scope="image",
+                                  coordinate_domain="real_space", xy_scale={"x": 1, "y": 1, "unit": "nm"},
+                                  source_text="Do not reinterpret the reciprocal array")["ok"])
+
+    def test_scale_revision_does_not_invent_a_dc_or_hide_unrepresentable_zero(self):
+        from tools import image_calibration as calibration
+        method = calibration.revised_reciprocal_origin
+        base = {"coordinate_domain": "reciprocal_space", "calibration_id": "a" * 32}
+        scale = calibration.validated_scale({"x": .2, "y": -.4, "unit": "1/nm"}, "reciprocal_space")
+        self.assertEqual(method(base, scale), {})
+        self.assertEqual(method({**base, "coordinate_domain": "real_space", "dc_index_xy": [6, 2]}, scale), {})
+        for dc, steps in (([1e308, 2], {"x": 10., "y": 1.}), ([1e-300, 2], {"x": 1e-100, "y": 1.})):
+            with self.subTest(dc=dc), self.assertRaises(calibration.CalibrationError):
+                method({**base, "dc_index_xy": dc}, steps)
+        # The helper never changes the old record; a withdrawn scale has no
+        # physical zero, but its exact pixel origin remains available.
+        old = {**base, "dc_index_xy": [6, 2], "dc_identity_source": "independent fixture"}
+        before = copy.deepcopy(old)
+        self.assertNotIn("physical_zero_xy", method(old, None))
+        self.assertEqual(old, before)
+
