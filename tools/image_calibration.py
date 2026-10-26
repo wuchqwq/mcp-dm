@@ -78,6 +78,9 @@ def revised_reciprocal_origin(previous, scale):
               "origin_revision_policy": "scale-only correction; unchanged captured pixel DC"}
     if "dc_identity_source" in previous:
         result["dc_identity_source"] = previous["dc_identity_source"]
+    for field in ("centre_revision_id", "centre_source"):
+        if field in previous:
+            result[field] = previous[field]
     if scale is not None:
         zeros = [-value * scale[axis] for value, axis in zip(dc, ("x", "y"))]
         require(all(finite(v) for v in zeros) and
@@ -87,6 +90,33 @@ def revised_reciprocal_origin(previous, scale):
     return result
 
 
+def revised_centre(previous, centre, ident, source_text):
+    """Correct only the reciprocal scalar's declared DC, never its values."""
+    require(previous and previous.get("coordinate_domain") == "reciprocal_space",
+            "Centre revision requires an established reciprocal scalar domain")
+    require(type(centre) is list and len(centre) == 2 and all(finite(v) for v in centre),
+            "centre requires two finite original array-index coordinates")
+    record = dict(previous)
+    record.update(calibration_id=ident, revision=previous["revision"] + 1,
+                  previous_calibration_id=previous["calibration_id"],
+                  source="user_statement_not_independently_verified", source_text=source_text,
+                  dc_index_xy=list(centre), centre_revision_id=ident,
+                  centre_source={"source": "user_statement_not_independently_verified", "source_text": source_text,
+                                 "previous_dc_index_xy": previous.get("dc_index_xy"),
+                                 "previous_calibration_id": previous["calibration_id"]},
+                  dc_identity_source="explicit sourced user centre correction; not independently verified",
+                  calibration_revision_kind="centre_correction",
+                  native_axes_semantics="original captured axes retained as evidence; effective centre is dc_index_xy/physical_zero_xy")
+    scale = previous.get("xy_scale") if previous.get("status") == "active" else None
+    record.pop("physical_zero_xy", None)
+    if scale is not None:
+        record.update(revised_reciprocal_origin(record, scale))
+        # This is an explicit correction, not inheritance of the old centre.
+        record.pop("origin_inherited_from_calibration_id", None)
+        record["origin_revision_policy"] = "explicit sourced centre correction; physical zero recomputed with unchanged signed XY scale"
+    return record
+
+
 def active_scale(record):
     return record.get("xy_scale") if type(record) is dict and record.get("status") == "active" and record.get("coordinate_domain", "real_space") == "real_space" else None
 
@@ -94,7 +124,8 @@ def active_scale(record):
 def dependency(record):
     return {"calibration_id": record["calibration_id"], "revision": record["revision"],
             "status": record["status"], "source": record.get("source", "user_statement_not_independently_verified"),
-            **({"coordinate_domain": record["coordinate_domain"]} if "coordinate_domain" in record else {})} if record else None
+            **({"coordinate_domain": record["coordinate_domain"]} if "coordinate_domain" in record else {}),
+            **({"centre_revision_id": record["centre_revision_id"]} if "centre_revision_id" in record else {})} if record else None
 
 
 def native_record(info, provenance, ident, applies_to):

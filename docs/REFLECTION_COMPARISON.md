@@ -2,9 +2,12 @@
 
 `structure_compare` combines existing tools without prescribing an analysis
 sequence. Its `object_id` is an actual saved diffsims simulation. Supply the
-`manifest_path` values returned by one or more `image_measure` calls through
+`manifest_path` values returned by `image_measure` or `image_remeasure` through
 `measurement_paths`, declare `experimental_kind`, and give explicit registration
-parameters and a reciprocal-coordinate residual tolerance. No peak finding,
+parameters or an exact saved `structure_register` proposal, plus a
+reciprocal-coordinate residual tolerance. See [continuing an analysis](CONTINUING_DIFFRACTION.md)
+for selected current wrappers, correction/history semantics and a connected
+tool example. No peak finding,
 scientific arrays, PNG similarities or Agent-written temporary coordinate JSON
 are substituted for those measurements.
 
@@ -46,8 +49,9 @@ Registration requires all of:
 - `basis`: the supplied alignment evidence or identity assumption.
 
 The transform is `q_compare = scale * Rccw @ diag(1, flip_y ? -1 : 1) @ q_exp + t`.
-The source calibration and measurements are never changed. No parameter is
-automatically fitted. Identity parameters are still an assumption unless their
+The source calibration and measurements are never changed. Comparison does not
+fit parameters; optional [constrained registration](CONSTRAINED_REGISTRATION.md)
+is a separate explicit tool. Identity parameters are still an assumption unless their
 basis has been independently checked; the tool does not mark registration
 verified merely because it can apply it.
 

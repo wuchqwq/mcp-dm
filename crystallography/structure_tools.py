@@ -24,6 +24,7 @@ from ase import Atoms
 from ase.io import read as ase_read
 from crystallography.orientation import from_zone_axis
 from crystallography.reflection_compare import compare as compare_reflections, load_measurement
+from crystallography.analysis_revision import bind_geometry, comparison_revision
 
 BACKEND = "external-structure-workspace"
 MAX_ATOMS = 4096
@@ -38,7 +39,8 @@ FIELDS = {
     "measure": {"object_id", "kind", "atom_indices", "hkls", "directions", "mic"},
     "derive": {"object_id", "repeat", "rotation_deg_xyz", "orientation_id"},
     "orient": {"object_id", "zone_axis_uvw", "in_plane_direction_uvw", "in_plane_rotation_deg"},
-    "compare": {"object_id", "measurement_paths", "experimental_kind", "registration", "max_residual_inv_angstrom", "correspondences"},
+    "compare": {"object_id", "measurement_paths", "experimental_kind", "registration", "registration_object_id", "max_residual_inv_angstrom", "correspondences", "current_image_object_id", "analysis_mode", "previous_comparison_id", "source_change_basis"},
+    "register": {"object_id", "measurement_paths", "experimental_kind", "current_image_object_id", "fit_correspondences", "validation_correspondences", "screen_axes", "confirmation", "max_residual_inv_angstrom"},
     "simulate": {"object_id", "voltage_kv", "euler_rzxz_deg", "orientation_id", "reciprocal_radius_inv_angstrom",
                  "max_excitation_error_inv_angstrom", "size", "sigma_pixels", "with_direct_beam", "native_float32"},
     "result": {"query_request_id"},
@@ -605,7 +607,7 @@ class StructureWorkspace:
                 metadata["orientation"] = record
             elif action == "measure":
                 metadata["measurement"] = measure(atoms, request)
-            elif action == "compare":
+            elif action in ("compare", "register"):
                 need(previous.get("kind") == "simulate" and previous.get("software_provenance", {}).get("diffsims") == "0.7.0",
                      "object_id must be an actual saved qualified diffsims simulation, not a structure/view/PNG")
                 _, simulation_directory = self.object(previous["object_id"])
@@ -626,9 +628,54 @@ class StructureWorkspace:
                     measurements.append(row)
                     sources.append({**source, "fixed_manifest_file": manifest_name, "fixed_journal_file": journal_name,
                                     "measurement_object_id": row["object_id"], "measurement_request_id": row["request_id"]})
-                compared = compare_reflections(measurements, previous, request.get("registration"),
-                                               request.get("max_residual_inv_angstrom"), request.get("experimental_kind"),
-                                               request.get("correspondences"))
+                from crystallography.registration_proposal import propose, geometry_binding
+                mode = request.get("analysis_mode", "continue_current" if request.get("current_image_object_id") else "standalone_snapshot")
+                if action == "register":
+                    need(type(request.get("current_image_object_id")) is str,
+                         "Registration proposals require an explicitly selected current image revision")
+                binding = bind_geometry(measurements, sources, request.get("current_image_object_id"), mode)
+                if action == "register":
+                    compared = propose(measurements, previous, request.get("fit_correspondences"),
+                                       request.get("validation_correspondences", []), request.get("screen_axes"),
+                                       request.get("max_residual_inv_angstrom"), request.get("experimental_kind"),
+                                       request.get("confirmation"))
+                    compared["analysis_binding"] = binding
+                else:
+                    need(("registration" in request) != ("registration_object_id" in request),
+                         "Choose exactly one explicit registration or saved registration_object_id")
+                    registration = request.get("registration")
+                    registration_record = None
+                    if "registration_object_id" in request:
+                        need(mode == "continue_current", "A saved registration requires explicit current geometry; use structure_result to review historical records")
+                        registration_record, _ = self.object(request["registration_object_id"])
+                        need(registration_record.get("kind") == "register" and
+                             registration_record.get("simulation_object_id") == previous["object_id"] and
+                             registration_record.get("simulation_reflections_sha256") == previous["files_sha256"]["reflections.json"] and
+                             registration_record.get("parameters", {}).get("experimental_kind") == request.get("experimental_kind"),
+                             "Registration belongs to a different saved simulation")
+                        need(canonical(registration_record.get("experimental_geometry_binding")) == canonical(geometry_binding(measurements)) and
+                             registration_record.get("analysis_binding", {}).get("scientific_grid_identity") == binding.get("scientific_grid_identity") and
+                             registration_record.get("analysis_binding", {}).get("calibration_dependency") == binding.get("calibration_dependency"),
+                             "Registration uses different points/centre/scale/capture; remeasure and propose a new registration")
+                        registration = registration_record["registration"]
+                    compared = compare_reflections(measurements, previous, registration,
+                                                   request.get("max_residual_inv_angstrom"), request.get("experimental_kind"),
+                                                   request.get("correspondences"))
+                    if registration_record:
+                        compared["registration"]["parameter_source"] = "proper in-plane rotation from the exact saved constrained registration proposal; no refit during this comparison"
+                        compared["registration"]["proposal_object_id"] = registration_record["object_id"]
+                        compared["registration"]["fixed_degrees_of_freedom"] = {"scale": 1., "translation_inv_angstrom": [0., 0.], "flip_y": registration["flip_y"]}
+                        compared["scientific_limits"] = [
+                            "Registration rotation is sourced from a saved constrained fit; this comparison does not refit or change experimental calibration."
+                            if value.startswith("Registration is caller supplied") else value
+                            for value in compared["scientific_limits"]]
+                        compared.update(registration_object_id=registration_record["object_id"],
+                                        fit_validation_evidence={key: registration_record.get(key) for key in
+                                            ("fit_evidence", "validation_evidence", "fit_status", "validation_status", "held_out_validation_passed")},
+                                        comparison_is_not_new_independent_validation=True)
+                    old = self.object(request["previous_comparison_id"])[0] if "previous_comparison_id" in request else None
+                    compared.update(comparison_revision(ident, old, binding, compared["observations"], previous["object_id"],
+                                                        request.get("source_change_basis")))
                 need(len(canonical(compared)) <= MAX_BYTES // 2,
                      "Comparison evidence exceeds1MiB; narrow the explicit reflection list/tolerance; no evidence was truncated", "BUDGET_EXCEEDED")
                 metadata.update(**compared, simulation_object_id=previous["object_id"],
@@ -667,7 +714,7 @@ class StructureWorkspace:
                                              "scipy": importlib.metadata.version("scipy"),
                                              **({"diffsims": importlib.metadata.version("diffsims"), "diffpy.structure": importlib.metadata.version("diffpy.structure")} if action == "simulate" else {}),
                                              "module_sha256": sha(Path(__file__).read_bytes()),
-                                             "helper_modules_sha256": {name: sha(Path(__file__).with_name(name).read_bytes()) for name in ("orientation.py", "reflection_compare.py")}},
+                                             "helper_modules_sha256": {name: sha(Path(__file__).with_name(name).read_bytes()) for name in ("orientation.py", "reflection_compare.py", "registration_proposal.py", "analysis_revision.py")}},
                         files_sha256={file.name: sha(file.read_bytes()) for file in directory.iterdir() if file.is_file()},
                         manifest_path=str(directory / "object.json"))
         if (directory / "preview.png").is_file():

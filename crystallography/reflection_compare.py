@@ -63,12 +63,13 @@ def read(path, maximum=MAX_BYTES):
     return raw
 
 
-def load_measurement(path):
+def load_measurement(path, _depth=0):
     """Read the narrow committed image_measure manifest/journal contract.
 
     The journal proves internal immutable-record consistency, not authenticity
     of an experimental calibration or the absence of unknown future revisions.
     """
+    require(type(_depth) is int and 0 <= _depth <= 16, "Remeasurement ancestry exceeds budget")
     path = Path(path)
     require(path.is_absolute() and path.name == "object.json" and OBJECT_ID.fullmatch(path.parent.name) and
             path.parent.parent.name == "objects", "Use an explicit saved image_measure object.json")
@@ -86,18 +87,31 @@ def load_measurement(path):
     journal = decode(journal_raw)
     parameters = journal.get("parameters", {})
     require(journal.get("request_id") == creator and journal.get("state") == "completed" and
-            parameters.get("action") == "measure" and parameters.get("request_id") == creator and
+            parameters.get("action") in ("measure", "remeasure") and parameters.get("request_id") == creator and
             Path(parameters.get("workspace", "")).resolve() == workspace and
             journal.get("parameters_sha256") == sha(canonical(parameters)) and
             journal.get("object_manifest_sha256") == sha(raw) and
             journal.get("response") == {"ok": True, "state": "completed", "backend": "external-image-workspace", "request_id": creator, **metadata},
             "Measurement manifest differs from its immutable original request")
-    require(set(parameters) <= {"workspace", "action", "request_id", "object_id", "points", "coordinate_space"} and
+    allowed = {"workspace", "action", "request_id", "object_id", "points", "coordinate_space"}
+    if parameters["action"] == "remeasure":
+        allowed = {"workspace", "action", "request_id", "object_id", "measurement_object_id", "points", "source_text"}
+    require(set(parameters) <= allowed and
             type(parameters.get("object_id")) is str and OBJECT_ID.fullmatch(parameters["object_id"]) and
-            metadata.get("parent_object_id") == parameters["object_id"] and
-            type(parameters.get("points")) is list and
-            canonical(parameters["points"]) == canonical(metadata.get("points")),
-            "Measurement points/parent object contradict the saved original request")
+            metadata.get("parent_object_id") == parameters["object_id"],
+            "Measurement parent object contradicts the saved original request")
+    if parameters["action"] == "measure":
+        require(type(parameters.get("points")) is list and
+                canonical(parameters["points"]) == canonical(metadata.get("points")),
+                "Measurement points contradict the saved original request")
+    else:
+        # Reuse the image workspace's exact original-request/point/centre
+        # validator rather than maintaining a second remeasurement algorithm.
+        from tools.image_workspace import Workspace
+        image_workspace = Workspace(str(workspace), writable=False)
+        committed, _ = image_workspace.committed_measurement(metadata["object_id"], depth=_depth)
+        require(canonical(committed) == canonical(metadata),
+                "Remeasurement differs from its committed image-workspace revision")
     # Omitted coordinate_space selects the actual object's domain at creation.
     # An explicit value must match; unsupported aliases are not guessed here.
     require(metadata.get("coordinate_space") in ("source_pixels", "source_array_indices", "frequency_cycles_per_pixel") and

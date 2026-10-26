@@ -33,7 +33,7 @@ FFT 的频率峰也不是自动确认的晶面或物相。预览是否能被模�
 口述 XY 标定、局部修改标记和本地图上选择的试用入口见
 [统一试用说明](docs/UNIFIED_IMAGE_TRIAL.md)；这些能力已整合到主线，但仍须显式配置启用，并遵守各自的实验性支持范围。
 
-功能分支还提供可选的 [ASE 结构与电子衍射工具](docs/STRUCTURE_DIFFRACTION_TOOLS.md)：
+另可启用 [ASE 结构与电子衍射工具](docs/STRUCTURE_DIFFRACTION_TOOLS.md)：
 独立读取 CIF/XYZ，以同一[晶带轴取向](docs/STRUCTURE_ORIENTATION.md)查看结构并调用
 diffsims 运动学模拟，再用明确配准[比较实验测量与模拟反射](docs/REFLECTION_COMPARISON.md)。
 结构窗口支持[复用与显式关闭](docs/STRUCTURE_VIEWER_LIFECYCLE.md)。
@@ -41,6 +41,7 @@ diffsims 运动学模拟，再用明确配准[比较实验测量与模拟反射]
 无需重复输入尺度；缺标定仍可在像素域观察。
 [数值回传 DM](docs/DM_NUMERIC_RELAY.md) 已有限支持新建小型二维 float32 工作图，
 仅接受实空间 `nm` 或倒空间 `1/nm`，不覆盖原图，不把几何一致当作唯一判相。
+更正中心、尺度或点位后，可[复用测量并继续比较](docs/CONTINUING_DIFFRACTION.md)，保留旧版本与独立验证反射。
 
 ## 产品方向：多轮交互式显微分析（规划中）
 

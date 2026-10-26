@@ -23,11 +23,11 @@ function fixture(){const dir=mkdtempSync(path.join(tmpdir(),'dm-images-mcp-'));c
 test('standalone image catalog needs no DM and native opt-in composes without fallback',async()=>{
  const f=fixture();const c=client(f.workspace);try{
   const init=await c.rpc('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'image-fixture',version:'1'}});assert.match(init.result.instructions,/independent Python/);
-  const names=(await c.rpc('tools/list')).result.tools.map(t=>t.name);assert.equal(names.length,15);assert.ok(names.includes('image_fft'));assert.ok(names.includes('image_calibrate'));assert.ok(names.includes('image_panel_current'));assert.ok(!names.includes('dm_status'));
+  const names=(await c.rpc('tools/list')).result.tools.map(t=>t.name);assert.deepEqual([...names].sort(),['image_annotate','image_calibrate','image_center','image_compare','image_context','image_export','image_fft','image_frame','image_info','image_measure','image_open','image_panel_current','image_panel_open','image_panel_show','image_preview','image_remeasure','image_result'].sort());assert.ok(!names.includes('dm_status'));
   assert.ok((await c.tool('dm_status')).error,'standalone mode refuses DM tools');
   const invalid=await c.tool('image_open',{source_path:f.source});assert.equal(invalid.error.code,-32602);assert.equal(existsSync(f.workspace),false);
  }finally{await c.close();}
- const native=client(f.workspace,'native');try{const names=(await native.rpc('tools/list')).result.tools.map(t=>t.name);assert.equal(names.length,36);assert.ok(names.includes('dm_native_frame'));assert.ok(names.includes('image_preview'));assert.ok(names.includes('image_panel_open'));}finally{await native.close();rmSync(f.dir,{recursive:true,force:true});}
+ const native=client(f.workspace,'native');try{const names=(await native.rpc('tools/list')).result.tools.map(t=>t.name);assert.equal(names.length,38);assert.ok(names.includes('dm_native_frame'));assert.ok(names.includes('image_preview'));assert.ok(names.includes('image_panel_open'));assert.ok(names.includes('image_center'));assert.ok(names.includes('image_remeasure'));}finally{await native.close();rmSync(f.dir,{recursive:true,force:true});}
 });
 
 test('MCP TIFF frames, shared-range comparison, revised view, annotation and durable query compose',async()=>{

@@ -6,3 +6,6 @@ ase>=3.26,<4
 matplotlib>=3.8,<4
 pillow>=10,<13
 diffsims==0.7.0
+
+# Validate current image-workspace revisions in the same independent environment.
+tifffile>=2023.7.10,<2027
