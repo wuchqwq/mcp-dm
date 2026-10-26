@@ -63,6 +63,7 @@ const NATIVE_INSTRUCTIONS = [
   "提供有限原生工具：dm_status、dm_datasets、dm_native_mean、dm_native_summary、dm_native_result、dm_crop、dm_native_show、dm_native_unary、dm_native_binary、dm_native_fft、dm_native_complex、dm_native_filter、dm_native_preview、dm_native_read、dm_native_frame、dm_native_result_info、dm_native_release、dm_native_rois、dm_native_profile、dm_native_histogram；rois 仅在对应能力已合格时只读枚举明确图像的显示对象和选区，不自动挑选或裁剪；GUI 选区是非原子执行时快照，旧 ID 的 QUERY 不会刷新当前选区，不把小数或越界选区舍入为分析区域；结果释放只释放插件引用，必须提供创建回执的 token 和预先保存的 request_id；未实现工具明确拒绝，绝不回退到 Python。图像 ID 跨工作区；SHOW 不保证激活结果所在标签页，不能据回执声称当前页或模型已看到图像。mean 只返回原生均值；summary 仅返回 minimum/maximum/sum/mean 四个原生摘要值，均不代表完整 stats，不应用强度标定。已识别的不可用空间标定通过元数据报告，不妨碍 raw intensity 摘要。DM 执行有限算术、Fourier 与滤波；复数 power 为平方模，不是幅值。preview 仅作显示适配，不是科研导出；read 仅交接明确 ROI 的有界原始数值和标定，不写文件或创建图像。dm_native_show 仅为本插件仍持有的已合格结果创建或复用包含该明确 image_id 的可见 DM 文档，不保存文件，不代表模型已看图。正常 STOP/cleanup 释放插件持有的结果引用，不关闭已显示的文档。",
   "每次提交返回 native_receipt 含 session/request_id 和 NB2 原操作身份。frame、crop、show、unary、binary、fft、complex、filter、profile、histogram 等副作用工具必须使用客户端在提交前保存的 request_id；只读 status/datasets/mean/summary/preview/read 可省略并生成 UUID。超时、取消、断连均不代表操作终止，使用 dm_native_result 在原 session 查询同一 ID，不自动重发；STOP 或新 session 不承诺恢复旧结果。",
   "queued/running/unknown 均不是成功。backend 必须检查宿主实际返回值；mock-native 只代表合成测试。",
+  "dm_native_import 是另行门禁的数值交接候选，正常构建禁用。只有明确标注的合成资格构建可试用：接收有界二维 float32 科学 NPY 和来源 JSON，在 DM 新建独立图像；不覆盖源图、不执行脚本、不隐式转换、不自动 SHOW。必须在提交前保存 request_id；恢复只查询原记录。外部计算来源与 DM 原生创建/读取分别记录，工具出现不等于已通过完整实机资格。",
 ].join("\n");
 
 /* ------------------------------------------------------------------ */

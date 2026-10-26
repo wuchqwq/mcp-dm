@@ -54,6 +54,34 @@ tests qualify the final artifact. A separately labeled qualification build is
 for synthetic idle-host testing, not release support. Preserve the host/module
 fingerprint gates and the existing qualified operations.
 
+The labeled candidate has limited synthetic actual-host MCP evidence for new
+image creation, exact READ/NPY round trips, original-ID recovery without a second
+object, explicit document delivery and external diffsims data handoff. A fresh
+same-host independent oracle checked float32 array bits (including signed zero),
+axis order, signed scales, raw origins, physical zero and the ASCII units `nm`
+and `1/nm`. It bound each displayed document to the exact image. The document
+kept its image after plugin RELEASE; after a pre-recorded, identity-checked STOP,
+hidden plugin-only results disappeared while shown images remained. Closing
+only the returned result's document then released that image, leaving the other
+shown arrays unchanged. These observations follow host return/idle, not immediate
+destruction inside the same Python stack. The test host then exited normally;
+the installer removed only its manifest-owned candidate DLL. Saved scientific
+NPY inputs reopened with unchanged hashes after exit. Separate GUI-created DM4
+backups are not an MCP SaveAs qualification.
+
+Earlier failures remain evidence: the initial opened-path refusal and a legacy
+GMS Python unit getter returning `1/?` where the native path reported `1/Å`.
+That earlier session was interrupted by a computer restart; its unfinished
+checks are not reclassified by the new session. ASCII-unit qualification does
+not resolve the Unicode discrepancy. Actual researcher pixel editing followed
+by recapture is still NOT_TESTED. Full qualification stays on HOLD and the
+normal build capability remains disabled.
+
+One external integration gap remains: `image_measure` does not automatically
+activate native axis metadata as an operational `image_calibrate` record. The
+tested relay preserved that metadata but returned pixel geometry only; it did
+not invent or claim a physical measurement.
+
 Offline fakes and scientific NPY checks do not establish real DM behavior.
 Live native readback, independent host-array/oracle checks, document display,
 STOP/reference ownership and real researcher editing must be reported separately.

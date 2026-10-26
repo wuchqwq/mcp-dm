@@ -5,18 +5,37 @@
 The structure/diffraction continuation adds `dm_native_import`, a separate
 bounded float32 NPY/JSON handoff into a new independent DM image. Its normal
 build capability remains disabled. Only a labeled compile-time qualification
-build admits synthetic trials; the final candidate has not completed its own
-live readback, signed-calibration, display and reference-lifetime qualification.
+build admits synthetic trials. The final candidate now has limited actual-host
+MCP creation/readback, signed-calibration, original-ID recovery and explicit
+document-delivery evidence. A fresh synthetic session also passed independent
+same-host array/calibration and document ownership checks, limited to ASCII
+`nm`/`1/nm` units. Exact float32 bits, signed zero, axis order, signed scales,
+raw origins and physical zero were preserved. A shown image survived plugin
+RELEASE; pre-recorded, identity-bound STOP released hidden plugin-only results
+while shown images survived. Closing only the returned result's document then
+released that result, leaving the other shown arrays unchanged. These are
+after-return/idle observations. The host then exited normally and the installer
+removed only its manifest-owned candidate DLL; saved scientific NPY inputs
+reopened with unchanged hashes after exit. GUI backup files do not qualify
+native SaveAs. Actual researcher re-edit/recapture remains NOT_TESTED.
 Keep this distinct from the previously qualified outbound and pixel operations.
 See [the relay contract](../../../docs/DM_NUMERIC_RELAY.md).
 
 A first live trial refused the staged file at the opened-path identity guard,
 before image creation. The original failure is retained. A narrow Windows
 packaged-app path-resolution correction passes offline checks, including exact
-ticket hashes and reparse rejection, but is not a real-host retest. Do not
-replace a loaded DLL or reuse an old session/failed request as fresh acceptance.
-Normal host exit, manifest-managed replacement and a new synthetic session
-remain necessary. STOP acknowledgement alone is not cleanup or normal exit.
+ticket hashes and reparse rejection. A fresh synthetic host then passed the
+limited MCP path above, including external simulation and a native half-result
+captured/measured/returned to a new image. Preserve the initial failure and the
+legacy GMS Python getter's `1/Å` versus `1/?` FAIL. The earlier session was
+interrupted by restart; its unfinished checks remain incomplete. A fresh
+ASCII-unit trial does not repair or qualify Unicode. External `image_measure`
+does not yet activate native calibration metadata as an operational calibration
+record; the relay preserved that metadata and reported pixel geometry only.
+Full qualification remains HOLD; this is not shipping admission. Do not
+reuse an old session/failed request as fresh acceptance. A user-authorized
+forced exit does not qualify normal cleanup. STOP acknowledgement alone is not
+cleanup or normal exit.
 
 ## Explicit pixel-mode continuation
 

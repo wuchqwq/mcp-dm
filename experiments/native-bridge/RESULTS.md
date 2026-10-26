@@ -8,9 +8,28 @@ creation for synthetic testing. Offline contract, fake-adapter, Windows path,
 hash, rejection and receipt checks pass; they are not real DM qualification.
 The initial real-host attempt was refused by the staged opened-path check
 before vendor image creation. Its failure is preserved. The corrected Windows
-session-directory resolution has only offline acceptance; a fresh final-DLL
-live trial, independent oracle, document lifecycle, normal exit and owned
-removal remain HOLD. Existing operation qualifications below do not qualify
+session-directory resolution then passed a fresh actual-host native MCP path:
+exact array/calibration READ/NPY, original-ID recovery/conflict, explicit SHOW
+document identity, external simulation import and a native half-result round
+trip through external measurement. A separate fresh synthetic session passed a
+same-host independent oracle for exact float32 bits/axis order, signed zero,
+signed calibration, raw origins, physical zero and ASCII `nm`/`1/nm` units.
+Exact document contents were checked before and after plugin RELEASE, original
+pre-recorded STOP and closure of only the returned image's document. Displayed
+images survived plugin reference release/STOP; hidden plugin-only results and
+the explicitly closed result were released after host return/idle, with other
+shown arrays unchanged. Normal host exit and manifest-owned candidate removal
+completed; saved scientific NPY inputs reopened with unchanged hashes after exit.
+GUI backup files do not qualify an MCP native-save interface.
+
+The earlier legacy GMS Python unit-getter `1/Å` versus `1/?` FAIL is preserved;
+ASCII-unit checks do not qualify Unicode. That session's restart-interrupted
+checks remain incomplete. Actual researcher re-edit/recapture is NOT_TESTED.
+External `image_measure` currently retains native calibration metadata without
+activating it as an operational calibration record, so that relay measurement
+reports pixel geometry only. Full qualification remains HOLD and the normal
+build stays disabled.
+Existing operation qualifications below do not qualify
 this new operation. See [the numerical relay](../../docs/DM_NUMERIC_RELAY.md).
 
 ## Explicit native pixel mode: limited synthetic qualification
