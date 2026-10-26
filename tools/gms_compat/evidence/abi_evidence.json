@@ -1550,6 +1550,7 @@
       "symbols": [
         {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_id", "rva": null, "note": "pinned RVA lives only in the version profile"},
         {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_is_selected", "rva": null, "note": "pinned RVA lives only in the version profile"},
+        {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_is_rectangle", "rva": null, "note": "pinned RVA lives only in the version profile"},
         {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_rectangle", "rva": null, "note": "pinned RVA lives only in the version profile"},
         {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_raster_count", "rva": null, "note": "pinned RVA lives only in the version profile"},
         {"module": "GMS.dll", "kind": "rva", "name": null, "ordinal": null, "entry_contract": "roi_raster_at", "rva": null, "note": "pinned RVA lives only in the version profile"},

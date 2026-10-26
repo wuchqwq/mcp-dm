@@ -349,11 +349,12 @@ def validate(evidence, check_repo_paths=True):
 
 
 def cross_check_profile(evidence):
-    """Compare recorded module hashes with the pinned C++ profile.
+    """Compare recorded module hashes and entry contracts with the pinned profile.
 
-    The version profile is the runtime source of truth for fingerprints. A
-    mismatch means the inventory is describing a different build than the code
-    admits, which is a blocking inconsistency, not a cosmetic drift.
+    The version profile is the runtime source of truth for fingerprints and for
+    the non-exported entry contracts each capability group resolves. A mismatch
+    means the inventory describes a different build, or silently omits a bound
+    entry, which is a blocking inconsistency rather than cosmetic drift.
     """
     source = (evidence.build or {}).get("identity_source")
     if not source:
@@ -380,6 +381,34 @@ def cross_check_profile(evidence):
         if bool(module.get("check_version")) != check_version:
             issues.append({"code": "profile_check_version_mismatch", "entry": None,
                            "detail": module.get("name") or ""})
+    issues.extend(_cross_check_contracts(evidence, text))
+    return issues
+
+
+def _profile_contracts(text):
+    """Return the (module, contract) pairs the version profile resolves."""
+    pairs = set()
+    for line in text.splitlines():
+        match = re.search(
+            r'\{"([a-z0-9_]+)",\s*"([A-Za-z0-9._\-]+)",\s*0x([0-9a-fA-F]+)\}', line)
+        if match:
+            pairs.add((match.group(2).lower(), match.group(1)))
+    return pairs
+
+
+def _cross_check_contracts(evidence, text):
+    """Every non-exported entry the profile resolves must appear in the inventory."""
+    covered = set()
+    for entry in evidence.entries:
+        for symbol in entry.get("symbols") or []:
+            if symbol.get("kind") == "rva" and symbol.get("entry_contract"):
+                covered.add(((symbol.get("module") or "").lower(),
+                             symbol["entry_contract"]))
+    issues = []
+    for module, contract in sorted(_profile_contracts(text)):
+        if (module, contract) not in covered:
+            issues.append({"code": "profile_contract_not_in_evidence", "entry": None,
+                           "detail": "%s:%s" % (module, contract)})
     return issues
 
 

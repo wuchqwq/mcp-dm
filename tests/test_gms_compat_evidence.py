@@ -195,6 +195,14 @@ class GateTamperTests(unittest.TestCase):
         self.assertIn("offline_test_not_found",
                       codes(evidence_module.validate(broken)))
 
+    def test_a_profile_contract_missing_from_the_inventory_is_detected(self):
+        broken = self.tampered()
+        entry = self.entry(broken, "roi.geometry")
+        entry["symbols"] = [symbol for symbol in entry["symbols"]
+                            if symbol.get("entry_contract") != "roi_is_rectangle"]
+        self.assertIn("profile_contract_not_in_evidence",
+                      codes(evidence_module.cross_check_profile(broken)))
+
 
 class SchemaContractTests(unittest.TestCase):
     """The published JSON Schema must state exactly what the validator enforces."""

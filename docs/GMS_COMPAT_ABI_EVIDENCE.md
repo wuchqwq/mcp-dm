@@ -76,7 +76,7 @@ operation built on it is admitted for another build or dtype.
 | `document.factory_show` | document | `image_get_or_create_document`, `image_document_show` | `QUALIFIED_LIMITED` | native_display, native_uint32_display, native_profile_display, native_histogram_display, native_numeric_import_display |
 | `document.holders` | document | `destroy_document_holder`, `destroy_window` | `QUALIFIED_LIMITED` | native_display, native_profile_display, native_histogram_display |
 | `roi.display_resolution` | roi | `roi_image_display_count`, `roi_image_display_at`, `roi_resolve_display`, `roi_display_image`, `roi_destroy_display_holder`, `roi_destroy_roi` | `QUALIFIED_LIMITED` | native_gui_rois, native_line_profile |
-| `roi.geometry` | roi | `roi_id`, `roi_is_selected`, `roi_rectangle`, `roi_raster_count`, `roi_raster_at`, `roi_raster_dimensions`, `roi_raster_mapping`, `roi_raster_slice_id`, `roi_simple_source_count`, `roi_simple_source_slice_id`, `roi_simple_source_extents` | `QUALIFIED_LIMITED` | native_gui_rois |
+| `roi.geometry` | roi | `roi_id`, `roi_is_selected`, `roi_is_rectangle`, `roi_rectangle`, `roi_raster_count`, `roi_raster_at`, `roi_raster_dimensions`, `roi_raster_mapping`, `roi_raster_slice_id`, `roi_simple_source_count`, `roi_simple_source_slice_id`, `roi_simple_source_extents` | `QUALIFIED_LIMITED` | native_gui_rois |
 | `roi.line_profile` | roi | `roi_is_line`, `roi_line`, `line_profile_extract` | `QUALIFIED_LIMITED` | native_line_profile, native_profile_display |
 | `presentation.plot_style` | presentation | `plot_style_get`, `plot_style_set` | `STATIC_CANDIDATE` | native_line_plot_style |
 | `blocked.save` | blocked |  | `BLOCKED` | native_save |
@@ -1116,6 +1116,7 @@ On any build change re-derive: sha256, rva, call_shape, layout, ownership, vtabl
 - Bindings:
   - non-exported entry contract `roi_id` in `GMS.dll` (RVA lives only in the version profile)
   - non-exported entry contract `roi_is_selected` in `GMS.dll` (RVA lives only in the version profile)
+  - non-exported entry contract `roi_is_rectangle` in `GMS.dll` (RVA lives only in the version profile)
   - non-exported entry contract `roi_rectangle` in `GMS.dll` (RVA lives only in the version profile)
   - non-exported entry contract `roi_raster_count` in `GMS.dll` (RVA lives only in the version profile)
   - non-exported entry contract `roi_raster_at` in `GMS.dll` (RVA lives only in the version profile)
