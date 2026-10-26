@@ -50,6 +50,16 @@ Use `structure_derive` for an actual model transform. An unavailable component
 leaves the PNG explicitly two-dimensional. URL readiness is distinct from actual
 browser/WebGL acceptance. The viewer survives MCP disconnect and reuses the same
 view's original connection; uncertain launches are not repeated automatically.
+The viewer defaults to atoms. Its optional “几何近邻球棍” display uses the pinned
+component's [distance-only `assignBonds()`](https://3dmol.org/doc/GLModel.html#assignBonds),
+not a chemical/DFT calculation: the renderer's radius-table sum plus 0.25 Å,
+with its 1.6 Å fallback for missing table entries, excluding squared distances
+below 0.5 Å². It does not check valence or infer bond
+order/covalency, and searches only atoms present in this snapshot, without
+periodic-image contacts. This presentation is limited to 512 atoms and 8,192
+undirected links; exceeding either limit refuses the whole contact display,
+without truncation. Counts and the policy remain visible. Switching display
+preserves the camera, source coordinates, cell, PBC and fixed snapshot hash.
 Reuse an existing interactive view for camera changes. Distinct interactive
 view IDs currently start distinct local helpers; a close/expiry tool has not
 been implemented, so repeated new views are not a bounded shared viewer pool.

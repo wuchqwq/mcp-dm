@@ -9,6 +9,24 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 export const STRUCTURE_VIEWER_VERSION='2.5.5';
+export const STRUCTURE_CONTACT_POLICY=Object.freeze({engine:'3Dmol.js GLModel.assignBonds',atom_budget:512,undirected_contact_budget:8192,radius_policy:'3Dmol radius lookup sum + 0.25 angstrom; missing entries use component fallback 1.6 angstrom',fallback_radius_angstrom:1.6,minimum_distance_squared_angstrom2:.5,periodic_images:false,valence_constraints:false,bond_order_inferred:false,dft_calculation:false});
+// Inspect the mature renderer's graph only; never calculate replacement bonds.
+// It is a private presentation copy, not the hash-bound scientific snapshot.
+export function inspectRendererContacts(atoms,structure,policy=STRUCTURE_CONTACT_POLICY){
+ if(!Array.isArray(atoms)||atoms.length!==structure.atom_count||atoms.length>policy.atom_budget)throw new Error('Geometric contacts require at most '+policy.atom_budget+' atoms');
+ const rows=atoms.map((atom,i)=>{
+  const position=structure.positions_angstrom[i];
+  if(atom.index!==i||atom.elem!==structure.symbols[i]||atom.x!==position[0]||atom.y!==position[1]||atom.z!==position[2])throw new Error('Renderer changed the fixed atomic coordinates or identity');
+  if(!Array.isArray(atom.bonds)||!Array.isArray(atom.bondOrder)||atom.bonds.length!==atom.bondOrder.length||atom.bonds.length>=atoms.length)throw new Error('Invalid bounded renderer contact graph');
+  const neighbors=new Set();
+  atom.bonds.forEach((other,j)=>{if(!Number.isInteger(other)||other<0||other>=atoms.length||other===i||neighbors.has(other)||atom.bondOrder[j]!==1)throw new Error('Invalid renderer contact identity/order');neighbors.add(other);});
+  return neighbors;
+ });
+ let directed=0;rows.forEach((neighbors,i)=>{directed+=neighbors.size;for(const other of neighbors)if(!rows[other].has(i))throw new Error('Renderer contact graph is not symmetric');});
+ const count=directed/2;
+ if(count>policy.undirected_contact_budget){const error=new Error('几何近邻共 '+count+' 条，超过 '+policy.undirected_contact_budget+' 条上限；整组不显示，不截断。');error.contact_count=count;throw error;}
+ return count;
+}
 const elements=new Set(('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og').split(' '));
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const finite=value=>typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<=1e6;
@@ -42,22 +60,51 @@ export function read3DmolAsset(assetPath){
  const license=ordinary(path.join(directory,'LICENSE'),64*1024);
  return {bytes,license,sha256:sha(bytes),name:'3Dmol.js',version:pkg.version,license_id:pkg.license};
 }
-const html='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>mcp-dm · ASE 结构</title><link rel="stylesheet" href="/viewer.css"></head><body><header><strong>ASE 结构快照 · 3Dmol.js</strong><button id="reset">重置相机</button><span id="summary"></span></header><p>拖动旋转，滚轮缩放。只改变相机，不修改原子、晶胞或晶向；未推断化学键，也不是电子衍射模拟。</p><div id="viewer" aria-label="只读三维原子结构"></div><p id="message" role="status">正在加载本地 3Dmol.js…</p><details><summary>来源与相机状态</summary><pre id="viewer-status"></pre><pre id="camera-state"></pre><a href="/LICENSE-3Dmol.txt">3Dmol.js · BSD-3-Clause</a></details><script src="/3Dmol-min.js"></script><script type="module" src="/viewer.mjs"></script></body></html>';
-const css=':root{font-family:system-ui,sans-serif;background:#f4f5f6;color:#202a33}body{margin:0;padding:12px}header{display:flex;align-items:center;gap:16px;flex-wrap:wrap}button{padding:7px 12px;cursor:pointer}p,summary{font-size:13px}#viewer{position:relative;height:calc(100vh - 190px);min-height:320px;width:100%;background:white}pre{font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}#message{color:#34596b}';
+const html='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>mcp-dm · ASE 结构</title><link rel="stylesheet" href="/viewer.css"></head><body><header><strong>ASE 结构快照 · 3Dmol.js</strong><label>显示 <select id="display-mode" disabled><option value="atoms">原子</option><option value="contacts">几何近邻球棍</option></select></label><button id="reset">重置相机</button><span id="summary"></span></header><p>拖动旋转，滚轮缩放。只改变显示，不修改原子坐标、晶胞或模拟取向。</p><div id="viewer" aria-label="只读三维原子结构"></div><p id="message" role="status">正在加载本地 3Dmol.js…</p><p id="contact-summary" role="status">默认只显示原子，尚未计算几何近邻。</p><p id="contact-policy">几何近邻按 3Dmol 半径表之和 + 0.25 Å 连接（缺项用组件默认 1.6 Å），排除距离² &lt; 0.5 Å²；仅当前快照，不跨周期边界。不判定键级、共价性，也不是 DFT。</p><details><summary>来源与相机状态</summary><pre id="viewer-status"></pre><pre id="contact-state"></pre><pre id="camera-state"></pre><a href="/LICENSE-3Dmol.txt">3Dmol.js · BSD-3-Clause</a></details><script src="/3Dmol-min.js"></script><script type="module" src="/viewer.mjs"></script></body></html>';
+const css=':root{font-family:system-ui,sans-serif;background:#f4f5f6;color:#202a33}body{margin:0;padding:12px}header{display:flex;align-items:center;gap:16px;flex-wrap:wrap}button,select{padding:7px 12px;cursor:pointer}p,summary,label{font-size:13px}#viewer{position:relative;height:calc(100vh - 270px);min-height:320px;width:100%;background:white}pre{font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}#message{color:#34596b}#contact-policy{color:#52606a;font-size:12px}';
 const script=`const $=id=>document.getElementById(id),key='mcp-dm-structure-view-token',hash=location.hash.slice(1);
+const CONTACT_POLICY=${JSON.stringify(STRUCTURE_CONTACT_POLICY)},inspectContacts=${inspectRendererContacts.toString()};
 if(hash){sessionStorage.setItem(key,hash);history.replaceState(null,'',location.pathname);}const token=sessionStorage.getItem(key);
 try{
  const response=await fetch('/api/structure',{headers:{'X-Viewer-Token':token}}),data=await response.json();if(!response.ok)throw new Error(data.error??'读取结构失败');
  if(!globalThis.$3Dmol?.createViewer)throw new Error('本地 3Dmol.js 未就绪；不将二维投影冒充三维显示');
  const structure=data.structure,viewer=$3Dmol.createViewer('viewer',{backgroundColor:'white'}),model=viewer.addModel();
- model.addAtoms(structure.symbols.map((elem,i)=>({elem,x:structure.positions_angstrom[i][0],y:structure.positions_angstrom[i][1],z:structure.positions_angstrom[i][2],serial:i+1,bonds:[],bondOrder:[]})));
+ const renderAtoms=()=>structure.symbols.map((elem,i)=>({elem,x:structure.positions_angstrom[i][0],y:structure.positions_angstrom[i][1],z:structure.positions_angstrom[i][2],serial:i+1,bonds:[],bondOrder:[]}));
+ model.addAtoms(renderAtoms());
  viewer.setStyle({},{sphere:{scale:.35}});
  if(structure.cell_drawn){const [a,b,c]=structure.cell_angstrom;model.setCrystMatrix(new $3Dmol.Matrix3(a[0],b[0],c[0],a[1],b[1],c[1],a[2],b[2],c[2]));viewer.addUnitCell(model,{box:{color:'#65747d'},alabel:'a',blabel:'b',clabel:'c'});}
  viewer.zoomTo();viewer.render();const initial=viewer.getView();
  const camera=()=>{$('camera-state').textContent=JSON.stringify({camera_only:true,translation_zoom_quaternion:viewer.getView(),scientific_coordinates_changed:false});};viewer.setViewChangeCallback(camera);camera();
+ let mode='atoms',contacts={state:'not_computed',contact_count:null},attempted=false;
+ const status=()=>{
+  const contactState={...contacts,active_contact_count:mode==='contacts'?contacts.contact_count:0,representation:mode,policy:CONTACT_POLICY,scientific_coordinates_changed:false};
+  $('contact-state').textContent=JSON.stringify(contactState);
+  $('viewer-status').textContent=JSON.stringify({state:'rendered',renderer:data.renderer,object_id:structure.object_id,atom_count:structure.atom_count,cell_drawn:structure.cell_drawn,pbc:structure.pbc,snapshot_sha256:data.snapshot_sha256,camera_only:true,scientific_coordinates_changed:false,representation:mode,geometric_contacts:contactState});
+  $('contact-summary').textContent=contacts.state==='refused'?'几何近邻未启用：'+contacts.reason:mode==='contacts'?'几何近邻球棍 · '+contacts.contact_count+' 条（仅当前快照）':contacts.state==='ready'?'原子显示 · 已计算的 '+contacts.contact_count+' 条几何近邻未显示。':'默认只显示原子，尚未计算几何近邻。';
+ };
+ $('display-mode').value='atoms';$('display-mode').disabled=false;
+ $('display-mode').onchange=()=>{
+  const savedView=viewer.getView().slice();let changedGraph=false;
+  try{
+   const requested=$('display-mode').value;if(!['atoms','contacts'].includes(requested))throw new Error('未知显示模式');
+   if(requested==='contacts'&&!attempted){
+    attempted=true;
+    if(structure.atom_count>CONTACT_POLICY.atom_budget)throw new Error('最多为 '+CONTACT_POLICY.atom_budget+' 个原子显示几何近邻；整组不显示，不截断。');
+    if(typeof model.assignBonds!=='function'||typeof model.selectedAtoms!=='function'||typeof model.removeAtoms!=='function')throw new Error('当前本地 3Dmol 组件不提供所需的几何近邻接口');
+    changedGraph=true;model.assignBonds();
+    contacts={state:'ready',contact_count:inspectContacts(model.selectedAtoms({}),structure,CONTACT_POLICY)};
+   }
+   mode=requested==='contacts'&&contacts.state==='ready'?'contacts':'atoms';
+   viewer.setStyle({},mode==='contacts'?{sphere:{scale:.23},stick:{radius:.12,singleBonds:true}}:{sphere:{scale:.35}});
+  }catch(error){
+   // Discard the complete renderer-only graph on refusal; never truncate it.
+   if(changedGraph){model.removeAtoms(model.selectedAtoms({}));model.addAtoms(renderAtoms());}
+   contacts={state:'refused',contact_count:error.contact_count??null,reason:error.message};mode='atoms';viewer.setStyle({},{sphere:{scale:.35}});
+  }finally{ $('display-mode').value=mode;viewer.setView(savedView);viewer.render();camera();status(); }
+ };
  $('reset').onclick=()=>{viewer.setView(initial);viewer.render();camera();};window.addEventListener('resize',()=>{viewer.resize();viewer.render();});
  $('summary').textContent=structure.atom_count+' 个原子 · Å · '+(structure.cell_drawn?'有晶胞':'无三维晶胞');
- $('viewer-status').textContent=JSON.stringify({state:'rendered',renderer:data.renderer,object_id:structure.object_id,atom_count:structure.atom_count,cell_drawn:structure.cell_drawn,pbc:structure.pbc,snapshot_sha256:data.snapshot_sha256,camera_only:true,scientific_coordinates_changed:false});
+ status();
  $('message').textContent='只读三维显示已就绪。相机旋转不代表已把结构按某个晶带轴定向。';
 }catch(error){$('message').textContent=error.message;$('viewer-status').textContent=JSON.stringify({state:'not_rendered',interactive_3d:false,error:error.message});}`;
 
@@ -65,7 +112,7 @@ export async function createStructureViewer({structure,assetPath,port=0}={}){
  const snapshot=validateStructureSnapshot(structure),asset=read3DmolAsset(assetPath);
  require(Number.isInteger(port)&&port>=0&&port<=65535,'Invalid loopback port');
  const token=randomBytes(24).toString('hex'),snapshotBytes=Buffer.from(JSON.stringify(snapshot)),snapshotHash=sha(snapshotBytes);
- const renderer={name:asset.name,version:asset.version,license:asset.license_id,asset_sha256:asset.sha256,mode:'local WebGL, camera only; no model edits'};
+ const renderer={name:asset.name,version:asset.version,license:asset.license_id,asset_sha256:asset.sha256,mode:'local WebGL, presentation only; no scientific model edits'};
  const server=http.createServer((req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
   try{
