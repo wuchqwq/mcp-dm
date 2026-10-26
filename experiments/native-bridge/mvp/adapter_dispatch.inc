@@ -39,7 +39,7 @@ std::string compatibility_fields() {
                 if (capability.name == spec.name) reason = capability.reason;
             fields += "{\"name\":" + nb::quote(spec.name) + ",\"available\":" +
                 (selected_adapter.available(spec.name) ? "true" : "false") +
-                ",\"qualification\":" + nb::quote(spec.qualified ? "LIMITED_REAL_HOST" : "NOT_QUALIFIED") +
+                ",\"qualification\":" + nb::quote(nb::gms353::kImportQualificationBuild353 && (std::string(spec.name) == "native_numeric_import" || std::string(spec.name) == "native_numeric_import_display") ? "CANDIDATE_BUILD_NOT_RELEASE_QUALIFIED" : spec.qualified ? "LIMITED_REAL_HOST" : "NOT_QUALIFIED") +
                 ",\"scope\":" + nb::quote(spec.scope) + ",\"reason\":" + nb::quote(reason) + '}';
         }
     }
@@ -120,6 +120,7 @@ std::string execute_native(const NativeRequest& request) {
         request.op == "PROFILE" ? "native_line_profile" :
         request.op == "HISTOGRAM" ? "native_histogram" :
         request.op == "FRAME" ? "native_frame" :
+        request.op == "IMPORT" ? "native_numeric_import" :
         request.op == "RELEASE" || request.op == "RESULT_INFO" ? "native_result_release" : nullptr;
     if (required && !selected_adapter.available(required))
         throw std::runtime_error(std::string("native_capability_unavailable:") + required);

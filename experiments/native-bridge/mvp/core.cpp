@@ -15,6 +15,7 @@ constexpr OperationContract kContracts[] = {
     {"MEAN", 1, "native_mean"}, {"SUMMARY", 1, "native_summary"},
     {"CROP", 5, "image_crop"}, {"SHOW", 1, "image_delivery"}, {"STOP", 0, "ipc_stop"},
     {"FRAME", 2, "native_frame_copy"},
+    {"IMPORT", 27, "native_numeric_import"},
     {"CROP_PIXEL", 5, "image_crop"}, {"FILTER_PIXEL", 2, "native_image_operation"},
     {"FFT_PIXEL", 1, "native_fourier_operation", 2}, {"IFFT_PIXEL", 1, "native_fourier_operation", 2},
     {"REAL_PIXEL", 1, "native_fourier_operation", 2}, {"IMAG_PIXEL", 1, "native_fourier_operation", 2},

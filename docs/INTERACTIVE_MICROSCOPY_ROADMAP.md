@@ -32,7 +32,7 @@ ROI、线剖面、直方图、FFT、ASE 索引都只是基础能力；以**实�
 - 选中**明确** image ID、源区域和版本/宿主会话。保留图像类型、轴序、像素尺寸、带符号比例尺、物理零点、单位和完整来源。DM 图像 ID 不是像素快照；旧 QUERY 只是历史回执。
 - 同一个捕获对应两类输出：**可供人或多模态模型查看的 preview** 和 **保留 dtype、标定与哈希的科学数组**。两者不能互相代替；视觉理解须由实际客户端测试证明。
 - 支持小区域到有界完整交接的渐进路径。大数据先降采样仅用于预览；需要定量时对确定的区域取原始数值，不让大图通过 MCP 文本无限灌入上下文。
-- 外部分析不能将已导出的结果自动写回 DM。若未来需要写回或激活工作区，必须另有真实原生接口、所有权与授权验收。
+- 外部结果回到 DM 必须经过明确选择、受限原生数值导入及独立验收；[首个 float32 导入候选](DM_NUMERIC_RELAY.md) 只创建新图像，不覆盖源图。工作区自动激活仍未实现。
 
 ### 二、显示配方与科学变换必须分开
 
@@ -69,7 +69,7 @@ ROI、线剖面、直方图、FFT、ASE 索引都只是基础能力；以**实�
 | [HyperSpy Live FFT](https://hyperspy.org/hyperspy-doc/current/auto_examples/region_of_interest/fast_fourier_transform_live.html) | ROI 驱动的交互式 FFT、频谱与图像联动 | 参考“变 ROI→更新派生视图”行为与实验；不将其 FFT 偷换成已宣称的 DM 原生 FFT |
 | [pyXem](https://www.pyxem.org/en/latest/) | 衍射斑点、标定、向量与多维电子衍射工作流 | 参考科学表示与检验思路，按实际任务选择集成 |
 | [ASE](https://wiki.fysik.dtu.dk/ase/) / [orix](https://orix.readthedocs.io/en/latest/) | 晶胞/CIF、倒易基矢、取向/晶面指数 | 延续可选外部晶体学后端；不是图片显示 UI |
-| [diffsims](https://diffsims.readthedocs.io/en/latest/) | 理论电子衍射图案的候选模拟 | 以后按需集成，先检查适用模型、依赖与 GPLv3 许可边界 |
+| [diffsims](https://diffsims.readthedocs.io/en/latest/) | 运动学电子衍射的点位、索引及近似强度 | 功能分支已有可调用的受限外部路径；保留适用模型、偏斜晶胞枚举门禁与 GPLv3 许可边界，见 [结构工具](STRUCTURE_DIFFRACTION_TOOLS.md) |
 | [Gatan DIFPack](https://www.gatan.com/products/tem-imaging-spectroscopy/difpack-module) | DM 自身的晶格、角度、衍射/FFT 标定与峰位精化工作流 | 用于功能/用户体验对照；不假定已安装或拥有可用 C++ ABI |
 
 **对选型保留裁量：**先评估如何用现有工具与轻量渲染/保存得到连续体验，再决定是否引入 napari/HyperSpy 的运行依赖。新的 UI、插件或外部进程必须带来明确的可验收改善，而不是架构目标本身。

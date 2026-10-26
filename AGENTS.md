@@ -53,6 +53,26 @@ call boundaries only. Never count them as production tool support, bind them
 to arbitrary vendor addresses, or add them to the shipping plugin/catalog
 before per-operator ABI, scientific and ownership qualification.
 
+## Explicit structure and numerical relay scope
+
+The structure/diffraction companion is now an optional composable tool route,
+not a mandatory phase-identification pipeline. `structure_*` uses ASE and an
+explicit external diffsims kinematic engine in its own environment; the local
+3Dmol viewer changes only the camera. See docs/STRUCTURE_DIFFRACTION_TOOLS.md.
+It is not a native fallback, and an experimental FFT is not a simulated SAED
+intensity image. Preserve generic cells, cell-free XYZ observation, source
+snapshots, software/approximation parameters and candidate uncertainty.
+
+The explicitly authorized `dm_native_import` candidate is a numerical handoff
+exception to the earlier outbound-only workflow: bounded finite float32 NPY,
+source/provenance hashes, signed raw-index calibration and a new independent DM
+image. No arbitrary scripts, hidden casts, DM tag writes or source overwrite.
+The normal adapter group remains disabled until separately qualified; a labeled
+synthetic qualification build must not be represented as release support. No
+new build fingerprint is admitted. See docs/DM_NUMERIC_RELAY.md. Mature external
+scientific tools may produce this explicit input; do not label their computation
+DM-native or present a display PNG as scientific intensity.
+
 ## Architecture and ownership
 
 The explicit external `crystallography/` companion is authorized separately by
@@ -86,7 +106,7 @@ docs/CRYSTALLOGRAPHY_WORKFLOW.md before changing this companion.
 
 The default public MCP catalog has 21 tools, including the four fixed-input 2D capture/preview/analyze/result tools and the existing 4D tools. Codex exposes 20 after `dm_run_script` is added to `disabled_tools`. Registration must refuse existing names before changing configuration. Keep file I/O, DM-native API adaptation and arithmetic separable. Do not duplicate a virtual-detector kernel for native vs NumPy input.
 
-The separate experimental native catalog has twenty entries: dm_status,
+The separate experimental native catalog has twenty qualified-interface entries plus the gated dm_native_import candidate: dm_status,
 dm_datasets, dm_native_mean, dm_native_summary, dm_native_result, dm_crop,
 dm_native_show, dm_native_unary, dm_native_binary, dm_native_fft,
 dm_native_complex, dm_native_filter, dm_native_preview, dm_native_read, dm_native_frame, dm_native_result_info, dm_native_release, dm_native_rois, dm_native_profile and dm_native_histogram.

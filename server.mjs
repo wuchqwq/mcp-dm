@@ -23,6 +23,8 @@ import process from "node:process";
 import { NativeBridge, NativeBridgeError, validRequestId } from "./lib/native_bridge.mjs";
 import { nativePreviewImage } from "./lib/native_preview.mjs";
 import {ImageWorkspace, imageTools, IMAGE_INSTRUCTIONS} from './lib/image_workspace.mjs';
+import {StructureWorkspace, structureTools, STRUCTURE_INSTRUCTIONS} from './lib/structure_workspace.mjs';
+import {nativeImportTool,callNativeImport} from './lib/native_import.mjs';
 import {ImagePanelManager, imagePanelTools, IMAGE_PANEL_INSTRUCTIONS} from './lib/image_panel_mcp.mjs';
 
 const BACKEND = process.env.DM_MCP_BACKEND === undefined ? "python" : process.env.DM_MCP_BACKEND;
@@ -33,6 +35,7 @@ const imagePanels = imageWorkspace ? new ImagePanelManager({workspace:imageWorks
   const result=await imageWorkspace.call('image_info',{object_id});
   if(result.isError)throw new Error('Image object inspection failed');
 }}) : null;
+const structureWorkspace=process.env.DM_STRUCTURE_WORKSPACE?new StructureWorkspace({workspace:process.env.DM_STRUCTURE_WORKSPACE}):null;
 const BRIDGE_HOST = process.env.DM_BRIDGE_HOST || "127.0.0.1";
 const BRIDGE_PORT = Number(process.env.DM_BRIDGE_PORT || 8765);
 const TIMEOUT_MS = Number(process.env.DM_MCP_TIMEOUT_MS || 30000);
@@ -502,6 +505,7 @@ const nativeTools = [
     max: {type: 'number', description: 'binary32 原始强度上界；必须 >= 源原生 maximum'},
     request_id: NATIVE_SAVED_REQUEST_ID,
   }, ['image_id', 'bins', 'min', 'max', 'request_id']),
+  nativeImportTool,
 ];
 
 function nativeFloatBits(value) {
@@ -549,9 +553,10 @@ async function callNativeTool(name, args, signal) {
   if (name === "dm_native_read" && (args.rect[2] - args.rect[0]) * (args.rect[3] - args.rect[1]) > 16384) throw new RpcError(-32602, "READ ROI 超出 16384 样本预算");
   try {
     const options = {requestId: args.request_id, signal};
-    const reply = name === "dm_native_result" ? await bridge.query(args.request_id, options)
+    const reply = name === "dm_native_import" ? await callNativeImport(bridge,args,options)
+      : name === "dm_native_result" ? await bridge.query(args.request_id, options)
       : await bridge.execute(...nativeInvocation(name, args), options);
-    const {result, ...receipt} = reply;
+    const {result, import_handoff, ...receipt} = reply;
     const native_receipt = {...receipt, request_id: receipt.id};
     if (reply.state === "completed" && name === "dm_native_mean" && (typeof result.mean !== "number" || !Number.isFinite(result.mean))) {
       throw new NativeBridgeError("Native MEAN completed without a finite numeric mean", {session: bridge.session, requestId: reply.id, code: "NATIVE_PROTOCOL", sent: true});
@@ -570,7 +575,7 @@ async function callNativeTool(name, args, signal) {
         (result.image_id !== args.image_id || result.delivery !== "visible_dm_document" || result.document_visible !== true)) {
       throw new NativeBridgeError("Native SHOW completed without the requested image identity and visible DM document delivery", {session: bridge.session, requestId: reply.id, code: "NATIVE_PROTOCOL", sent: true});
     }
-    const output = reply.state === "completed" ? {...result, native_receipt} : {native_receipt, error: reply.error || `Native request is ${reply.state}; only completed is success`};
+    const output = reply.state === "completed" ? {...result, ...(import_handoff?{import_handoff}:{}), native_receipt} : {native_receipt, error: reply.error || `Native request is ${reply.state}; only completed is success`};
     // SHOW confirms document delivery, not the active workspace or GUI focus.
     // Also annotate recovered historical SHOWs; this is adapter policy, not
     // a fresh visibility probe or a rewrite of the stored native receipt.
@@ -758,6 +763,15 @@ function validate(value, schema, label = "arguments") {
 }
 
 async function callTool(name, args, signal) {
+  if(structureWorkspace&&structureTools.some(t=>t.name===name)){
+    const entry=structureTools.find(t=>t.name===name);args=args===undefined?{}:args;validate(args,entry.inputSchema);
+    const result=await structureWorkspace.call(name,args,signal);
+    if(name==='structure_view'&&args.interactive===true){
+      const {attachStructureViewer}=await import('./lib/structure_viewer_client.mjs');
+      return attachStructureViewer(result,{workspace:structureWorkspace.workspace,assetPath:process.env.DM_STRUCTURE_VIEWER_ASSET,inspect:object_id=>structureWorkspace.call('structure_info',{object_id,include_atoms:true}),signal});
+    }
+    return result;
+  }
   if (imagePanels && imagePanelTools.some(t=>t.name===name)) {
     const entry=imagePanelTools.find(t=>t.name===name);
     args=args===undefined?{}:args;validate(args,entry.inputSchema);
@@ -841,11 +855,11 @@ async function handle(msg) {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-      instructions: (BACKEND === 'images' ? '' : BACKEND === "native" ? NATIVE_INSTRUCTIONS : INSTRUCTIONS) + (imageWorkspace ? '\n'+IMAGE_INSTRUCTIONS+'\n'+IMAGE_PANEL_INSTRUCTIONS : ''),
+      instructions: (BACKEND === 'images' ? '' : BACKEND === "native" ? NATIVE_INSTRUCTIONS : INSTRUCTIONS) + (imageWorkspace ? '\n'+IMAGE_INSTRUCTIONS+'\n'+IMAGE_PANEL_INSTRUCTIONS : '')+(structureWorkspace?'\n'+STRUCTURE_INSTRUCTIONS:''),
     });
   }
   if (method === "ping") return ok(id, {});
-  if (method === "tools/list") return ok(id, { tools: [...(BACKEND === 'images' ? [] : BACKEND === "native" ? nativeTools : tools), ...(imageWorkspace ? [...imageTools,...imagePanelTools] : [])] });
+  if (method === "tools/list") return ok(id, { tools: [...(BACKEND === 'images' ? [] : BACKEND === "native" ? nativeTools : tools), ...(imageWorkspace ? [...imageTools,...imagePanelTools] : []),...(structureWorkspace?structureTools:[])] });
   if (method === "tools/call") {
     if (!params || typeof params.name !== "string") return fail(id, -32602, "需要工具名称");
     if (running.has(id)) return fail(id, -32600, "Duplicate in-flight request id");

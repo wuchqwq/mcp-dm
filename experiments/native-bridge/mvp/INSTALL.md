@@ -30,6 +30,12 @@ synthetic host and core tests without building the real-DM plugin. The real
 build produces `build/dm_native_bridge.dll`. The installer gives its installed
 copy the distinct fixed name `dm_native_bridge_mvp.dll`.
 
+The numerical-import candidate is disabled in normal builds. The explicit
+`-ImportQualificationBuild` switch creates a labeled synthetic-test artifact;
+it is not release qualification. Its dedicated live acceptance remains HOLD.
+See [the bounded relay contract](../../../docs/DM_NUMERIC_RELAY.md). This flag
+does not relax host fingerprints or permit replacement while DM is loaded.
+
 ## Inspect and install with DM closed
 
 Disconnect clients and close DigitalMicrograph normally before installing.
@@ -75,7 +81,7 @@ receipts and session before numerical work. `mock-native` is synthetic evidence
 only. Also inspect compatibility: `SUPPORTED` admits the matching profile;
 `UNSUPPORTED_BUILD`, `ABI_MISMATCH` and `NOT_READY` reject image operations.
 `native_statistics` is the complete four-reduction SUMMARY group, with
-`native_mean` reported separately. The twenty-tool catalog additionally exposes
+`native_mean` reported separately. The twenty established tools additionally expose
 limited arithmetic, Fourier, filters, preview and numeric READ; see the
 [tool table](README.md#public-native-tools) and [data handoff workflow](NATIVE_WORKFLOW.md).
 Explicit-ID half-open `dm_crop` creates a separate

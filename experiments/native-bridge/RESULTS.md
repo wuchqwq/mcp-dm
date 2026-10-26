@@ -1,5 +1,18 @@
 # Native bridge validation matrix
 
+## Numerical import: candidate, not qualified
+
+`dm_native_import` is disabled in the normal build. A separately labeled
+qualification build provides bounded float32 NPY/JSON staging and new-image
+creation for synthetic testing. Offline contract, fake-adapter, Windows path,
+hash, rejection and receipt checks pass; they are not real DM qualification.
+The initial real-host attempt was refused by the staged opened-path check
+before vendor image creation. Its failure is preserved. The corrected Windows
+session-directory resolution has only offline acceptance; a fresh final-DLL
+live trial, independent oracle, document lifecycle, normal exit and owned
+removal remain HOLD. Existing operation qualifications below do not qualify
+this new operation. See [the numerical relay](../../docs/DM_NUMERIC_RELAY.md).
+
 ## Explicit native pixel mode: limited synthetic qualification
 
 The exact fingerprint-matched Windows x64 GMS 3.53.4137.0 artifact now qualifies

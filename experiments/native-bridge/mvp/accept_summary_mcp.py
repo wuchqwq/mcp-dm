@@ -17,7 +17,7 @@ import sys
 import uuid
 
 from accept_mcp import (StdioClient, ROOT, finite, integer, require,
-                        strict_json, validate_receipt)
+                        strict_json, validate_receipt, validate_import_schema)
 
 
 OPERATORS = ["GMSImageProcessing::GetMinimum", "GMSImageProcessing::GetMaximum",
@@ -27,7 +27,7 @@ LABELS = {"DEFAULT", "CALIBRATED_INTENSITY", "RAW_UNITS", "UINT16", "NONFINITE"}
 CATALOG = {"dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary",
            "dm_native_result", "dm_crop", "dm_native_show", "dm_native_unary", "dm_native_binary",
            "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile",
-           "dm_native_histogram", "dm_native_frame"}
+           "dm_native_histogram", "dm_native_frame", "dm_native_import"}
 BACKEND = "digitalmicrograph-native"
 COORDINATE_RULE = "physical(i)=calibrated_value_at_pixel_zero+i*scale"
 
@@ -36,6 +36,7 @@ def validate_catalog(catalog):
     require(isinstance(catalog, list) and all(isinstance(tool, dict) and isinstance(tool.get("name"), str) for tool in catalog)
             and len(catalog) == len(CATALOG) and {tool["name"] for tool in catalog} == CATALOG,
             "Unexpected SUMMARY native tool catalog")
+    validate_import_schema(next(tool.get("inputSchema") for tool in catalog if tool["name"] == "dm_native_import"))
 
 
 def file_hash(path):

@@ -94,6 +94,57 @@ def validate_frame_schema(schema):
             "Native frame must require a valid caller-saved recovery ID")
 
 
+def validate_import_schema(schema):
+    """Check the closed handoff contract, without submitting an import.
+
+    NPY float32/rank/sample/finite bounds are enforced by the file readers;
+    this catalog must not advertise dtype conversion or arbitrary execution.
+    """
+    def closed(value, expected, label):
+        require(isinstance(value, dict) and value.get("type") == "object"
+                and value.get("additionalProperties") is False
+                and set(value) <= {"type", "additionalProperties", "properties", "required", "description"},
+                "Native import " + label + " must reject unspecified inputs")
+        properties, required = value.get("properties"), value.get("required")
+        require(isinstance(properties, dict) and set(properties) == expected
+                and isinstance(required, list) and all(type(name) is str for name in required)
+                and len(required) == len(expected) and set(required) == expected,
+                "Native import " + label + " must require its exact explicit fields")
+        return properties
+
+    def enumeration(value, expected, label):
+        require(isinstance(value, dict) and value.get("type") == "string"
+                and set(value) <= {"type", "enum", "description"}
+                and isinstance(value.get("enum"), list)
+                and all(type(item) is str for item in value["enum"])
+                and len(value["enum"]) == len(expected) and set(value["enum"]) == expected,
+                "Native import " + label + " must retain the explicit supported choices")
+
+    properties = closed(schema, {"source_path", "source_manifest_path", "coordinate_domain", "calibration", "request_id"}, "request")
+    for name in ("source_path", "source_manifest_path"):
+        item = properties[name]
+        require(isinstance(item, dict) and item.get("type") == "string"
+                and set(item) <= {"type", "minLength", "description"}
+                and integer(item.get("minLength"), 1, 1),
+                "Native import requires explicit nonempty scientific source/manifest paths")
+    enumeration(properties["coordinate_domain"], {"image_coordinates", "real_space", "reciprocal_space"}, "coordinate domain")
+    calibration = closed(properties["calibration"], {"x", "y", "unit"}, "calibration")
+    for name in ("x", "y"):
+        axis = closed(calibration[name], {"origin", "scale"}, name + " axis")
+        for field in ("origin", "scale"):
+            item = axis[field]
+            require(isinstance(item, dict) and item.get("type") == "number"
+                    and set(item) <= {"type", "description"},
+                    "Native import axes require raw numeric origins and signed numeric scales")
+    enumeration(calibration["unit"], {"", "nm", "angstrom", "um", "1/nm", "1/angstrom", "1/um"}, "spatial/reciprocal unit")
+    request = properties["request_id"]
+    require(isinstance(request, dict) and request.get("type") == "string"
+            and set(request) <= {"type", "pattern", "minLength", "maxLength", "description"}
+            and request.get("pattern") == "^[A-Za-z0-9_-]+$"
+            and integer(request.get("minLength"), 1, 1) and integer(request.get("maxLength"), 64, 64),
+            "Native import must require a bounded caller-saved recovery ID without a generated default")
+
+
 def native_float32_bits(value):
     # Match the Node facade's binary32 parameter transfer, including overflow;
     # the native finite-range guard then rejects an infinite caller bound.
@@ -337,9 +388,11 @@ def run_acceptance(client, fixture, backend, build, expected_pid=None, repeats=1
     names = {tool["name"] for tool in catalog}
     require(len(catalog) == len(names) and core_names <= names <= core_names | {
         "dm_crop", "dm_native_show", "dm_native_summary", "dm_native_unary", "dm_native_binary",
-        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info", "dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_frame"}, "Unexpected native tool catalog")
+        "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_release", "dm_native_result_info", "dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_frame", "dm_native_import"}, "Unexpected native tool catalog")
     if "dm_native_frame" in names:
         validate_frame_schema(next(tool.get("inputSchema") for tool in catalog if tool["name"] == "dm_native_frame"))
+    if "dm_native_import" in names:
+        validate_import_schema(next(tool.get("inputSchema") for tool in catalog if tool["name"] == "dm_native_import"))
     if "dm_native_summary" in names:
         summary_schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_summary")
         require(set(summary_schema.get("required", [])) == {"image_id"}

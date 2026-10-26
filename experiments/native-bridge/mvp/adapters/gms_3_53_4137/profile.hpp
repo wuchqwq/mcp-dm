@@ -4,6 +4,11 @@
 // All fingerprints and qualification declarations belong to this adapter.
 // Adding another version never extends this allowlist by approximate matching.
 namespace nb::gms353 {
+#ifdef NB_IMPORT_QUALIFICATION_BUILD
+inline constexpr bool kImportQualificationBuild353 = true;
+#else
+inline constexpr bool kImportQualificationBuild353 = false;
+#endif
 // Primary RasterImageDisplay vtable, cross-checked against this binary's RTTI
 // and the exact native count/get implementations used by the SF wrappers.
 inline constexpr std::uint32_t kRasterRoiVtableRva353 = 0xbbd298;
@@ -65,6 +70,14 @@ inline const AdapterProfile& profile() {
             {"mfc140.dll", "#1487"},
         },
         {
+            {"native_numeric_import", kImportQualificationBuild353, "NOT_QUALIFIED shipping; dedicated compile-time qualification build only; finite float32 canonical NPY 2D <=16384 pixels; independent image with exact readback", {
+                {"GMSImage.dll", "?CreateImage@Image@GMS@@SA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSize@Imaging@4@KAEBV?$char_range_t@_WU?$char_traits@_W@std@@@4@@Z"},
+                {"GMSImage.dll", "?SetRealValue@Image@GMS@@QEAAXAEBVDataIndex@Imaging@Gatan@@N@Z"},
+                {"GMSImage.dll", "?GetRealValue@Image@GMS@@QEBANAEBVDataIndex@Imaging@Gatan@@@Z"},
+                {"GMSImage.dll", "?SetDimensionCalibration@Image@GMS@@QEAAXKMMAEBV?$char_range_t@_WU?$char_traits@_W@std@@@Gatan@@J@Z"},
+                {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"}}, {}},
+            {"native_numeric_import_display", kImportQualificationBuild353, "NOT_QUALIFIED shipping; separate imported-image document and reference qualification", {},
+                {"image_get_or_create_document", "image_document_show", "destroy_document_holder", "destroy_window"}},
             {"native_pixel_crop", true, "limited synthetic real-host qualification; explicit pixel coordinates; existing native crop ABI/type/size guards; finite numeric calibration retained, units may be unknown", {
                 {"GMSImage.dll", "?GetPackingStyle@Image@GMS@@QEBA?AUDataPackingStyle@Imaging@Gatan@@XZ"},
                 {"GMSImage.dll", "?GetSubSliceAsImage@Image@GMS@@QEBA?AV?$ref_ptr@VImage@GMS@@@Gatan@@AEBVDataSlice@Imaging@4@@Z"}}, {}},

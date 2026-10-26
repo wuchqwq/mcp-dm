@@ -4,6 +4,7 @@ Every case executes the actual client/StdioClient against an owned, explicitly
 synthetic Python stdio peer. No real DM, named pipe, GUI or vendor DLL is used.
 """
 import hashlib
+import copy
 import importlib.util
 import json
 import os
@@ -116,12 +117,18 @@ for line in sys.stdin:
         result = {"protocolVersion": "2024-11-05", "serverInfo": {"name": "digitalmicrograph", "version": "0.6.0"}}
     elif method == "tools/list":
         names = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
-                 "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_frame"]
+                 "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_frame", "dm_native_import"]
         schema = {"type": "object", "additionalProperties": False, "required": ["image_id"],
             "properties": {"image_id": {"type": "integer", "minimum": 0, "maximum": 4294967295}, "request_id": {"type": "string"}}}
         if mode == "bad_schema": schema["required"] = []
         if mode == "bad_catalog": names.append("dm_preview")
-        result = {"tools": [{"name": name, "inputSchema": schema if name == "dm_native_summary" else {}} for name in names]}
+        axis = {"type":"object", "additionalProperties":False, "required":["origin","scale"], "properties":{"origin":{"type":"number"},"scale":{"type":"number"}}}
+        imported = {"type":"object", "additionalProperties":False, "required":["source_path","source_manifest_path","coordinate_domain","calibration","request_id"], "properties":{
+            "source_path":{"type":"string","minLength":1}, "source_manifest_path":{"type":"string","minLength":1},
+            "coordinate_domain":{"type":"string","enum":["image_coordinates","real_space","reciprocal_space"]},
+            "calibration":{"type":"object","additionalProperties":False,"required":["x","y","unit"],"properties":{"x":axis,"y":axis,"unit":{"type":"string","enum":["","nm","angstrom","um","1/nm","1/angstrom","1/um"]}}},
+            "request_id":{"type":"string","pattern":"^[A-Za-z0-9_-]+$","minLength":1,"maxLength":64}}}
+        result = {"tools": [{"name": name, "inputSchema": schema if name == "dm_native_summary" else imported if name == "dm_native_import" else {}} for name in names]}
     else:
         assert method == "tools/call"
         tool, arguments = params["name"], params["arguments"]
@@ -200,14 +207,23 @@ class NativeSummaryAcceptanceTests(unittest.TestCase):
         client.rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "offline-summary-catalog-test", "version": "1"}})
         catalog = client.rpc("tools/list", {})["result"]["tools"]
         module.validate_catalog(catalog)
-        self.assertEqual(len(catalog), 20)
-        self.assertTrue({"dm_native_histogram", "dm_native_frame"} <= {tool["name"] for tool in catalog})
+        self.assertEqual(len(catalog), 21)
+        self.assertTrue({"dm_native_histogram", "dm_native_frame", "dm_native_import"} <= {tool["name"] for tool in catalog})
         for bad in ([tool for tool in catalog if tool["name"] != "dm_native_frame"],
                     [tool for tool in catalog if tool["name"] != "dm_native_histogram"],
+                    [tool for tool in catalog if tool["name"] != "dm_native_import"],
                     [tool for tool in catalog if tool["name"] not in ("dm_native_frame", "dm_native_histogram")],
                     catalog + [{"name": "dm_native_frame"}], catalog[:-1] + [{"name": "dm_unknown"}]):
             with self.assertRaisesRegex(ValueError, "Unexpected SUMMARY native tool catalog"):
                 module.validate_catalog(bad)
+        for mutate in (lambda s: s["required"].remove("request_id"),
+                       lambda s: s["properties"].update(dtype={"type":"string","enum":["float64"]}),
+                       lambda s: s["properties"]["calibration"]["properties"]["unit"]["enum"].append("counts"),
+                       lambda s: s["properties"]["calibration"]["properties"]["x"]["properties"]["scale"].update(minimum=0)):
+            changed = copy.deepcopy(catalog)
+            mutate(next(tool["inputSchema"] for tool in changed if tool["name"] == "dm_native_import"))
+            with self.assertRaisesRegex(ValueError, "Native import"):
+                module.validate_catalog(changed)
 
     def fixture(self):
         directory = self.root / uuid.uuid4().hex

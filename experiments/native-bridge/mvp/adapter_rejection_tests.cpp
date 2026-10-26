@@ -35,6 +35,7 @@ int main() {
             {{"test", "PROFILE", {17,31,9,7,2,1,7,1,1}}, "native_line_profile"},
             {{"test", "HISTOGRAM", {17,4,0,1098907648}}, "native_histogram"},
             {{"test", "FRAME", {17,0}}, "native_frame"},
+            {{"test", "IMPORT", std::vector<std::uint32_t>(27, 0)}, "native_numeric_import"},
             {{"test", "CROP_PIXEL", {17,0,0,2,2}}, "native_pixel_crop"},
             {{"test", "FILTER_PIXEL", {17,1}}, "native_pixel_filters"},
             {{"test", "FFT_PIXEL", {17}}, "native_pixel_fft"},

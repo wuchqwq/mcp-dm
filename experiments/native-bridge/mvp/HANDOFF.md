@@ -1,5 +1,23 @@
 # Native MVP continuation handoff
 
+## Numerical return candidate
+
+The structure/diffraction continuation adds `dm_native_import`, a separate
+bounded float32 NPY/JSON handoff into a new independent DM image. Its normal
+build capability remains disabled. Only a labeled compile-time qualification
+build admits synthetic trials; the final candidate has not completed its own
+live readback, signed-calibration, display and reference-lifetime qualification.
+Keep this distinct from the previously qualified outbound and pixel operations.
+See [the relay contract](../../../docs/DM_NUMERIC_RELAY.md).
+
+A first live trial refused the staged file at the opened-path identity guard,
+before image creation. The original failure is retained. A narrow Windows
+packaged-app path-resolution correction passes offline checks, including exact
+ticket hashes and reparse rejection, but is not a real-host retest. Do not
+replace a loaded DLL or reuse an old session/failed request as fresh acceptance.
+Normal host exit, manifest-managed replacement and a new synthetic session
+remain necessary. STOP acknowledgement alone is not cleanup or normal exit.
+
 ## Explicit pixel-mode continuation
 
 The `feature/pixel-image-workflow` branch preserves FRAME and the existing
@@ -46,7 +64,8 @@ Python unqualified-producer and reused-FRAME-request gaps are corrected.
 
 ## Current explicit sequence-frame continuation
 
-The native catalog has twenty entries. `dm_native_frame` selects an explicit
+The native catalog has twenty established entries plus the separately gated
+import candidate described above. `dm_native_frame` selects an explicit
 rank-three ordinary uint16 source and zero-based DM dimension2 / NumPy axis0
 frame, makes an independent native slice, and explicitly converts it through
 DM to float32 without losing uint16 values. The output is a working image with

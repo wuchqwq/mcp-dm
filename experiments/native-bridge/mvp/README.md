@@ -50,6 +50,10 @@ parameters, ownership and result delivery. It does not implement a parallel
 analysis engine. Arithmetic, [FFT and components](FFT_READINESS.md), filters,
 preview and bounded numeric READ are explicit tools in the twenty-entry native
 catalog. Each still requires the selected adapter's qualified capability.
+This continuation additionally advertises `dm_native_import` as a separately
+gated numerical-handoff candidate, disabled in normal builds. Its dedicated
+final-artifact live acceptance is HOLD; existing processing acceptance does
+not qualify import. See [the relay contract](../../../docs/DM_NUMERIC_RELAY.md).
 Follow [the researcher workflow](NATIVE_WORKFLOW.md) for scientific handoff;
 the saved-response encoder and external example never run as hidden fallbacks.
 

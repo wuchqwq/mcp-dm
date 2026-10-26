@@ -12,6 +12,7 @@
 #include "line_profile_contract.hpp"
 #include "histogram_contract.hpp"
 #include "frame_contract.hpp"
+#include "adapters/gms_3_53_4137/import_contract.hpp"
 #include "adapters/gms_3_53_4137/profile.hpp"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -112,6 +113,7 @@ struct RetainedResult {
     std::string histogram_axis_context = "null", histogram_axis_unit{};
     std::array<float, 3> histogram_axis_values{};
     std::string frame_ancestry = "null";
+    std::string import_context = "null";
 };
 std::map<std::uint32_t, RetainedResult> retained_results;
 std::uint64_t retained_result_bytes = 0;
@@ -387,6 +389,13 @@ void retain_native_result(ImageRef& output, std::uint32_t output_id, std::uint64
                       request.op == "BINARY" ? ResultKind::Binary : ResultKind::NativeOperation;
     RetainedResult retained{output.value, bytes, kind, api.dtype(output.value.image), request.op, request.id,
                             vendor_operator, source_ids, source_metadata, output_metadata, semantics, uint32_lineage};
+    for (const auto source_id : source_ids) {
+        const auto parent = retained_results.find(source_id);
+        if (parent != retained_results.end() && parent->second.import_context != "null") {
+            const bool same = source_ids.size() == 1 && source_metadata.size() == 1 && source_metadata[0] == parent->second.metadata;
+            retained.import_context = same ? parent->second.import_context : "{\"schema_version\":1,\"status\":\"unresolved_lineage\"}";
+        }
+    }
     if (frame_result != "null") {
         if (request.op != "FRAME" || request.args.size() != 2 || !nb::valid_json(frame_result))
             throw std::runtime_error("native_frame_ancestry_invalid");
@@ -649,6 +658,8 @@ std::string execute_show(const NativeRequest& request) {
     const auto id = request.args[0];
     const auto owned = retained_results.find(id);
     if (!id || owned == retained_results.end()) throw std::runtime_error("native_show_requires_plugin_result");
+    if (owned->second.operation == "IMPORT" && !qualified_capability353("native_numeric_import_display"))
+        throw std::runtime_error("native_operation_not_qualified:native_numeric_import_display");
     const bool uint32 = owned->second.data_type_code == nb::kUint32Code353;
     // A true rank-one result has its own delivery group. It is never admitted by
     // the 2D display group, and no tool may relabel it as a [1,N] raster. The
@@ -983,6 +994,7 @@ std::string execute_arithmetic(const NativeRequest& request) {
 #include "line_profile_adapter.inc"
 #include "histogram_adapter.inc"
 #include "frame_adapter.inc"
+#include "import_adapter.inc"
 #include "result_release.inc"
 } // namespace
 
@@ -1069,6 +1081,7 @@ void initialize_native() {
         initialize_roi353(gms);
         initialize_plot_style353(gms);
         initialize_histogram353(image, processing);
+        initialize_import353(image);
         initialize_line_profile353(gms, image);
         gate_error.clear();
     } catch (const std::exception& error) { gate_error = error.what(); }
@@ -1099,6 +1112,7 @@ static std::string execute_operation(const NativeRequest& request) {
           << ",\"supported_build\":\"3.53.4137.0-x64\",\"binary_gate\":" << (gate_error.empty() ? "true" : "false")
           << ",\"host_pid\":" << GetCurrentProcessId() << ",\"host_thread\":" << host_thread
           << ",\"resident_python_required\":false,\"arbitrary_script\":false,\"requires_idle_host\":true"
+          << ",\"import_qualification_build\":" << (nb::gms353::kImportQualificationBuild353 ? "true" : "false")
           << ",\"capabilities\":[";
         bool first = true;
         const auto capability = [&s, &first](const char* name, bool enabled) {
@@ -1147,6 +1161,7 @@ static std::string execute_operation(const NativeRequest& request) {
         capability("native_histogram_axis", available("native_histogram_axis", histogram_api353.set_dimension_calibration && api.calibration));
         capability("native_histogram", available("native_histogram", api.packing && histogram_api353.ready() && api.minimum && api.maximum));
         capability("native_frame", available("native_frame", api.crop && api.image_convert && api.intensity_calibration && api.packing));
+        capability("native_numeric_import", available("native_numeric_import", import_api353.set_real_value && histogram_api353.create_image && histogram_api353.set_dimension_calibration && api.real_value && api.packing));
         capability("read_gui_rectangle_rois", available("native_gui_rois", roi_api353.ready() && api.packing));
         s << "],\"retained_result_count\":" << retained_results.size() << ",\"retained_result_bytes\":" << retained_result_bytes
           << ",\"retained_crop_count\":" << crop_count << ",\"retained_crop_bytes\":" << crop_bytes
@@ -1155,6 +1170,7 @@ static std::string execute_operation(const NativeRequest& request) {
     }
     require_ready();
     if (request.op == "ROIS") return execute_rois353(request);
+    if (request.op == "IMPORT") return execute_import353(request);
     if (request.op == "PROFILE") return execute_line_profile353(request);
     if (request.op == "HISTOGRAM") {
         if (!qualified_capability353("native_histogram"))
@@ -1248,7 +1264,14 @@ static std::string execute_operation(const NativeRequest& request) {
                 if (!size) throw std::runtime_error("invalid_image_dimensions");
                 s << size;
             }
-            s << "]}";
+            s << ']';
+            const auto imported = retained_results.find(request.args[0]);
+            if (imported != retained_results.end() && imported->second.import_context != "null") {
+                if (imported->second.value.image != image.value.image) throw std::runtime_error("native_info_source_provenance_identity_mismatch");
+                s << ",\"external_import\":" << imported->second.import_context
+                  << ",\"external_import_scope\":\"creation identity only; current values/calibration are fresh and may differ\"";
+            }
+            s << '}';
             return s.str();
         }
         require_ready();
@@ -1343,6 +1366,7 @@ void shutdown_native() {
     api = Api{};
     roi_api353 = RoiApi353{};
     line_api353 = LineApi353{};
+    import_api353 = ImportApi353{};
     gate_error = "native_adapter_stopped";
 }
 bool nb353_ready() { return gate_error.empty() && !fatal_abi; }

@@ -64,12 +64,13 @@ std::string execute_read(const NativeRequest& request) {
     const auto source_info = metadata(source.value.image, false);
     bool calibration_complete = false;
     const auto calibration = read_roi_calibration353(source.value.image, plan, calibration_complete);
-    std::string provenance = "null", scientific_context = "null", frame_ancestry = "null";
+    std::string provenance = "null", scientific_context = "null", frame_ancestry = "null", external_import = "null";
     const auto retained = retained_results.find(before.id);
     if (retained != retained_results.end()) {
         if (retained->second.value.image != source.value.image)
             throw std::runtime_error("native_read_source_provenance_identity_mismatch");
         const auto& original = retained->second;
+        external_import = original.import_context;
         frame_ancestry = source_info == original.metadata || original.frame_ancestry == "null" ?
             original.frame_ancestry : "{\"schema_version\":1,\"status\":\"unresolved_lineage\"}";
         if (original.scientific_unresolved) {
@@ -139,6 +140,8 @@ std::string execute_read(const NativeRequest& request) {
       << ",\"coordinate_mapping_policy\":\"logical ROI only; source_x=x0+roi_x; source_y=y0+roi_y; source unchanged\""
       << ",\"scientific_context\":" << scientific_context
       << ",\"frame_ancestry\":" << frame_ancestry
+      << ",\"external_import\":" << external_import
+      << ",\"external_import_scope\":" << (external_import == "null" ? "null" : nb::quote("creation identity only; current values/calibration are fresh and may differ"))
       << ",\"source_provenance\":" << provenance
       << ",\"source_provenance_scope\":\"immutable creation record only; source image remains mutable\""
       << ",\"operator\":\"GMS::Image::GetRealValue\",\"computation\":\"DM native point reads; data handoff only\""

@@ -17,6 +17,14 @@ large uint32 IFFT remains unqualified). FILTER stays 5..256 and READ stays
 
 ## 1. User goal and division of work
 
+Optional `structure_*` tools read generic CIF/XYZ, query ASE geometry and run
+explicit diffsims kinematic electron diffraction in an independent environment;
+see [structure tools and approximation limits](docs/STRUCTURE_DIFFRACTION_TOOLS.md).
+They are composable with the image tools and never required for viewing a TIFF.
+The [bounded native import candidate](docs/DM_NUMERIC_RELAY.md) creates a new
+numerical DM image only when its separate adapter group is qualified; an image
+file or SHOW of an existing result is not a general scientific import.
+
 For independent uint16 multi-frame TIFF or pixel-only exploration, the opt-in
 `image_*` tools provide explicit frame/ROI, fixed-range comparison, MCP image
 return, external FFT, revisable annotations/context and numerical export.
@@ -93,11 +101,12 @@ Inspect the actual checkout, branch and configuration. Do not reset or overwrite
 | Backend | Scope in this checkout | Required handling |
 |---|---|---|
 | Default Python/TCP | 21 catalog tools, with arbitrary DM-Script disabled by default; core 2D operations, bounded exports/capture and optional preview/report paths | A genuine host reports backend `digitalmicrograph`; `mock` is synthetic. Numerical kernels may use NumPy; do not label every result DM-native. |
-| Opt-in native | Twenty catalog entries in this feature checkout; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope; FRAME has its own qualification. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
+| Opt-in native | Twenty established entries plus a separately gated import candidate; direct-image GUI rectangle/line identity and width-one horizontal/vertical profiles have limited synthetic-host qualification. Existing bounded native operations, preview, READ and document delivery retain their own scope; FRAME has its own qualification. | Select explicitly with `DM_MCP_BACKEND=native`. Require backend `digitalmicrograph-native`, readiness, exact supported build/module identity, available capability and matching session. No Python fallback. |
 | Other feature checkouts | May contain additional native tools and different acceptance scope | Read that checkout's native HANDOFF/RESULTS and inspect tools/list. Development evidence does not change main automatically. |
 
-This feature checkout's native catalog has twenty
-tools, including qualified limited arithmetic, Fourier/components, filters,
+This feature checkout's native catalog has twenty established entries plus
+the separately gated `dm_native_import` candidate. Established tools include
+qualified limited arithmetic, Fourier/components, filters,
 sampled PNG preview and bounded float32/uint32 READ. The exact Windows x64 3.53 profile
 is selected before ABI calls; other builds remain unsupported. Inspect
 `native_capabilities` and its reason fields, not the tool count alone. See the

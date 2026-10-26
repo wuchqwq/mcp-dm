@@ -22,6 +22,19 @@ accept = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(accept)
 NODE = shutil.which("node")
 
+
+def import_schema_fixture():
+    return {"type": "object", "additionalProperties": False,
+            "required": ["source_path", "source_manifest_path", "coordinate_domain", "calibration", "request_id"],
+            "properties": {"source_path": {"type": "string", "minLength": 1},
+                           "source_manifest_path": {"type": "string", "minLength": 1},
+                           "coordinate_domain": {"type": "string", "enum": ["image_coordinates", "real_space", "reciprocal_space"]},
+                           "calibration": {"type": "object", "additionalProperties": False, "required": ["x", "y", "unit"],
+                               "properties": {"x": {"type": "object", "additionalProperties": False, "required": ["origin", "scale"], "properties": {"origin": {"type": "number"}, "scale": {"type": "number"}}},
+                                              "y": {"type": "object", "additionalProperties": False, "required": ["origin", "scale"], "properties": {"origin": {"type": "number"}, "scale": {"type": "number"}}},
+                                              "unit": {"type": "string", "enum": ["", "nm", "angstrom", "um", "1/nm", "1/angstrom", "1/um"]}}},
+                           "request_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$", "minLength": 1, "maxLength": 64}}}
+
 FAKE_HOST = r"""
 import net from 'node:net';
 import fs from 'node:fs';
@@ -59,6 +72,59 @@ server.listen(pipe, () => process.stdout.write('ready\n'));
 
 
 class NativeStrictClientTests(unittest.TestCase):
+    def test_import_schema_refuses_missing_recovery_or_scientific_fields_and_unsupported_dtype_knobs(self):
+        schema = import_schema_fixture()
+        accept.validate_import_schema(schema)
+        mutations = [
+            lambda s: s["required"].remove("request_id"), lambda s: s["required"].remove("source_manifest_path"),
+            lambda s: s["required"].append("request_id"), lambda s: s.update(additionalProperties=True),
+            lambda s: s["properties"].update(dtype={"type": "string", "enum": ["float64"]}),
+            lambda s: s["properties"].update(shape={"type": "array"}),
+            lambda s: s["properties"].update(script={"type": "string"}),
+            lambda s: s["properties"].update(backend={"type": "string"}),
+            lambda s: s["properties"]["source_path"].update(type="array"),
+            lambda s: s["properties"]["source_manifest_path"].update(minLength=0),
+            lambda s: s["properties"]["coordinate_domain"]["enum"].append("auto"),
+            lambda s: s["properties"]["coordinate_domain"]["enum"].remove("reciprocal_space"),
+            lambda s: s["properties"]["request_id"].pop("pattern"),
+            lambda s: s["properties"]["request_id"].update(pattern=".*"),
+            lambda s: s["properties"]["request_id"].update(maxLength=65),
+            lambda s: s["properties"]["request_id"].update(minLength=0),
+            lambda s: s["properties"]["request_id"].update(default="server-generated"),
+            lambda s: s["properties"]["calibration"]["required"].remove("y"),
+            lambda s: s["properties"]["calibration"].update(additionalProperties=True),
+            lambda s: s["properties"]["calibration"]["properties"]["x"]["required"].remove("scale"),
+            lambda s: s["properties"]["calibration"]["properties"]["y"]["properties"]["origin"].update(type="integer"),
+            lambda s: s["properties"]["calibration"]["properties"]["x"]["properties"]["scale"].update(minimum=0),
+            lambda s: s["properties"]["calibration"]["properties"]["unit"]["enum"].append("radians"),
+            lambda s: s["properties"]["calibration"]["properties"]["unit"].update(default="nm"),
+        ]
+        for index, mutate in enumerate(mutations):
+            changed = copy.deepcopy(schema); mutate(changed)
+            with self.subTest(schema=index), self.assertRaisesRegex(ValueError, "Native import"):
+                accept.validate_import_schema(changed)
+
+    def test_catalog_admits_only_the_named_import_contract_and_never_submits_it_in_the_old_core_trial(self):
+        class CatalogPeer:
+            def __init__(self, catalog): self.catalog, self.calls = catalog, []
+            def notify(self, *args): pass
+            def rpc(self, method, params):
+                if method == "initialize": return {"result": {"protocolVersion": "2024-11-05", "serverInfo": {"name": "digitalmicrograph", "version": "0.6.0"}}}
+                return {"result": {"tools": self.catalog}}
+            def tool(self, name, arguments): self.calls.append(name); raise RuntimeError("core status reached")
+        names = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_result"]
+        catalog = [{"name": name} for name in names] + [{"name": "dm_native_import", "inputSchema": import_schema_fixture()}]
+        peer = CatalogPeer(catalog)
+        with self.assertRaisesRegex(RuntimeError, "core status reached"):
+            accept.run_acceptance(peer, {"session": "a" * 32}, "mock-native", "synthetic-only")
+        self.assertEqual(peer.calls, ["dm_status"])
+        for changed in (catalog + [{"name": "dm_unknown"}], catalog + [catalog[-1]],
+                        catalog[:-1] + [{"name": "dm_native_import", "inputSchema": {}}]):
+            rejected = CatalogPeer(changed)
+            with self.assertRaises(ValueError):
+                accept.run_acceptance(rejected, {"session": "a" * 32}, "mock-native", "synthetic-only")
+            self.assertEqual(rejected.calls, [])
+
     def test_histogram_identity_and_float32_arguments_remain_distinct_from_profile(self):
         args = [77, 64, accept.native_float32_bits(-2.0), accept.native_float32_bits(2.0)]
         receipt = {"protocol": "NB2", "state": "completed", "original_operation": "HISTOGRAM",
@@ -203,6 +269,16 @@ class NativeStrictClientTests(unittest.TestCase):
             mutate(changed)
             with self.assertRaises(ValueError):
                 accept.validate_frame_schema(changed)
+
+    @unittest.skipUnless(NODE, "Node is required to inspect the actual offline server catalog")
+    def test_actual_import_catalog_has_the_explicit_bounded_handoff_schema(self):
+        client = accept.StdioClient([NODE, str(ROOT / "server.mjs")], dict(os.environ, DM_MCP_BACKEND="native", DM_NATIVE_SESSION=uuid.uuid4().hex), io.StringIO())
+        self.addCleanup(client.close)
+        client.rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "offline-import-schema", "version": "1"}})
+        catalog = client.rpc("tools/list", {})["result"]["tools"]
+        schema = next(tool["inputSchema"] for tool in catalog if tool["name"] == "dm_native_import")
+        accept.validate_import_schema(schema)
+        self.assertEqual(set(schema["properties"]), set(import_schema_fixture()["properties"]))
 
     def test_new_tool_and_preview_rpc_receipts_bind_original_arguments(self):
         cases = [

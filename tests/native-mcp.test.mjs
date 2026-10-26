@@ -22,7 +22,7 @@ Object.assign(resultTypes, {UNARY: "native_image_operation", BINARY: "native_ima
   FFT: "native_fourier_operation", HISTOGRAM: "native_histogram", IFFT: "native_fourier_operation", REAL: "native_fourier_operation", IMAG: "native_fourier_operation", VENDOR_ARG: "native_fourier_operation", VENDOR_NORM: "native_fourier_operation"});
 for (const base of ['CROP','FILTER','FFT','IFFT','REAL','IMAG','VENDOR_ARG','VENDOR_NORM'])resultTypes[base+'_PIXEL']=resultTypes[base];
 const nativeCatalog = ["dm_status", "dm_datasets", "dm_native_mean", "dm_native_summary", "dm_native_result", "dm_crop", "dm_native_show",
-  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_frame", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile", "dm_native_histogram"];
+  "dm_native_unary", "dm_native_binary", "dm_native_fft", "dm_native_complex", "dm_native_filter", "dm_native_preview", "dm_native_read", "dm_native_frame", "dm_native_result_info", "dm_native_release", "dm_native_rois", "dm_native_profile", "dm_native_histogram", "dm_native_import"];
 
 // Contract emulation only: no DM process/vendor computation is used here.
 function summaryFixture(imageId = 77) {

@@ -265,6 +265,7 @@ export function packageInfo(snapshot, captureId, npy) {
       'pixel centers at integer x,y; use scientific_semantics.coordinate_axes for Fourier bins; working_calibration_xy is unmodified native DM metadata' :
       'pixel centers at integer x,y; physical value = calibrated_value_at_pixel_zero + index*scale',
     scientific_context: result.scientific_context ?? null, scientific_semantics: scientific,
+    ...(Object.hasOwn(result, 'external_import') ? {native_external_import: result.external_import,native_external_import_scope:result.external_import_scope??null} : {}),
     ...(Object.hasOwn(result, 'frame_ancestry') ? {frame_ancestry: captureFrameAncestry(result)} : {}),
     native_calibration_semantics: 'native DM calibration; not necessarily mathematical Fourier bin coordinates',
     calibration_complete: result.calibration_complete, source_metadata: result.source,
@@ -347,6 +348,7 @@ export function handoff({workspace: workspaceArg, output, requestId, snapshot: s
       created_utc: created, native_session: snapshot.receipt.session, native_request_id: snapshot.receipt.id,
       handoff_request_id: requestId, native_receipt_sha256: snapshot.receiptHash, saved_snapshot_sha256: snapshot.snapshotHash,
       dm_file_save: false, live_source_reobserved: false,
+      ...(Object.hasOwn(info, 'native_external_import') ? {native_external_import: info.native_external_import,native_external_import_scope:info.native_external_import_scope} : {}),
       ...(Object.hasOwn(info, 'frame_ancestry') ? {frame_ancestry: info.frame_ancestry} : {})};
     if (profile) {
       delete manifest.source_rect_xyxy; delete manifest.source_rect_convention;

@@ -1,6 +1,6 @@
 // Only bridge-owned references are released. No new vendor function or layout.
 void reject_released_inputs353(const NativeRequest& request) {
-    if (request.op == "STATUS" || request.op == "DATASETS" || request.op == "RELEASE" || request.op == "RESULT_INFO") return;
+    if (request.op == "STATUS" || request.op == "DATASETS" || request.op == "RELEASE" || request.op == "RESULT_INFO" || request.op == "IMPORT") return;
     const unsigned inputs = request.op == "BINARY" ? 2u : request.args.empty() ? 0u : 1u;
     for (unsigned i = 0; i < inputs; ++i)
         if (released_image_ids353.count(request.args.at(i)) && !retained_results.count(request.args.at(i)))
@@ -9,7 +9,7 @@ void reject_released_inputs353(const NativeRequest& request) {
 
 std::string attach_retention353(const NativeRequest& request, std::string result) {
     if (nb::base_operation353(request.op) != "CROP" && request.op != "UNARY" && request.op != "BINARY" && nb::base_operation353(request.op) != "FILTER" &&
-        request.op != "PROFILE" && request.op != "HISTOGRAM" && request.op != "FRAME" && !nb::is_fft_operation353(request.op)) return result;
+        request.op != "PROFILE" && request.op != "HISTOGRAM" && request.op != "FRAME" && request.op != "IMPORT" && !nb::is_fft_operation353(request.op)) return result;
     const auto found = retained_results.find(last_retained_result353);
     if (found == retained_results.end() || found->second.request_id != request.id || result.empty() || result.back() != '}')
         throw std::runtime_error("native_result_retention_identity_missing");

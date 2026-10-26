@@ -1,7 +1,7 @@
 # Try the unified image tools
 
 This is an opt-in feature branch, not a main release. Use
-`feature/unified-image-interaction` for the combined trial. It includes the
+`feature/structure-diffraction-relay` for the newest combined trial. It includes the
 PR18 annotation/zoom work, PR16 pixel tools and PR17 fixes. Do not install the
 old PR17 branch separately or merge every open PR into a local checkout.
 PR12/15 supply the retained native/crystallography ancestry; PR13/14 fixes and
@@ -10,8 +10,8 @@ open PRs is implicitly merged into main by this trial.
 
 At the initial remote check, main was `5eac70c` and PR18 was `6ecda05`.
 PR12/15/16/18 were open; PR13/14 were also open but their feature-branch merges
-were already in this ancestry. PR17 was merged into PR16, not main. This trial
-is stacked directly on PR18; no reset, duplicate integration or main merge is
+were already in this ancestry. PR17 was merged into PR16, not main. The historical calibration trial
+was stacked on PR18; PR19/20 and the shared-view continuation are retained; no reset, duplicate integration or main merge is
 part of enabling it. Check GitHub again before integrating these branches.
 
 ## Connect once
@@ -54,24 +54,19 @@ after a timeout rather than repeating an unknown operation.
 
 The optional local panel reuses the actual stdio MCP tools and saved object
 IDs. It is not a chat application or another analysis backend. After the Agent
-has created a view, it can start:
-
-```text
-node tools/image_panel.mjs --workspace ABS_WORKSPACE --python ABS_EXTERNAL_PYTHON --object VIEW_OBJECT_ID
-```
-
-Open its printed loopback URL. Drag a rectangle to select an ROI, click a peak,
+has created a view, it calls `image_panel_open` with a pre-saved request ID and
+opens the returned loopback URL. IDs and configured paths remain internal. Drag a rectangle to select an ROI, click a peak,
 or choose an existing annotation and drag its position/endpoints. Review the
 coordinate readout before saving. View zoom/pan and draft display adjustments
 are local; pressing a save/apply button submits a bounded tool operation and
 creates a new immutable object. Scientific frequency anchors always use the
 original FFT grid, including when the display is zoomed away from DC.
 
-"Hand selection to Agent" records the exact view, coordinate domain, source ID
-and selection in the panel journal's `current-selection.json`; the Agent can
-read it with `node tools/image_panel.mjs --selection ABS_SELECTION_JSON`.
-This explicit file handoff does not automatically wake a model or send the
-private image to a remote service. The panel URL contains a local session token;
+A completed gesture exposes the exact view/source/domain through
+`image_panel_current`; say “look here” and the Agent can continue without a
+selection-file path. `image_panel_show` offers the result to the same panel,
+queuing it behind unsaved drafts. This does not automatically wake a model.
+The legacy selection-file CLI remains available for manual compatibility. The panel URL contains a local session token;
 keep it private. The panel binds only to loopback and has no arbitrary script
 execution, general file browser or native DM controls.
 
@@ -90,3 +85,13 @@ and computation provenance together. Unknown XY scale still permits pixel
 measurements, ROI and cycles/pixel FFT. A PNG returned by MCP, a model actually
 viewing it, browser gesture testing, a human gesture and a live DM operation
 are separate acceptance scopes; none proves the others.
+
+## Structures, simulation and numerical return
+
+The same checkout includes optional [structure tools](STRUCTURE_DIFFRACTION_TOOLS.md).
+Install their separate requirements/environment only when needed, add
+`DM_STRUCTURE_WORKSPACE`/`DM_STRUCTURE_PYTHON`, then inspect the real MCP catalog.
+An optional local 3Dmol asset enables a read-only structure viewer; a projection
+PNG alone is not 3D acceptance. The [native numerical import candidate](DM_NUMERIC_RELAY.md)
+has a separate qualification gate and must not be enabled merely because
+structure or image tests pass. No new backend is selected implicitly.

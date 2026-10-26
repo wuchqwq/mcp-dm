@@ -36,6 +36,12 @@ For versioned user-stated XY calibration, partial mark edits and optional local
 point/drag interaction, see the [unified trial guide](docs/UNIFIED_IMAGE_TRIAL.md).
 These additions are on the trial branch and have not been merged into main.
 
+The feature branch also adds optional [ASE structure and electron-diffraction tools](docs/STRUCTURE_DIFFRACTION_TOOLS.md):
+generic CIF/XYZ input, crystal geometry, a mature local viewer and actual diffsims
+kinematic simulation. The [bounded numerical DM relay](docs/DM_NUMERIC_RELAY.md)
+starts with independent small float32 images under its own qualification gate.
+It never overwrites sources or treats simulated agreement as unique phase proof.
+
 ## Product direction: iterative microscopy analysis (planned)
 
 The goal is to let researchers keep inspecting and selecting data in DM while an Agent **brings back the actual image, prepares alternative presentations, produces local FFT views, adds editable annotations and revises scientific hypotheses over multiple turns**. Profiles, histograms and indexing are enabling tools, not the finished user experience.
