@@ -63,7 +63,8 @@ complex128 FFT NPY, the current PNG, display/annotation parameters and a bounded
 immutable provenance history. Overlays never enter scientific arrays. The PNG
 is a display rendering, not a scientific intensity or phase file. All operation
 request IDs, preprocessing, frame/ROI identity and user-context revisions stay
-traceable. User context remains interpretation, not an applied calibration.
+traceable. User context remains interpretation; operational user-stated XY
+calibration is a separate versioned record, described below.
 
 Synthetic tests cover offset/nested ROIs, independent x/y resizing, odd FFT
 bins, display-only FFT changes, two-panel mapping, out-of-view/retracted marks,
@@ -72,6 +73,64 @@ image content and fresh-client recovery. A separate source-blind Agent trial
 uses the tool catalog and returned images on authorized read-only TIFF data;
 detailed private inputs/results are kept outside this repository. This does not
 qualify every client's image UI or DM native annotations.
+
+## User-stated XY calibration
+
+`image_calibrate` creates a new immutable wrapper around an explicit object.
+For a new statement supply `scope:"image"` (one frozen frame) or
+`scope:"sequence"` (one exact opened TIFF source), `xy_scale:{x,y,unit}` and
+the actual user `source_text`. Both signed, nonzero axes are required; equal
+X/Y is accepted only when supplied. Supported real-space units are `m`, `mm`,
+`um`, `nm` and `angstrom` (`Å` and common micrometre symbols normalize).
+Optional `uncertainty_x`/`uncertainty_y` are absolute scale standard
+uncertainties. Omission means unknown, never zero; geometric measurement
+uncertainty remains unknown without point-localization/covariance evidence.
+Intensity units, diffraction calibration and frame/depth scales are separate.
+
+The result's `xy_calibration` records the calibration ID, revision, previous
+ID, source statement and exact `applies_to` identity. It is explicitly
+`user_statement_not_independently_verified`. It does not alter the TIFF,
+NPY, raw imported metadata or stored uint16 interpretation. Existing
+`image_context.xy_scale` remains descriptive for backward compatibility.
+
+Continue with the new wrapper ID. A sequence wrapper can feed `image_frame`;
+its selected frames/views/FFT inherit the record. For an older saved frame or
+complex FFT, call `image_calibrate` with `object_id` plus
+`calibration_object_id` referencing an existing calibration wrapper. Do not
+combine attach mode with a new statement. Different frame/sequence identities
+are refused, even if filenames match. An image-scoped record cannot leak into
+a different frame.
+
+`image_measure` accepts original `source_pixels` for scalar images, or
+`frequency_cycles_per_pixel` for a saved complex FFT. Cropped spatial views
+retain original source-pixel coordinates; no clipping or coordinate guessing
+is performed. For a signed real-space scale `(sx,sy)`, displacement is
+`(dx*sx,dy*sy)`, and physical frequency is `(fx/sx,fy/sy)` in cycles/unit.
+Physical length/frequency magnitude uses both axes before calculating an
+angle or reciprocal period. No `2π` factor is introduced. A frequency vector
+explicitly referenced to DC can report `d_spacing=1/|g|`; two non-DC points
+report their frequency-difference period without claiming a lattice spacing.
+DC has no finite period. Geometry alone never assigns an hkl or phase.
+
+Spatial previews show a horizontal scale bar when active calibration is
+present and the display is large enough (`scale_bar:false` hides it).
+`spectrum_axes:true` labels saved FFT axes in cycles/unit under active
+calibration, otherwise cycles/pixel. Scientific FFT axes and annotation
+anchors always retain their original cycles/pixel; PNG frequency zoom never
+re-centres DC or recomputes FFT. `physical_frequency_axes`, bar geometry and
+`calibration_dependency` retain the precise conversion record.
+
+Revise using a new statement on the calibrated object. Withdraw with explicit
+`xy_scale:null`, the same scope, actual withdrawal text and a fresh request ID.
+Both create a new record. Physical measurements retain their original
+calibration dependency; a changed wrapper marks them stale and candidate
+interpretations as requiring review. Pixel anchors and scientific status are
+not silently changed. Call `image_preview` on the new wrapper to redraw
+scale/axes, then remeasure. Annotation/export refuses an old PNG paired with
+a different selected calibration (`STALE_CALIBRATION_DISPLAY`). Old requests,
+PNGs, measurements and exports remain immutable and independently traceable.
+Without an active scale, pixel measurements and FFT exploration continue;
+no physical distance, true angle, intensity phase unit or depth is invented.
 
 ## Readable spectrum figures
 

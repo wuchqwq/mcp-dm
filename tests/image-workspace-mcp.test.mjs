@@ -23,11 +23,11 @@ function fixture(){const dir=mkdtempSync(path.join(tmpdir(),'dm-images-mcp-'));c
 test('standalone image catalog needs no DM and native opt-in composes without fallback',async()=>{
  const f=fixture();const c=client(f.workspace);try{
   const init=await c.rpc('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'image-fixture',version:'1'}});assert.match(init.result.instructions,/independent Python/);
-  const names=(await c.rpc('tools/list')).result.tools.map(t=>t.name);assert.equal(names.length,11);assert.ok(names.includes('image_fft'));assert.ok(!names.includes('dm_status'));
+  const names=(await c.rpc('tools/list')).result.tools.map(t=>t.name);assert.equal(names.length,12);assert.ok(names.includes('image_fft'));assert.ok(names.includes('image_calibrate'));assert.ok(!names.includes('dm_status'));
   assert.ok((await c.tool('dm_status')).error,'standalone mode refuses DM tools');
   const invalid=await c.tool('image_open',{source_path:f.source});assert.equal(invalid.error.code,-32602);assert.equal(existsSync(f.workspace),false);
  }finally{await c.close();}
- const native=client(f.workspace,'native');try{const names=(await native.rpc('tools/list')).result.tools.map(t=>t.name);assert.equal(names.length,31);assert.ok(names.includes('dm_native_frame'));assert.ok(names.includes('image_preview'));}finally{await native.close();rmSync(f.dir,{recursive:true,force:true});}
+ const native=client(f.workspace,'native');try{const names=(await native.rpc('tools/list')).result.tools.map(t=>t.name);assert.equal(names.length,32);assert.ok(names.includes('dm_native_frame'));assert.ok(names.includes('image_preview'));}finally{await native.close();rmSync(f.dir,{recursive:true,force:true});}
 });
 
 test('MCP TIFF frames, shared-range comparison, revised view, annotation and durable query compose',async()=>{
@@ -276,5 +276,68 @@ test('short cyan and optional orange arrows preserve source anchors through actu
   const recovered=result(recoveredMessage);
   assert.equal(recovered.object_id,resized.object_id);assert.deepEqual(recovered.annotations,resized.annotations);
   assert.deepEqual(readFileSync(f.source),source);assert.deepEqual(readFileSync(fft.array_path),raw);
+ }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
+});
+
+test('user-stated sequence XY calibration updates physical geometry/axes without recomputing saved FFT and survives a fresh MCP client',async()=>{
+ const f=fixture();let c=client(f.workspace);try{
+  const sourceBefore=readFileSync(f.source);
+  const opened=result(await c.tool('image_open',{source_path:f.source,request_id:'cal-open'}));
+  const frame=result(await c.tool('image_frame',{object_id:opened.object_id,frame_index:0,request_id:'cal-frame'}));
+  const fft=result(await c.tool('image_fft',{object_id:frame.object_id,rect:[2,2,18,10],request_id:'cal-fft'}));
+  const savedFFT=readFileSync(fft.array_path);
+  const args={object_id:opened.object_id,scope:'sequence',xy_scale:{x:.2,y:-.5,unit:'nm'},source_text:'Synthetic user explicitly specifies signed X=.2nm/px,Y=-.5nm/px for this sequence; uncertainty unknown',request_id:'cal-statement'};
+  const record=result(await c.tool('image_calibrate',args));
+  assert.equal(record.xy_calibration.scope,'sequence');assert.equal(record.xy_calibration.uncertainty_status,'unknown');
+  assert.equal(record.xy_calibration.applies_to.object_id,opened.object_id);
+  await c.close();c=client(f.workspace);
+  const recovered=result(await c.tool('image_result',{request_id:'cal-statement'}));
+  assert.equal(recovered.object_id,record.object_id);
+  assert.equal(result(await c.tool('image_calibrate',args)).object_id,record.object_id);
+  const calibratedFrame=result(await c.tool('image_frame',{object_id:record.object_id,frame_index:1,request_id:'cal-frame2'}));
+  assert.deepEqual(calibratedFrame.xy_calibration,record.xy_calibration);
+  const viewMessage=await c.tool('image_preview',{object_id:calibratedFrame.object_id,max_size:320,upscale:true,request_id:'cal-preview'});
+  const view=result(viewMessage);picture(viewMessage);assert.equal(view.scale_bar.unit,'nm');assert.equal(view.scale_bar.visible,true);
+  const physical=result(await c.tool('image_measure',{object_id:view.object_id,points:[[0,0],[3,4]],request_id:'cal-length'}));
+  assert.ok(Math.abs(physical.physical_distance-Math.hypot(.6,2))<1e-12);assert.equal(physical.physical_unit,'nm');
+  assert.ok(Math.abs(physical.physical_angle_degrees-Math.atan2(-2,.6)*180/Math.PI)<1e-12);
+  const attached=result(await c.tool('image_calibrate',{object_id:fft.object_id,calibration_object_id:record.object_id,request_id:'cal-attach'}));
+  const axesMessage=await c.tool('image_preview',{object_id:attached.object_id,spectrum_axes:true,max_size:512,upscale:true,request_id:'cal-axes'});
+  const axes=result(axesMessage);picture(axesMessage);assert.equal(axes.display.axis_labels_unit,'cycles/nm');assert.equal(axes.fft_recomputed,false);
+  assert.deepEqual(readFileSync(axes.array_path),savedFFT);
+  const frequency=result(await c.tool('image_measure',{object_id:axes.object_id,coordinate_space:'frequency_cycles_per_pixel',points:[[0,0],[.125,.25]],request_id:'cal-period'}));
+  assert.ok(Math.abs(frequency.d_spacing-1/Math.hypot(.625,.5))<1e-12);assert.equal(frequency.d_spacing_unit,'nm');
+  assert.equal(frequency.calibration_dependency.calibration_id,record.object_id);
+  const output=path.join(f.dir,'calibrated-fft');
+  result(await c.tool('image_export',{object_id:axes.object_id,output_dir:output,request_id:'cal-export'}));
+  assert.deepEqual(readFileSync(path.join(output,'data.npy')),savedFFT);
+  const manifest=JSON.parse(readFileSync(path.join(output,'manifest.json')));
+  assert.deepEqual(manifest.xy_calibration,record.xy_calibration);assert.equal(manifest.display_mapping.axis_labels_unit,'cycles/nm');
+  const withdrawn=result(await c.tool('image_calibrate',{object_id:axes.object_id,scope:'sequence',xy_scale:null,source_text:'Synthetic user withdraws the estimate',request_id:'cal-withdraw'}));
+  assert.equal(withdrawn.xy_calibration.revision,2);assert.equal(withdrawn.xy_calibration.status,'withdrawn');
+  const stale=await c.tool('image_export',{object_id:withdrawn.object_id,output_dir:path.join(f.dir,'stale-export'),request_id:'cal-stale'});
+  assert.equal(stale.result.isError,true);assert.equal(existsSync(path.join(f.dir,'stale-export')),false);
+  const pixelMessage=await c.tool('image_preview',{object_id:withdrawn.object_id,spectrum_axes:true,request_id:'cal-pixel-axes'});
+  const pixel=result(pixelMessage);picture(pixelMessage);assert.equal(pixel.display.axis_labels_unit,'cycles/pixel');assert.equal(pixel.physical_frequency_unit,null);
+  const pixelFrequency=result(await c.tool('image_measure',{object_id:pixel.object_id,points:[[0,0],[.125,0]],request_id:'cal-pixel-period'}));
+  assert.equal(pixelFrequency.pixel_period,8);assert.equal(pixelFrequency.d_spacing,null);
+  assert.deepEqual(readFileSync(f.source),sourceBefore);assert.deepEqual(readFileSync(fft.array_path),savedFFT);
+ }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
+});
+
+test('calibration schema/refusal gates require request identity, provenance, units and exact scope',async()=>{
+ const f=fixture();const c=client(f.workspace);try{
+  const opened=result(await c.tool('image_open',{source_path:f.source,request_id:'cal-bad-open'}));
+  const frame=result(await c.tool('image_frame',{object_id:opened.object_id,frame_index:0,request_id:'cal-bad-frame'}));
+  const base={object_id:frame.object_id,scope:'image',xy_scale:{x:.2,y:.2,unit:'nm'},source_text:'Synthetic explicit user statement'};
+  assert.equal((await c.tool('image_calibrate',base)).error.code,-32602);
+  assert.equal((await c.tool('image_calibrate',{...base,xy_scale:{x:1,y:1,unit:'radians'},request_id:'cal-bad-unit'})).error.code,-32602);
+  assert.equal((await c.tool('image_calibrate',{...base,xy_scale:{x:1,unit:'nm'},request_id:'cal-bad-xy'})).error.code,-32602);
+  assert.equal((await c.tool('image_calibrate',{...base,xy_scale:{x:0,y:1,unit:'nm'},request_id:'cal-zero'})).result.isError,true);
+  assert.equal((await c.tool('image_calibrate',{...base,source_text:' ',request_id:'cal-no-provenance'})).result.isError,true);
+  const record=result(await c.tool('image_calibrate',{...base,request_id:'cal-image'}));
+  const other=result(await c.tool('image_frame',{object_id:opened.object_id,frame_index:1,request_id:'cal-other'}));
+  assert.equal((await c.tool('image_calibrate',{object_id:other.object_id,calibration_object_id:record.object_id,request_id:'cal-other-attach'})).result.isError,true);
+  assert.equal((await c.tool('image_calibrate',{...base,xy_scale:{x:.4,y:.4,unit:'nm'},request_id:'cal-image'})).result.isError,true);
  }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
 });

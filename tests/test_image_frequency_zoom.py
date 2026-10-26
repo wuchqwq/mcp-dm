@@ -176,11 +176,15 @@ class ImageFrequencyZoomTests(unittest.TestCase):
     def test_axes_margins_and_asymmetric_zoom_transform_are_both_applied(self):
         zoom = self.ok("view", object_id=self.fft["object_id"], frequency_rect=[39, 19, 59, 35],
                        spectrum_axes=True, max_size=512, upscale=True)
-        self.assertEqual(zoom["panels"][0]["image_rect_xyxy"], [64, 44, 492, 386])
+        # Right margin now includes the complete endpoint tick label instead
+        # of clipping it; anchors use the resulting actual plot rectangle.
+        self.assertEqual(zoom["panels"][0]["image_rect_xyxy"], [64, 44, 488, 383])
         self.assertEqual(zoom["panels"][0]["fft_shape_yx"], [55, 95])
         marked = self.frequency_mark(zoom, [0, 0])
-        self.assert_coords(marked["annotations"][0]["coordinates"], [245.4, 225.1875])
-        self.assertEqual(self.png(marked).size, (512, 442))
+        # DC index=(47,27), crop start=(39,19), extent=(20,16):
+        # x=64+(8.5*424/20)-.5; y=44+(8.5*339/16)-.5.
+        self.assert_coords(marked["annotations"][0]["coordinates"], [243.7, 223.59375])
+        self.assertEqual(self.png(marked).size, (512, 439))
         revised = self.ok("view", object_id=marked["object_id"], spectrum_axes=False, max_size=120)
         self.assert_coords(revised["annotations"][0]["coordinates"], [50.5, 50.5])
         self.assertEqual(revised["panels"][0]["image_rect_xyxy"], [0, 0, 120, 96])

@@ -21,6 +21,13 @@ import PIL
 from PIL import Image, ImageDraw, ImageFont
 import tifffile
 
+if __package__:
+    from .image_annotation_updates import plan_annotation_updates
+    from . import image_calibration as calibration
+else:
+    from image_annotation_updates import plan_annotation_updates
+    import image_calibration as calibration
+
 BACKEND = "external-image-workspace"
 MAX_PIXELS = 4 * 1024 * 1024
 MAX_ARRAY_BYTES = 64 * 1024 * 1024
@@ -32,11 +39,12 @@ OBJECT_ID = re.compile(r"[a-f0-9]{32}\Z")
 FIELDS = {
     "open": {"source_path"}, "frame": {"object_id", "frame_index"},
     "import_capture": {"source_path"},
-    "view": {"object_id", "rect", "frequency_rect", "display_range", "gamma", "max_size", "interpolation", "representation", "spectrum_filter", "upscale", "spectrum_axes", "display_preset"},
+    "view": {"object_id", "rect", "frequency_rect", "display_range", "gamma", "max_size", "interpolation", "representation", "spectrum_filter", "upscale", "spectrum_axes", "display_preset", "scale_bar"},
     "compare": {"object_ids", "rect", "display_range", "gamma", "max_size"},
     "fft": {"object_id", "rect", "window", "subtract_mean", "max_size"},
-    "annotate": {"object_id", "annotations"}, "context": {"object_id", "metadata"},
-    "measure": {"object_id", "points"}, "export": {"object_id", "output_dir"},
+    "annotate": {"object_id", "annotations", "updates"}, "context": {"object_id", "metadata"},
+    "measure": {"object_id", "points", "coordinate_space"}, "export": {"object_id", "output_dir"},
+    "calibrate": {"object_id", "scope", "xy_scale", "source_text", "calibration_object_id"},
     "get": {"object_id"}, "result": {"query_request_id"},
 }
 
@@ -291,7 +299,7 @@ def stats(values):
     return result
 
 
-def spectrum_canvas(shown, settings, spectrum_id):
+def spectrum_canvas(shown, settings, spectrum_id, xy_calibration=None):
     """Bounded optional figure axes; panel transforms include the margins."""
     axes = settings.get("spectrum_axes", False)
     need(type(axes) is bool, "spectrum_axes must be boolean")
@@ -299,43 +307,106 @@ def spectrum_canvas(shown, settings, spectrum_id):
     need(not axes or maximum >= 256, "Frequency-axis labels require max_size>=256")
     full_shape = shown.shape
     rect = rectangle(settings.get("frequency_rect"), full_shape)
-    bounds = (maximum-84, maximum-100) if axes else (maximum, maximum)
-    plot = render(cut(shown, rect), settings, bounds)
+    physical = calibration.frequency_axes(full_shape, xy_calibration)
     if not axes:
-        return plot, frequency_panel(spectrum_id, full_shape, [0, 0, plot.width, plot.height], rect)
-    left, top = 64, 44
+        plot = render(cut(shown, rect), settings, (maximum, maximum))
+        info = frequency_panel(spectrum_id, full_shape, [0, 0, plot.width, plot.height], rect)
+        info.update(physical_frequency_axes=physical, calibration_dependency=calibration.dependency(xy_calibration))
+        return plot, info
+    font = ImageFont.load_default(size=13)
+    h, w = full_shape
+    def tick_rows(start, stop, size, signed_scale):
+        # A visible DC tick is placed at the actual original DC bin. The mean
+        # endpoint bin of an even-size full spectrum is not DC; never label it
+        # zero merely to make the layout symmetric.
+        dc, last = size // 2, stop - 1
+        middle = dc if start < dc < last else (start + last) / 2
+        bins = sorted(set((start, middle, last)))
+        values = [(index - dc) / size for index in bins]
+        if physical:
+            displayed = [value / signed_scale for value in values]
+            precision = 4
+            labels = [format(value, ".{}g".format(precision)) if value else "0" for value in displayed]
+            # Narrow near-Nyquist windows can need more digits to distinguish
+            # their ticks. This is presentation rounding only: values and
+            # scientific axes remain full binary64 in metadata.
+            while len(set(labels)) < len(labels) and precision < 16:
+                precision += 1
+                labels = [format(value, ".{}g".format(precision)) if value else "0" for value in displayed]
+        else:
+            displayed = values
+            precision = int(math.ceil(math.log10(2*size))) + 1
+            labels = [format(value, ".{}f".format(precision)).rstrip("0").rstrip(".") if value else "0" for value in values]
+        return [{"bin_index": index, "cycles_per_pixel": value, "value": actual, "label": label}
+                for index, value, actual, label in zip(bins, values, displayed, labels)]
+    scale = calibration.active_scale(xy_calibration) or {"x": 1., "y": 1.}
+    xticks = tick_rows(rect[0], rect[2], w, scale["x"])
+    yticks = tick_rows(rect[1], rect[3], h, scale["y"])
+    def text_width(label):
+        box = font.getbbox(label)
+        return box[2] - box[0]
+    left = max(64, max(text_width(row["label"]) for row in yticks) + 12,
+               int(math.ceil(text_width(xticks[0]["label"]) / 2)) + 2)
+    right = max(20, int(math.ceil(text_width(xticks[-1]["label"]) / 2)) + 2)
+    top = 44
+    plot = render(cut(shown, rect), settings, (maximum-left-right, maximum-100))
     # Tiny spectra can retain their native display size when upscale is false;
     # reserve a minimum legend canvas so axes/title are not silently cropped.
-    image = Image.new("RGB", (max(256, plot.width+84), max(192, plot.height+100)), "#171b22")
+    image = Image.new("RGB", (max(256, plot.width+left+right), max(192, plot.height+100)), "#171b22")
     image.paste(plot, (left, top))
     panel_info = frequency_panel(spectrum_id, full_shape, [left, top, left+plot.width, top+plot.height], rect)
+    panel_info.update(physical_frequency_axes=physical, calibration_dependency=calibration.dependency(xy_calibration))
     draw = ImageDraw.Draw(image)
-    font = ImageFont.load_default(size=13)
     title = "FFT | filtered display" if settings.get("spectrum_filter") else "FFT | " + settings["representation"]
     draw.text((left, 8), title, fill="white", font=font)
+    frequency_unit = physical[0]["unit"] if physical else "cycles/pixel"
+    settings["axis_labels_unit"] = frequency_unit
+    settings["axis_calibration_dependency"] = calibration.dependency(xy_calibration)
+    settings["axis_ticks"] = {"fx": xticks, "fy": yticks, "unit": frequency_unit,
+                              "rounding": "physical ticks start at4 significant digits; increase only to distinguish adjacent ticks; scientific axes unchanged"}
     draw.text((8, 28), "fy", fill="white", font=font)
     draw.rectangle([left-1, top-1, left+plot.width, top+plot.height], outline="#a0a8b4")
     # Label original signed frequencies visible in this subregion. Cropping
     # never recentres DC or changes the frequency denominator/resolution.
-    h, w = full_shape
-    def tick_label(value, size):
-        # Enough decimal places to distinguish adjacent original bins, even
-        # when a narrow crop lies near Nyquist on a large source grid.
-        precision = int(math.ceil(math.log10(2*size))) + 1
-        return format(value, ".{}f".format(precision)).rstrip("0").rstrip(".") if value else "0"
-    for bin_x in sorted(set((rect[0], (rect[0]+rect[2]-1)/2, rect[2]-1))):
-        fx = (bin_x-w//2)/w
+    for row in xticks:
+        fx = row["cycles_per_pixel"]
         x, _ = coordinate_transform([fx, 0], panel_info, False, inverse=True)
         draw.line([x, top+plot.height, x, top+plot.height+4], fill="white")
-        draw.text((x, top+plot.height+7), tick_label(fx, w), fill="white", font=font, anchor="mt")
-    for bin_y in sorted(set((rect[1], (rect[1]+rect[3]-1)/2, rect[3]-1))):
-        fy = (bin_y-h//2)/h
+        row["image_coordinate"] = x
+        draw.text((x, top+plot.height+7), row["label"], fill="white", font=font, anchor="mt")
+    for row in yticks:
+        fy = row["cycles_per_pixel"]
         _, y = coordinate_transform([0, fy], panel_info, False, inverse=True)
         draw.line([left-4, y, left, y], fill="white")
-        draw.text((left-8, y), tick_label(fy, h), fill="white", font=font, anchor="rm")
-    draw.text((max(128, left+plot.width/2), top+plot.height+30), "fx (cycles/pixel)",
+        row["image_coordinate"] = y
+        draw.text((left-8, y), row["label"], fill="white", font=font, anchor="rm")
+    draw.text((max(128, left+plot.width/2), top+plot.height+30), "fx/fy ({})".format(frequency_unit),
               fill="white", font=font, anchor="mt")
     return image, panel_info
+
+
+def spatial_scale_bar(image, panel_info, record, enabled=True):
+    """Draw a separately recorded display layer without changing geometry."""
+    need(type(enabled) is bool, "scale_bar must be boolean")
+    specification = calibration.scale_bar_spec(panel_info, record) if enabled else None
+    if specification and specification.get("visible"):
+        image = image.convert("RGB")
+        draw = ImageDraw.Draw(image)
+        line = specification["image_endpoints_xyxy"]
+        draw.line(line, fill="black", width=5)
+        draw.line(line, fill="white", width=3)
+        label = "{:.5g} {}".format(specification["length"], specification["unit"])
+        draw.text((line[0], line[1]-6), label, font=ImageFont.load_default(size=12),
+                  anchor="lb", fill="white", stroke_width=1, stroke_fill="black")
+    return image, specification
+
+
+def translate_scale_bar(specification, left):
+    if not specification or not specification.get("visible"):
+        return specification
+    x0, y0, x1, y1 = specification["image_endpoints_xyxy"]
+    return {**specification, "image_endpoints_xyxy": [x0 + left, y0, x1 + left, y1],
+            "coordinate_space": "rendered_image_pixels"}
 
 
 class Workspace:
@@ -377,21 +448,99 @@ class Workspace:
         return metadata, directory
 
     def resolved(self, ident):
-        context, visited = None, set()
+        context, xy_record, calibration_review, visited = None, None, None, set()
         while True:
             need(ident not in visited and len(visited) < 32, "Object context cycle or depth exceeded", "CORRUPT_OBJECT")
             visited.add(ident)
             metadata, directory = self.object(ident)
-            if metadata["kind"] != "context":
+            if xy_record is None:
+                xy_record = metadata.get("xy_calibration")
+            if calibration_review is None:
+                calibration_review = metadata.get("calibration_review")
+            if metadata["kind"] not in ("context", "calibration"):
                 # Derived views/FFTs already carry effective user context.
                 # None means absent; empty patches and explicit null fields
                 # must not resurrect or discard an earlier interpretation.
                 if context is None:
                     context = metadata.get("user_context")
-                return metadata, directory, context
+                result = {**metadata, **({"xy_calibration": xy_record} if xy_record else {})}
+                if calibration_review:
+                    result["calibration_review"] = calibration_review
+                dependency = metadata.get("calibration_dependency")
+                if dependency and xy_record and dependency["calibration_id"] != xy_record["calibration_id"]:
+                    result["calibration_result_status"] = "stale_relative_to_selected_calibration; recompute before physical interpretation"
+                return result, directory, context
             if context is None:
-                context = metadata["user_context"]
+                context = metadata.get("user_context")
             ident = metadata["base_object_id"]
+
+    def calibration_scope(self, ident, scope):
+        """Exact immutable source/frame identity, never filename/latest matching."""
+        need(scope in ("image", "sequence"), "scope must explicitly be image or sequence")
+        pending, seen, frames, sequences = [ident], set(), {}, {}
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            need(len(seen) < 64, "Calibration source ancestry exceeds budget", "BUDGET_EXCEEDED")
+            seen.add(current)
+            metadata, _ = self.object(current)
+            if metadata["kind"] == "tiff_source":
+                sequences[current] = metadata
+            elif metadata["kind"] == "frame":
+                need(metadata.get("array_domain") != "frequency",
+                     "Real-space XY calibration cannot relabel an imported frequency-domain array; diffraction calibration is separate")
+                frames[current] = metadata
+            for key in ("base_object_id", "parent_object_id", "source_object_id", "render_base_object_id", "spectrum_object_id"):
+                target = metadata.get(key)
+                if target and target != current:
+                    pending.append(target)
+            pending.extend(metadata.get("object_ids", []))
+        targets = sequences if scope == "sequence" else frames
+        need(len(targets) == 1,
+             "Calibration {} scope requires exactly one immutable {}; mixed-source or unresolved objects are refused".format(
+                 scope, "TIFF sequence" if scope == "sequence" else "frame"))
+        target_id, target = next(iter(targets.items()))
+        return {"object_id": target_id, "kind": target["kind"],
+                "source_identity": target.get("source_identity"),
+                "frame_index": target.get("frame_index"),
+                "source_capture_files_sha256": target.get("source_capture_files_sha256")}
+
+    def new_calibration(self, request, ident):
+        previous, _, context = self.resolved(request.get("object_id"))
+        old = previous.get("xy_calibration")
+        if "calibration_object_id" in request:
+            need(not any(key in request for key in ("scope", "xy_scale", "source_text")),
+                 "Attach an existing calibration OR provide a new statement; do not combine modes")
+            reference, _ = self.object(request["calibration_object_id"])
+            record = reference.get("xy_calibration")
+            need(type(record) is dict and reference["kind"] == "calibration",
+                 "calibration_object_id must be an explicit image_calibrate result")
+            target = self.calibration_scope(request["object_id"], record["scope"])
+            need(target == record["applies_to"], "Calibration belongs to a different immutable image/sequence", "CALIBRATION_SCOPE_MISMATCH")
+            return previous, context, dict(record), {"attached_existing_calibration": True,
+                                                     "calibration_object_id": request["calibration_object_id"]}
+        scope = request.get("scope")
+        target = self.calibration_scope(request["object_id"], scope)
+        source = request.get("source_text")
+        need(type(source) is str and 1 <= len(source) <= 4000 and source.strip(),
+             "A new or withdrawn calibration requires the actual user source_text")
+        need("xy_scale" in request, "xy_scale must be supplied; explicit null withdraws a calibration")
+        scale = calibration.validated_scale(request["xy_scale"]) if request["xy_scale"] is not None else None
+        if scale is None:
+            need(old is not None and old["scope"] == scope and old["applies_to"] == target,
+                 "Withdrawal must reference an existing calibration with the same explicit scope")
+        same_scope = old is not None and old["scope"] == scope and old["applies_to"] == target
+        record = {"calibration_id": ident, "revision": old["revision"] + 1 if same_scope else 1,
+                  "previous_calibration_id": old["calibration_id"] if same_scope else None,
+                  "status": "active" if scale else "withdrawn", "scope": scope, "applies_to": target,
+                  "xy_scale": scale, "source_text": source,
+                  "source": "user_statement_not_independently_verified",
+                  "uncertainty_status": ("scale uncertainty supplied; measurement uncertainty remains unknown without localization/covariance"
+                                         if scale and any(scale["uncertainty_" + a] is not None for a in ("x", "y")) else "unknown"),
+                  "real_space_only": True, "original_file_metadata_modified": False,
+                  "value_unit_or_frame_depth_inferred": False}
+        return previous, context, record, {"attached_existing_calibration": False}
 
     def scalar(self, ident):
         metadata, directory, context = self.resolved(ident)
@@ -410,7 +559,7 @@ class Workspace:
             objects[current] = metadata
             if "upstream-metadata.json" in metadata["files_sha256"]:
                 upstream[current] = read_json(directory / "upstream-metadata.json")
-            for key in ("parent_object_id", "base_object_id", "source_object_id", "render_base_object_id"):
+            for key in ("parent_object_id", "base_object_id", "source_object_id", "render_base_object_id", "calibration_object_id"):
                 target = metadata.get(key)
                 if target is not None:
                     need(type(target) is str and OBJECT_ID.fullmatch(target), "Invalid provenance parent", "CORRUPT_OBJECT")
@@ -418,6 +567,11 @@ class Workspace:
             for target in metadata.get("object_ids", []):
                 need(type(target) is str and OBJECT_ID.fullmatch(target), "Invalid comparison source", "CORRUPT_OBJECT")
                 pending_ids.append(target)
+            record = metadata.get("xy_calibration")
+            if record and record["calibration_id"] != current:
+                pending_ids.append(record["calibration_id"])
+            if record and record.get("previous_calibration_id"):
+                pending_ids.append(record["previous_calibration_id"])
         result = {"schema_version": 1, "root_object_id": ident, "objects": objects,
                   "upstream_capture_metadata": upstream,
                   "scope": "immutable workspace parents and imported original capture metadata; no live-source claim"}
@@ -430,7 +584,9 @@ class Workspace:
                         dm_called=False, files_sha256=files,
                         software_provenance={"python": platform.python_version(), "numpy": np.__version__,
                                              "Pillow": PIL.__version__, "tifffile": tifffile.__version__,
-                                             "worker_sha256": sha_file(Path(__file__))})
+                                             "worker_sha256": sha_file(Path(__file__)),
+                                             "helper_modules_sha256": {name: sha_file(Path(__file__).with_name(name)) for name in
+                                                                       ("image_annotation_updates.py", "image_calibration.py")}})
         metadata["manifest_path"] = str(directory / "object.json")
         if "preview.png" in files:
             metadata["image_path"] = str(directory / "preview.png")
@@ -444,6 +600,12 @@ class Workspace:
         directory.mkdir()
         metadata = {"object_id": ident, "kind": action, "created_utc": datetime.now(timezone.utc).isoformat(),
                     "request_id": request["request_id"]}
+        if "object_id" in request:
+            inherited, _, _ = self.resolved(request["object_id"])
+            if inherited.get("xy_calibration"):
+                metadata["xy_calibration"] = inherited["xy_calibration"]
+            if inherited.get("calibration_review"):
+                metadata["calibration_review"] = inherited["calibration_review"]
         if action == "open":
             path = absolute(request.get("source_path"), "source_path")
             identity = source_identity(path)
@@ -522,18 +684,36 @@ class Workspace:
                             scientific_context=info.get("scientific_context"),
                             array_domain=(info.get("scientific_semantics") or {}).get("domain", "unspecified_image"),
                             capture_verification_mode="image" if native else "default_schema1_hashes_dtype_axes")
+        elif action == "calibrate":
+            previous, context, record, extra = self.new_calibration(request, ident)
+            old = previous.get("xy_calibration")
+            changed = old is not None and old["calibration_id"] != record["calibration_id"]
+            metadata.update(kind="calibration", parent_object_id=request["object_id"], base_object_id=previous["object_id"],
+                            user_context=context, xy_calibration=record, **extra,
+                            scientific_data_changed=False, raw_metadata_modified=False,
+                            calibration_review={"previous_calibration_id": old["calibration_id"] if old else None,
+                                                "current_calibration_id": record["calibration_id"],
+                                                "physical_measurements": "stale; recompute using this revision" if changed else "record dependency when measured",
+                                                "candidate_interpretations": "review_required_after_calibration_change" if changed else "not automatically confirmed",
+                                                "old_measurement_object_id": previous["object_id"] if changed and previous["kind"] == "measure" else None,
+                                                "pixel_anchors_changed": False,
+                                                "old_exports_immutable": True},
+                            next_step="image_preview on this wrapper to redraw physical scale/axes; image_measure to calculate geometry with the selected record")
         elif action in ("view", "fft", "measure"):
             spectral_view = False
             inherited_annotations = []
-            if action == "view":
+            if action == "view" or action == "measure":
                 parent, parent_directory, context = self.resolved(request.get("object_id"))
                 inherited_annotations = parent.get("annotations", [])
                 if parent["kind"] == "annotate":
                     parent, parent_directory = self.object(parent["render_base_object_id"])
                 if parent["kind"] == "compare":
+                    need(action == "view", "Measure one explicit comparison input, not an ambiguous composite")
                     return self.revise_comparison(parent, parent_directory, context, request, metadata, directory,
                                                   inherited_annotations)
                 spectral_view = parent["kind"] in ("fft", "fft_view")
+                need(not spectral_view or "scale_bar" not in request,
+                     "A real-space scale_bar cannot be drawn on a frequency spectrum; use spectrum_axes")
                 need(parent["kind"] in ("frame", "view", "fft", "fft_view"),
                      "preview requires a frame/view, comparison, annotated view or FFT")
                 values = load_array(parent_directory / "data.npy", allow_complex=spectral_view)
@@ -551,7 +731,47 @@ class Workspace:
                 parent, _, context, values = self.scalar(request.get("object_id"))
             metadata.update(parent_object_id=request["object_id"], user_context=context,
                             source_object_id=parent["object_id"])
-            if spectral_view:
+            record = metadata.get("xy_calibration")
+            if action == "measure":
+                points = request.get("points")
+                need(type(points) is list and len(points) == 2 and all(type(p) is list and len(p) == 2 and all(number(v) for v in p) for p in points),
+                     "measure requires two explicit [x,y] coordinates")
+                space = request.get("coordinate_space", "frequency_cycles_per_pixel" if spectral_view else "source_pixels")
+                need(space == ("frequency_cycles_per_pixel" if spectral_view else "source_pixels"),
+                     "coordinate_space must match the actual spatial image or saved complex FFT; never infer physical/diffraction coordinates")
+                need(spectral_view or parent.get("array_domain") != "frequency",
+                     "Imported frequency-domain scalar arrays lack the original FFT coordinate contract")
+                if spectral_view:
+                    h, w = values.shape
+                    need(all(-(w//2)/w <= p[0] <= (w-1-w//2)/w and
+                             -(h//2)/h <= p[1] <= (h-1-h//2)/h for p in points),
+                         "Frequency points must lie on the original saved fftshift frequency extent")
+                    bounds = None
+                else:
+                    current = spatial_panel(parent, [0, 0, values.shape[1], values.shape[0]], [0, 0, values.shape[1], values.shape[0]])
+                    bounds = current["source_rect_xyxy"]
+                    need(all(bounds[0] <= p[0] <= bounds[2]-1 and bounds[1] <= p[1] <= bounds[3]-1 for p in points),
+                         "Measurement points lie outside the selected source-pixel extent; no clipping")
+                dx, dy = points[1][0] - points[0][0], points[1][1] - points[0][1]
+                need((dx != 0 or dy != 0) or spectral_view and points[0] == [0, 0],
+                     "Distinct measurement points required, except explicit FFT DC inspection")
+                measured = calibration.geometry(dx, dy, record, frequency=spectral_view)
+                metadata.update(points=points, dx=dx, dy=dy, coordinate_space=space,
+                                coordinate_system="original fftshift cycles/pixel; no2pi" if spectral_view else "source pixel centres; x right,y down",
+                                source_rect_xyxy=bounds, **measured)
+                if spectral_view:
+                    magnitude = math.hypot(dx, dy)
+                    metadata.update(frequency_distance_cycles_per_pixel=magnitude,
+                                    pixel_period=1. / magnitude if magnitude else None,
+                                    zero_frequency_reason="DC has no finite reciprocal period" if not magnitude else None,
+                                    image_coordinate_angle_degrees=math.degrees(math.atan2(dy, dx)) if magnitude else None,
+                                    d_spacing=measured.get("period") if [0, 0] in points else None,
+                                    d_spacing_unit=measured.get("period_unit") if [0, 0] in points else None,
+                                    reciprocal_interpretation="geometric period of frequency difference; d_spacing only for a vector referenced to explicit DC, not an hkl/phase identification")
+                else:
+                    metadata.update(distance_pixels=math.hypot(dx, dy),
+                                    image_coordinate_angle_degrees=math.degrees(math.atan2(dy, dx)))
+            elif spectral_view:
                 need(values.dtype == np.dtype("complex128"), "FFT view requires the saved complex128 spectrum")
                 need(request.get("rect") is None,
                      "FFT display selection uses frequency_rect in original FFT bins; rect selects a spatial ROI before FFT")
@@ -597,27 +817,17 @@ class Workspace:
                 settings["frequency_rect"] = selected_rect
                 settings["frequency_rect_convention"] = "absolute half-open bin edges in original fftshift grid; omission inherits, null restores full spectrum"
                 spectrum_id = parent.get("spectrum_object_id", parent["object_id"])
-                image, spectrum_panel = spectrum_canvas(shown, settings, spectrum_id)
+                image, spectrum_panel = spectrum_canvas(shown, settings, spectrum_id, record)
                 save_array(directory, "data.npy", values)
                 metadata.update(kind="fft_view", source_object_id=spectrum_id, spectrum_object_id=spectrum_id,
                                 dtype="complex128", shape_yx=list(values.shape), axes=["fy", "fx"], array_domain="frequency",
-                                frequency_unit=parent["frequency_unit"], physical_frequency_unit=parent["physical_frequency_unit"],
+                                frequency_unit=parent["frequency_unit"],
+                                physical_frequency_unit=("cycles/" + record["xy_scale"]["unit"]) if calibration.active_scale(record) else None,
+                                physical_frequency_axes=calibration.frequency_axes(values.shape, record),
                                 frequency_axes=parent["frequency_axes"], display_representation=expression, display=settings,
                                 panels=[spectrum_panel],
                                 fft_recomputed=False, scientific_data_changed=False,
                                 rendering_scope="saved external complex FFT; frequency selection and amplitude/power/log are display-only; NPY retains the full unchanged complex spectrum")
-            elif action == "measure":
-                points = request.get("points")
-                need(type(points) is list and len(points) == 2 and all(type(p) is list and len(p) == 2 and all(number(v) for v in p) for p in points),
-                     "measure requires two explicit [x,y] pixel-center coordinates")
-                need(all(0 <= p[0] <= values.shape[1] - 1 and 0 <= p[1] <= values.shape[0] - 1 for p in points), "Measurement points lie outside the scalar image")
-                dx, dy = points[1][0] - points[0][0], points[1][1] - points[0][1]
-                need(dx != 0 or dy != 0, "Distinct measurement points required")
-                metadata.update(points=points, dx=dx, dy=dy, distance_pixels=math.hypot(dx, dy),
-                                image_coordinate_angle_degrees=math.degrees(math.atan2(dy, dx)),
-                                coordinate_system="scalar image pixel centers; x right, y down", physical_angle=False,
-                                physical_distance=None, physical_unit=None,
-                                limitation="pixel geometry only; unknown aspect/calibration never becomes a physical angle")
             else:
                 rect = rectangle(request.get("rect"), values.shape)
                 roi = cut(values, rect)
@@ -648,6 +858,8 @@ class Workspace:
                                                      "dc_index": n // 2, "value_at_index_zero": -(n // 2) / n}
                                                     for dim, (axis, n) in enumerate(zip(("fy", "fx"), spectrum.shape))],
                                     display_representation=expression, display=settings, array_domain="frequency")
+                    metadata.update(physical_frequency_unit=("cycles/" + record["xy_scale"]["unit"]) if calibration.active_scale(record) else None,
+                                    physical_frequency_axes=calibration.frequency_axes(spectrum.shape, record))
                 else:
                     save_array(directory, "data.npy", roi)
                     settings = display_options(request, [roi], parent.get("display"))
@@ -659,11 +871,20 @@ class Workspace:
                 metadata["panels"] = ([frequency_panel(ident, spectrum.shape, [0, 0, image.width, image.height])]
                                       if action == "fft" else
                                       [spatial_panel(parent, rect, [0, 0, image.width, image.height])])
+                if action == "view":
+                    settings["scale_bar"] = request.get("scale_bar", (parent.get("display") or {}).get("scale_bar", True))
+                    image, bar = spatial_scale_bar(image, metadata["panels"][0], record, settings["scale_bar"])
+                    metadata["scale_bar"] = bar
+                    settings["scale_bar_calibration_dependency"] = calibration.dependency(record)
+                else:
+                    metadata["panels"][0].update(physical_frequency_axes=metadata.get("physical_frequency_axes"),
+                                                calibration_dependency=calibration.dependency(record))
             if action == "view" and inherited_annotations:
                 save_png(directory / "unannotated.png", image)
                 image, projected = overlay(image, inherited_annotations, metadata["panels"], reproject=True)
                 metadata.update(annotations=projected, annotation_reprojection=True, scientific_data_changed=False)
             if action in ("view", "fft"):
+                metadata["display_calibration_id"] = record["calibration_id"] if record else None
                 save_png(directory / "preview.png", image)
         elif action == "compare":
             ids = request.get("object_ids")
@@ -679,11 +900,16 @@ class Workspace:
             settings = display_options(request, rois)
             need(settings["max_size"] >= len(ids), "max_size is too small for comparison panels")
             images = [render(roi, settings, (settings["max_size"] // len(ids), settings["max_size"])) for roi in rois]
-            composite = Image.new("L", (sum(image.width for image in images), max(image.height for image in images)))
+            records = [row[0].get("xy_calibration") for row in loaded]
+            composite = Image.new("RGB" if any(calibration.active_scale(r) for r in records) else "L",
+                                  (sum(image.width for image in images), max(image.height for image in images)))
             panels, left = [], 0
             for index, (ident, roi, image) in enumerate(zip(ids, rois, images)):
+                local_panel = spatial_panel(loaded[index][0], rect, [0, 0, image.width, image.height])
+                image, bar = spatial_scale_bar(image, local_panel, records[index])
                 composite.paste(image, (left, 0))
-                panels.append(spatial_panel(loaded[index][0], rect, [left, 0, left + image.width, image.height]))
+                panels.append({**local_panel, "image_rect_xyxy": [left, 0, left + image.width, image.height],
+                               "xy_calibration": records[index], "scale_bar": translate_scale_bar(bar, left)})
                 left += image.width
                 save_array(directory, "data-{}.npy".format(index), roi)
             save_png(directory / "preview.png", composite)
@@ -694,21 +920,42 @@ class Workspace:
                                     "operation": "external raw left-minus-right in float64", **stats(delta)})
             metadata.update(object_ids=ids, source_shape_yx=list(shape), source_rect_xyxy=rect, display=settings,
                             panels=panels, raw_statistics=[stats(roi) for roi in rois], raw_differences=differences,
+                            xy_calibration=records[0] if all(r == records[0] for r in records) else None,
+                            panel_calibrations=records,
+                            display_calibration_id=records[0]["calibration_id"] if records[0] and all(r == records[0] for r in records) else None,
                             comparison_scope="same half-open pixel ROI and shared display mapping; no registration or physical alignment inferred")
         elif action == "annotate":
             parent, _, context = self.resolved(request.get("object_id"))
             need(parent["kind"] in ("view", "compare", "fft", "fft_view", "annotate"), "annotate requires a rendered view/compare/FFT object")
             base_id = parent.get("render_base_object_id", parent["object_id"])
             render_base, base_directory = self.object(base_id)
-            annotations = request.get("annotations")
+            current_record = metadata.get("xy_calibration")
+            need(render_base.get("display_calibration_id") == (current_record["calibration_id"] if current_record else None),
+                 "The selected calibration differs from this PNG's render dependency; call image_preview on the calibrated wrapper before editing annotations",
+                 "STALE_CALIBRATION_DISPLAY")
+            patch_mode = "updates" in request
+            need(("annotations" in request) != patch_mode,
+                 "Supply exactly one of annotations (replacement) or updates (existing IDs)")
+            updates = request.get("updates")
+            if patch_mode:
+                need(type(updates) is list and 1 <= len(updates) <= 100,
+                     "updates must contain 1..100 edits; annotations:[] explicitly clears all marks")
+                annotations = parent.get("annotations", [])
+            else:
+                annotations = request["annotations"]
             need(type(annotations) is list and len(annotations) <= 128, "annotations must be an explicit list of at most128 items")
             base_file = "unannotated.png" if "unannotated.png" in render_base["files_sha256"] else "preview.png"
-            image, validated = overlay(Image.open(base_directory / base_file), annotations, render_base.get("panels", []))
+            with Image.open(base_directory / base_file) as unannotated:
+                image, validated = overlay(unannotated, annotations, render_base.get("panels", []), updates=updates)
             save_png(directory / "preview.png", image)
             metadata.update(parent_object_id=request["object_id"], render_base_object_id=base_id,
                             panels=render_base.get("panels", []), annotations=validated,
                             user_context=context,
-                            revision_semantics="annotations replace the previous revision; empty list restores the original unannotated render",
+                            display_calibration_id=render_base.get("display_calibration_id"),
+                            revision_semantics=("updates change only named existing annotations; omitted fields and marks persist"
+                                                if patch_mode else
+                                                "annotations replace the previous revision; empty list restores the original unannotated render"),
+                            annotation_edit_mode="update" if patch_mode else "replace",
                             scientific_data_changed=False)
         elif action == "context":
             previous, _ = self.object(request.get("object_id"))
@@ -744,6 +991,11 @@ class Workspace:
             if context is None:
                 context = scientific.get("user_context")
             source_directory = self.root / "objects" / scientific["object_id"]
+            record = metadata.get("xy_calibration")
+            if image_object.get("image_path"):
+                need(scientific.get("display_calibration_id") == (record["calibration_id"] if record else None),
+                     "The selected calibration differs from this PNG's render dependency; call image_preview before export",
+                     "STALE_CALIBRATION_DISPLAY")
             names = [name for name in scientific["files_sha256"] if name.endswith(".npy")]
             need(names, "Export requires actual scientific arrays; a TIFF metadata handle/context-only record is not pixel data")
             provenance = self.export_provenance(request["object_id"])
@@ -764,7 +1016,11 @@ class Workspace:
             else:
                 values = load_array(source_directory / names[0])
                 export_display = display_options({}, [values])
-                save_png(output / "preview.png", render(values, export_display, (1024, 1024)))
+                exported_image = render(values, export_display, (1024, 1024))
+                exported_image, bar = spatial_scale_bar(exported_image, spatial_panel(scientific, [0, 0, values.shape[1], values.shape[0]],
+                                                                                     [0, 0, exported_image.width, exported_image.height]), record)
+                export_display.update(scale_bar=bar, calibration_dependency=calibration.dependency(record))
+                save_png(output / "preview.png", exported_image)
                 exported["preview.png"] = sha_file(output / "preview.png")
             write_new(output / "provenance.json", canonical(provenance) + b"\n")
             exported["provenance.json"] = sha_file(output / "provenance.json")
@@ -775,6 +1031,7 @@ class Workspace:
                 exported[name] = sha_file(output / name)
             export_manifest = {"schema_version": 1, "backend": BACKEND, "source_object_id": parent["object_id"],
                                "scientific_object": scientific, "display_object": image_object, "user_context": context,
+                               "xy_calibration": record, "calibration_review": metadata.get("calibration_review"),
                                "display_mapping": export_display,
                                "provenance_file": "provenance.json", "provenance_sha256": exported["provenance.json"],
                                "files_sha256": exported, "scientific_NPY_is_not_display_PNG": True, "dm_save_as_called": False}
@@ -794,11 +1051,18 @@ class Workspace:
         settings = display_options(request, values, parent["display"])
         need(settings["max_size"] >= len(values), "max_size is too small for comparison panels")
         images = [render(v, settings, (settings["max_size"] // len(values), settings["max_size"])) for v in values]
-        image = Image.new("L", (sum(v.width for v in images), max(v.height for v in images)))
+        record = parent.get("xy_calibration")
+        records = [record] * len(images) if record else parent.get("panel_calibrations", [None] * len(images))
+        settings["scale_bar"] = request.get("scale_bar", parent["display"].get("scale_bar", True))
+        image = Image.new("RGB" if any(calibration.active_scale(r) for r in records) else "L",
+                          (sum(v.width for v in images), max(v.height for v in images)))
         panels, left = [], 0
-        for old, png, name, values_part in zip(parent["panels"], images, names, values):
+        for old, png, name, values_part, selected_record in zip(parent["panels"], images, names, values, records):
+            local_panel = {**old, "image_rect_xyxy": [0, 0, png.width, png.height]}
+            png, bar = spatial_scale_bar(png, local_panel, selected_record, settings["scale_bar"])
             image.paste(png, (left, 0))
-            panels.append({**old, "image_rect_xyxy": [left, 0, left + png.width, png.height]})
+            panels.append({**old, "image_rect_xyxy": [left, 0, left + png.width, png.height],
+                           "xy_calibration": selected_record, "scale_bar": translate_scale_bar(bar, left)})
             left += png.width
             save_array(directory, name, values_part)
         if annotations:
@@ -809,6 +1073,8 @@ class Workspace:
             metadata[key] = parent[key]
         metadata.update(kind="compare", parent_object_id=request["object_id"], user_context=context,
                         display=settings, panels=panels, scientific_data_changed=False,
+                        xy_calibration=record, panel_calibrations=records,
+                        display_calibration_id=record["calibration_id"] if record else None,
                         annotations=annotations, annotation_reprojection=bool(annotations))
         return self.publish(metadata, directory)
 
@@ -996,11 +1262,13 @@ def annotation(item, image_size, panels, reproject=False):
             "mapping_status": "one_source" if len(matches) == 1 else "not_a_single_source_region"}
 
 
-def overlay(image, annotations, panels, reproject=False):
+def overlay(image, annotations, panels, reproject=False, updates=None):
     image = image.convert("RGB")
     draw, result, seen = ImageDraw.Draw(image), [], set()
-    for item in annotations:
-        mark = annotation(item, image.size, panels, reproject=reproject)
+    entries = (plan_annotation_updates(annotations, updates) if updates is not None else
+               ((item, reproject) for item in annotations))
+    for item, project in entries:
+        mark = annotation(item, image.size, panels, reproject=project)
         ident = mark.get("annotation_id")
         need(ident is None or ident not in seen, "Duplicate annotation_id in replacement revision")
         seen.add(ident)
