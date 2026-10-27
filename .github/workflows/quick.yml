@@ -1,0 +1,50 @@
+# Small, dependency-free PR checks. No Windows runner, pip downloads or C++.
+# A full synthetic test suite remains available via manual workflow_dispatch in synthetic.yml.
+name: Quick smoke (PR only)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'server.mjs'
+      - 'selftest.mjs'
+      - 'package.json'
+      - 'lib/**'
+      - 'bridge/**'
+      - 'crystallography/**'
+      - 'tools/**'
+      - 'ui/**'
+      - 'setup/**'
+      - 'skills/**'
+      - 'tests/**'
+      - 'requirements*.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quick-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check MCP entry syntax
+        run: node --check server.mjs
+      - name: Portable registry / coordinator / context / Skill tests
+        run: |
+          node --test --test-concurrency=2 \
+            tests/tool-registry.test.mjs \
+            tests/execution-coordinator.test.mjs \
+            tests/analysis-context.test.mjs \
+            tests/skill-contracts.test.mjs
