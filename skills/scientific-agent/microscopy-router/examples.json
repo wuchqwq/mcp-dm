@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "skill": "microscopy-router",
+  "tool_refs": ["image_info", "image_result", "structure_info", "structure_result", "execution_list", "execution_info", "analysis_create", "analysis_read", "analysis_update", "analysis_proposal"],
+  "scenarios": [
+    {"intent": "Inspect the selected immutable image without recomputing", "calls": [{"tool": "image_info", "arguments": {"object_id": "11111111111111111111111111111111"}}]},
+    {"intent": "Recover an original structure request in the explicitly configured workspace", "calls": [{"tool": "structure_result", "arguments": {"request_id": "saved-structure-request"}}]},
+    {"intent": "Explain queue waiting without submitting scientific work", "calls": [{"tool": "execution_list", "arguments": {"provider": "image", "request_id": "saved-image-request", "limit": 10}}]},
+    {"intent": "Name an optional task and read its selected references", "calls": [{"tool": "analysis_create", "arguments": {"analysis_id": "example-analysis", "request_id": "skill-create-analysis", "reason": "Start explicit synthetic reference task"}}, {"tool": "analysis_read", "arguments": {"analysis_id": "example-analysis"}}]},
+    {"intent": "Recover an exact context mutation after reopening the client", "calls": [{"tool": "analysis_read", "arguments": {"analysis_id": "example-analysis", "request_id": "skill-create-analysis"}}]}
+  ]
+}

@@ -107,8 +107,8 @@ MCP 客户端继续使用 `tools/list` 与 `tools/call`。`describe` 是内部 A
 这些诊断不是第二套资格状态；真实调用仍由原生／科学适配器执行硬校验。
 
 `execution.resourceKeys` 和预算由适配器声明。后续首条
-[Execution Coordinator 切片](EXECUTION_COORDINATOR.md)已迁出 image worker 的队列、
-等待取消及截止时间；structure 和 DM 路径仍使用各自原执行机制。
+[Execution Coordinator 切片](EXECUTION_COORDINATOR.md)已迁出 image 和 structure worker 的队列、
+等待取消及截止时间，两者保留不同终止策略；DM 路径仍使用原执行机制。
 没有数据库、任务图或自动重试策略，也没有跨进程全局调度保证。
 已开始请求取消等待后仍可能完成；继续使用原 `image_result`、`structure_result`
 或同一原生会话的 `dm_native_result` 查询。不得因目录重构重新提交未知副作用操作。
@@ -128,9 +128,9 @@ MCP 客户端继续使用 `tools/list` 与 `tools/call`。`describe` 是内部 A
 新 Agent 不能导入本仓库的私有 workspace、worker 或 GMS adapter 来绕开该边界，
 mcp-dm 也不能反向依赖新 Agent。
 
-首条 Coordinator 迁移已在 image 路径运行，内部执行观察与 provider 持久科学
-回执仍明确分开。RFC 后续的统一跨 provider OperationReceipt、修订感知
-AnalysisContext 与迁移后的 Skill 包尚未实现，不能称为已统一全部执行状态。
+Coordinator 迁移已在 image/structure 路径共享运行，内部执行观察与 provider 持久科学
+回执仍明确分开。可选[AnalysisContext 与首批 Skills](ANALYSIS_CONTEXT.md)已接入引用修订，
+但统一跨 provider OperationReceipt／任务图与物理迁仓尚未实现，不能称为已统一全部执行状态。
 
 ## 后续接口消费边界
 
@@ -140,7 +140,7 @@ AnalysisContext 与迁移后的 Skill 包尚未实现，不能称为已统一全
 | Analysis Context | `read(analysisId)` 与 `commit(expectedRevision, patch, dependencyProof)` 仅管理引用及 CAS 修订。显示更改、尺度／中心修订和新 capture／FFT producer 分别应用已有依赖规则；晚到结果不能覆盖更新的人工选择。 |
 | 专业 Skills | 在未来 Agent 侧声明所需工具、契约版本、可校验示例和科学限制。它们消费 provider 能力，旧工具直调仍独立可用；Skill 不能授权脚本或突破资格。 |
 
-image 路径已消费明确的 invoke/recover 生命周期端口；其余仍是后续接口方案，
+image/structure 路径已消费明确的 invoke/recover 生命周期端口；其余仍是后续接口方案，
 不是已发布的跨仓协议。本轮不创建 Context 空壳类、数据库、任务图或后台模型服务。
 继续迁移时须保持资源占用持续到实际 worker 关闭、取消后原 ID 恢复及错误保真。
 
@@ -171,5 +171,5 @@ node --test tests/tool-registry-science-mcp.test.mjs
 
 这证明合成科学工具与 MCP 图片内容的组合契约，不等于真实 DM、浏览器、
 普通模型客户端实际看见图或真实材料判相验收。
-后续执行协调、修订感知 AnalysisContext 与 Skills 只按 RFC 的消费边界逐步实施，
-不能将此目录切片写成已经完成的全局 Agent 平台。
+共享执行、修订感知 AnalysisContext 与首批 Skills 按 RFC 的消费边界渐进接入，
+不构成全局 Agent 平台或多 Agent 管理器。

@@ -43,7 +43,7 @@ test('external module factories preserve catalog objects and have no constructor
       assert.equal(c.effects.sourceMutation, false);
       assert.ok(['required', 'optional', 'query', 'none'].includes(c.effects.requestId));
       for (const field of ['resourceKeys', 'budgets']) {
-        if (field === 'resourceKeys' && module.id === 'images' && ['image_info', 'image_result'].includes(tool.definition.name)) assert.deepEqual(c.execution[field], [], 'read-only image ports acquire no write resource');
+        if (field === 'resourceKeys' && ['image_info', 'image_result', 'structure_info', 'structure_result'].includes(tool.definition.name)) assert.deepEqual(c.execution[field], [], 'read-only scientific ports acquire no write resource');
         else assert.ok(c.execution[field].length && c.execution[field].every(v => typeof v === 'string' && v));
       }
       for (const field of ['serialization', 'cancellation']) assert.equal(typeof c.execution[field], 'string');

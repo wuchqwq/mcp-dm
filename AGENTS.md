@@ -121,7 +121,8 @@ metric with a basis hypothesis, not cubic P or a chemical phase proof. See
 docs/CRYSTALLOGRAPHY_WORKFLOW.md before changing this companion.
 
 - `server.mjs`: zero-dependency Node >=18 stdio MCP facade, strict tool schemas, serialized loopback requests, timeouts/cancellation. Stdout is MCP JSON only; diagnostics belong on stderr.
-- `lib/runtime/`: portable ToolRegistry, compatible schema validation and single-process ExecutionCoordinator. No DM/GMS, environment lookup, host selection or scientific algorithms. Coordinator manages resource/wait lifetimes through explicit provider ports; provider journals remain authoritative. Its internal receipts/contracts are versioned separately from existing MCP/data formats. See docs/EXECUTION_COORDINATOR.md.
+- `lib/runtime/`: portable ToolRegistry, compatible schema validation and single-process ExecutionCoordinator. No DM/GMS, environment lookup, host selection or scientific algorithms. Coordinator manages resource/wait lifetimes, separate worker/query budgets and monotonic scoped observations through explicit provider ports; image/structure share an instance but retain their different termination policies. Provider journals remain authoritative. Its internal receipts/contracts are versioned separately from existing MCP/data formats. See docs/EXECUTION_COORDINATOR.md.
+- `lib/runtime/analysis_context.mjs`, `file_context_store.mjs`: optional reference-only current-analysis/CAS history. Require an explicit scientific binding validator; caller-supplied hashes cannot mark old results current. Late provider outcomes stay saved but lost CAS only creates a historical proposal. `lib/analysis_context_bindings.mjs` is the transitional provider adapter, not another science implementation. See docs/ANALYSIS_CONTEXT.md. Optional Agent-side skill sources live under `skills/scientific-agent/`; never install or require them automatically.
 - `lib/tools/`: this server's explicit capability composition and backend adapters. `create_server_runtime.mjs` owns DM-specific configuration; it is not the future Agent's global registry. DM adapters stay here long term; image/structure registrations are transitional compatibility routes for later extraction. See docs/TOOL_REGISTRY.md before adding modules; never extend the protocol facade with tool-name dispatch branches.
 - `bridge/dm_bridge.py`: Python 3.7-compatible host integration, a genuine DM backend and an explicit synthetic mock backend. `DigitalMicrograph` imports successfully only inside its host; do not fake a successful real backend.
 - `bridge/spectroscopy.py`: explicit-axis energy calibration and bounded ROI arithmetic. Real EDS/EELS/spectral SI remain NOT_TESTED until actual representative data are accepted.
@@ -489,7 +490,7 @@ Keep detailed acceptance reports local. Public documentation should explain inst
 
 ```powershell
 python -B -m unittest discover -s tests -p 'test_*.py' -v
-node --test
+npm test
 $env:DM_TEST_PYTHON = (Get-Command python).Source
 node selftest.mjs
 ```
