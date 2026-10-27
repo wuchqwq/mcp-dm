@@ -1,0 +1,28 @@
+name: Runtime source snapshot
+on:
+  push:
+    branches: [validation/runtime-stack-closeout-20261027]
+    paths: [.github/workflows/runtime-source-export.yml]
+permissions:
+  contents: read
+jobs:
+  source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3d95edb0236e839180d20a9665bba3c7bc127227
+          persist-credentials: false
+      - name: Archive immutable public source only
+        run: |
+          test "$(git rev-parse HEAD)" = 3d95edb0236e839180d20a9665bba3c7bc127227
+          mkdir -p "$RUNNER_TEMP/runtime-source"
+          git archive --format=zip -o "$RUNNER_TEMP/runtime-source/source.zip" HEAD
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/runtime-source/identity.txt"
+          sha256sum "$RUNNER_TEMP/runtime-source/source.zip" > "$RUNNER_TEMP/runtime-source/archive.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-source-3d95edb
+          path: ${{ runner.temp }}/runtime-source/
+          retention-days: 30
