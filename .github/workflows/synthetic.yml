@@ -67,6 +67,11 @@ jobs:
           try:
               run('compiler-version', [str(compiler), '--version'], 30)
               run('compiler-target', [str(compiler), '-dumpmachine'], 30)
+              if 'msvc' in (build / 'compiler-target.log').read_text(encoding='utf-8').lower():
+                  # Microsoft alone deprecates standard getenv used by the
+                  # existing synthetic fixtures. Keep -Werror; do not alter
+                  # production source, qualification macros or test assertions.
+                  flags.append('-D_CRT_SECURE_NO_WARNINGS')
               targets = [('fake_host', ['core.cpp', 'bridge.cpp', 'fake_adapter.cpp', 'fake_host.cpp'], ['-ladvapi32', '-luser32'])]
               targets += [(name, ['core.cpp', name + '.cpp'], ['-lversion', '-lbcrypt']) for name in ['scientific_handoff_tests', 'frame_adapter_tests', 'pixel_adapter_tests', 'import_adapter_tests']]
               for name, inputs, libs in targets:
