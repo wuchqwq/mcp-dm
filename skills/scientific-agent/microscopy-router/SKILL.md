@@ -15,6 +15,14 @@ external ASE/diffsims work. A failed native call never authorizes an external
 replacement. A registered native tool does not qualify another GMS build/dtype.
 
 Continue from the researcher's selected half-product rather than starting over.
+When a user supplies a local TIFF path, open it and retain its IDs yourself; do
+not ask the researcher to type internal IDs, request IDs or tool JSON. For an
+interactive task, give them the loopback URL returned by `image_panel_open`.
+After “look here” or “continue”, read `image_panel_current`: this is the actual
+selection, not a cue to infer coordinates from the preview. A single live panel
+may be resolved without an ID; if several are open, use the retained panel ID
+instead of selecting by recency. The panel does not automatically wake Codex.
+
 Bind the exact image/frame/ROI, scientific grid and reference structure. Reuse a
 current saved analysis when one is selected; historical review stays attached
 to its old immutable evidence. A live DM edit requires a new capture, never an
@@ -27,6 +35,11 @@ When the optional tools are enabled, `analysis_read` selects current or explicit
 historical references. `analysis_create` names a new task; `analysis_update`
 advances saved references against the previously read revision. Inspect a lost
 CAS with `analysis_proposal`. No context is required for an isolated tool call.
+For a task the user wants to continue later, choose a short human-readable name
+and tell them that name. On reconnection read that named analysis and the retained
+panel's current state before doing new work; do not recreate TIFF/FFT objects to
+rebuild chat memory. An original request query recovers its historical outcome,
+whereas an unqualified `analysis_read` reads current references.
 
 - For viewing, ROI, local FFT, display or a corrected scale/point, read
   [microscopy-observe-revise](../microscopy-observe-revise/SKILL.md).

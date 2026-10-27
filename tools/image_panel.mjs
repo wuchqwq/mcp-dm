@@ -77,8 +77,18 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
   }else if(!r.data.annotations?.length){clean=r.png??null;digest=clean?createHash('sha256').update(Buffer.from(clean,'base64')).digest('hex'):null;}
   return {object:r.data,png:r.png??null,clean,digest,baseId:base.object_id,display,displayId};
  };
- const commitCurrent=prepared=>{
+ const commitCurrent=(prepared,{annotationIds=[]}={})=>{
   current=prepared.object;png=prepared.png;cleanPng=prepared.clean;cleanHash=prepared.digest;renderBaseId=prepared.baseId;effectiveDisplay=prepared.display;displaySourceObjectId=prepared.displayId;selection=null;stateRevision++;
+  // A saved drag is still the researcher's exact selection. Retain only the
+  // explicitly edited mark; never infer a mark from array order or recency.
+  if(annotationIds.length===1){
+   const mark=current.annotations?.find(value=>value.annotation_id===annotationIds[0]);
+   const matches=mark?.anchor?(current.panels??[]).filter(value=>value.source_object_id===mark.anchor.source_object_id&&({frequency:'frequency_cycles_per_pixel',spatial_pixels:'source_pixels',source_array_indices:'source_array_indices'}[value.domain])===mark.anchor.coordinate_space):[];
+   if(mark?.status!=='retracted'&&mark?.kind!=='text'&&matches.length===1){
+    try{selection=checkSelection({...mark.anchor,kind:mark.kind,panel:matches[0]});}
+    catch{/* A valid saved mark outside this zoom is not a current selection. */}
+   }
+  }
   editState={draft_revision:editState.draft_revision,dirty:false,gesture_active:false,selection:null,annotation_edit:null,base_object_id:current.object_id};
  };
  const setCurrent=async r=>commitCurrent(await prepareCurrent(r));
@@ -101,7 +111,7 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
   fields(body,['expected_object_id','draft_revision','action','params']);if(body.expected_object_id!==current.object_id)fail('Stale object revision; reload before editing',409);const p=body.params??{},startedRevision=body.draft_revision??editState.draft_revision;let r;
   if(!Number.isSafeInteger(startedRevision)||startedRevision<0)fail('Invalid draft_revision');
   if(body.action==='draft'){fields(p,['draft_revision','dirty','gesture_active','selection','annotation_edit']);if(!Number.isSafeInteger(p.draft_revision)||p.draft_revision<editState.draft_revision||typeof p.dirty!=='boolean'||typeof p.gesture_active!=='boolean')fail('Invalid or stale draft revision',409);const picked=p.selection===undefined?null:checkSelection(p.selection);let annotationEdit=editState.annotation_edit??null;if(p.annotation_edit!==undefined){annotationEdit=null;if(p.annotation_edit!==null){const u=p.annotation_edit;fields(u,['annotation_id','coordinates','text','color','status']);const mark=(current.annotations??[]).find(m=>m.annotation_id===u.annotation_id);if(!mark?.anchor)fail('Draft annotation must name an existing anchored mark');if(u.text!==undefined&&(typeof u.text!=='string'||u.text.length>256)||u.color!==undefined&&!['cyan','orange','white','amber','green'].includes(u.color)||u.status!==undefined&&!['hypothesized','user_confirmed','retracted'].includes(u.status))fail('Invalid annotation draft fields');const panels=(current.panels??[]).filter(p=>p.source_object_id===mark.anchor.source_object_id&&({frequency:'frequency_cycles_per_pixel',spatial_pixels:'source_pixels',source_array_indices:'source_array_indices'}[p.domain])===mark.anchor.coordinate_space);if(panels.length!==1)fail('Draft annotation requires one exact current panel');const anchor=checkSelection({...mark.anchor,kind:mark.kind,coordinates:u.coordinates??mark.anchor.coordinates,panel:panels[0]});annotationEdit={...structuredClone(u),kind:mark.kind,coordinate_space:anchor.coordinate_space,source_object_id:anchor.source_object_id,panel:anchor.panel};}}editState={draft_revision:p.draft_revision,dirty:p.dirty,gesture_active:p.gesture_active,selection:picked??editState.selection,annotation_edit:annotationEdit,base_object_id:current.object_id};if(picked)selection=picked;saveSelection();return state();}
-  if(body.action==='accept-result'){fields(p,[]);if(editState.dirty||editState.gesture_active)fail('Save or explicitly discard draft before viewing pending result',409);if(pendingResult){commitCurrent(pendingResult.prepared);frameIdentity=pendingResult.frameIdentity;lastOperation={action:'accept-result',object_id:current.object_id,request_id:pendingResult.request_id};pendingResult=null;saveSelection();}return state();}
+  if(body.action==='accept-result'){fields(p,[]);if(editState.dirty||editState.gesture_active)fail('Save or explicitly discard draft before viewing pending result',409);if(pendingResult){commitCurrent(pendingResult.prepared,{annotationIds:pendingResult.annotationIds});frameIdentity=pendingResult.frameIdentity;lastOperation={action:'accept-result',object_id:current.object_id,request_id:pendingResult.request_id,...(pendingResult.annotationIds?.length?{annotation_ids:pendingResult.annotationIds}:{})};pendingResult=null;saveSelection();}return state();}
   if(body.action==='select'){fields(p,['selection']);selection=checkSelection(p.selection);saveSelection();return state();}
   if(body.action==='preview'){fields(p,['gamma','display_range','max_size','upscale','interpolation','frequency_rect','spectrum_axes','scale_bar']);r=await journalCall('image_preview',{...p,object_id:current.object_id});}
   else if(body.action==='frame'){fields(p,['frame_index']);r=await journalCall('image_frame',{object_id:await sourceForFrame(),frame_index:p.frame_index});const target=await withCurrentContext(r.data.object_id,{newFrame:true});r=await journalCall('image_preview',{object_id:target,...(effectiveDisplay?{gamma:effectiveDisplay.gamma,display_range:effectiveDisplay.display_range,max_size:effectiveDisplay.max_size}:{})});}
@@ -138,7 +148,9 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
   else if(body.action==='recover'){fields(p,[]);const original=lastOperation?.request_id;if(!safeId.test(original??''))fail('No saved request to query');r=await journalCall('image_result',{request_id:original});if(!r.data.object_id)fail('Original request has not returned an image object');if(['measure','export'].includes(r.data.kind)){lastOperation=publicObject(r.data);saveSelection();return state();}r=await displayObject(r);}
   else fail('Unknown panel action');
   const prepared=await prepareCurrent(r),nextFrame=await findFrameIdentity(r.data);
-  if(editState.draft_revision!==startedRevision||editState.gesture_active){pendingResult={prepared,frameIdentity:nextFrame,request_id:r.data.request_id};lastOperation={action:body.action,object_id:r.data.object_id,request_id:r.data.request_id,state:'completed_pending_view'};}else{commitCurrent(prepared);frameIdentity=nextFrame;lastOperation={action:body.action,object_id:current.object_id,request_id:current.request_id};}
+  const annotationIds=body.action==='mark'?[p.annotation_id]:body.action==='edit'?p.updates.map(value=>value.annotation_id):[];
+  const affected=annotationIds.length?{annotation_ids:annotationIds}:{};
+  if(editState.draft_revision!==startedRevision||editState.gesture_active){pendingResult={prepared,frameIdentity:nextFrame,request_id:r.data.request_id,annotationIds};lastOperation={action:body.action,object_id:r.data.object_id,request_id:r.data.request_id,state:'completed_pending_view',...affected};}else{commitCurrent(prepared,{annotationIds});frameIdentity=nextFrame;lastOperation={action:body.action,object_id:current.object_id,request_id:current.request_id,...affected};}
   saveSelection();return state();
  };
  const presentationDirectory=path.join(journal,'presentations');mkdirSync(presentationDirectory,{recursive:true});

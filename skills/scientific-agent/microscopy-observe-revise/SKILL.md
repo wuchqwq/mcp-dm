@@ -9,11 +9,28 @@ Use an explicit immutable input or obtain a new bounded DM capture. `image_info`
 inspects a saved object; it is not a fresh look at a live DM image. For a TIFF use
 `image_open`, then an explicit zero-based `image_frame`. Keep source/frame/ROI
 identity and signed axes. A preview PNG is display data, never a measurement array.
+Human frame numbers start at one: “first frame” means `frame_index:0`, not 1.
 
 Choose only the operations needed. Request `image_preview` and actually inspect
 the returned image when making visual claims. A PNG path or transported MCP image
 does not alone prove a model/client viewed it. Fixed display limits make frame
 comparison interpretable; per-frame auto-stretch is not structural evidence.
+
+For mouse input, call `image_panel_open` on the selected saved view and give its
+URL to the user. On “continue” call `image_panel_current`; retain `panel_id`,
+`view.object.object_id`, `view.edit_state.draft_revision`, the exact selection
+and its panel/source/domain. Use source-pixel ROI edges for spatial processing;
+frequency coordinates are cycles per original pixel, not rendered PNG pixels.
+If the user dragged a mark, inspect the bound `annotation_edit` and commit its
+sparse update with `image_annotate` before measuring its changed anchor. Do not
+measure a shortened displayed arrow tail or silently treat a draft as saved.
+
+Return the saved result with `image_panel_show`, binding the previously inspected
+object and draft revision. A queued result is not visible yet: preserve the
+user's newer drafts and let them accept it. Read current state again after a
+conflict; do not fabricate a newer revision to force presentation. Keep IDs and
+tool JSON internal. If an image block cannot be inspected by the actual model,
+report that limitation and keep the human-visible panel usable.
 
 For an external local FFT, choose the source-pixel half-open ROI, window and mean
 subtraction explicitly with `image_fft`. A saved FFT can be re-rendered, zoomed

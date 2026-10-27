@@ -266,6 +266,11 @@ Adapt [mcp.json.example](mcp.json.example), replacing `__ABS_REPO_PATH__` with t
 
 For an explicitly requested Codex registration, use the repository's [register_codex.ps1](setup/register_codex.ps1), after inspecting any existing entry. Follow the reference guide for timeout settings; do not duplicate tables or discard existing disabled tools. Refresh the client's MCP connection after configuration changes as needed.
 
+For independent TIFF analysis without GMS, use the opt-in [Codex + Image Panel
+walkthrough](docs/CODEX_MICROSCOPY_QUICKSTART.md) and [setup options](docs/CODEX_IMAGES_SETUP.md).
+Keep its new provider name separate from an existing DM registration. Internal
+object/request IDs and named-analysis revisions are the Agent's responsibility.
+
 ### Optional preview environment
 
 Use external Python 3.10+ and a new environment outside GMS:
