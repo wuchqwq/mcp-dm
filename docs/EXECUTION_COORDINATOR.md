@@ -1,9 +1,10 @@
-# Execution Coordinator：image worker 首条迁移
+# Execution Coordinator：image 与 structure worker
 
 现有 `image_*` 工具继续直接调用，不要求安装 Agent、Skill 或创建分析会话。
-`ImageWorkspace` 的写队列、等待取消和执行截止时间已迁到
+`ImageWorkspace` 和 `StructureWorkspace` 的写队列、等待取消和执行截止时间已迁到
 `lib/runtime/execution_coordinator.mjs`；旧 Promise 链已删除，没有两套队列。
-科学计算、文件格式、标定、对象校验和原请求日志仍由原 Python worker 负责。
+科学计算、文件格式、标定、对象校验和原请求日志仍由各自原 Python worker 负责。
+`createServerRuntime` 显式创建共享实例并传给两个适配器；未安装 Skills 仍可直调工具。
 
 ## 代码与未来归属
 
@@ -11,6 +12,7 @@
 | --- | --- |
 | `lib/runtime/execution_coordinator.mjs` | 可独立复制导入的确定性执行机制；未来属于科研 Agent 通用 Runtime |
 | `lib/image_workspace.mjs` | 显式配置、资源键、Python 子进程、数据/响应边界及 PNG；独立科学适配器，过渡期保持旧工具兼容 |
+| `lib/structure_workspace.mjs` | 同一端口下的结构适配器，保持自身查询与终止策略，未来独立科学模块 |
 | `tools/image_workspace.py` | 既有科学算法、不可变对象和请求日志；本切片未修改，未来独立科学模块 |
 | `lib/tools/image_module.mjs` | provider 自身的工具登记与调用契约；不成为跨 provider 全局注册表 |
 | DM Python/C++、原生请求与 ABI 门禁 | 长期留在 mcp-dm；本切片未迁入 Coordinator |
@@ -49,8 +51,9 @@ await coordinator.whenIdle();          // drain；不是宿主 STOP/进程退出
 - `result` 是适配器验证后的结果 Promise，拒绝时保留原 Error。
 - `closed` 只能在实际工作不再占用资源时履行；对本适配器就是子进程 `close`。
   返回结果、发出 kill、kill 返回 false、进程 `error` 或 stdin 错误都不能代替 close。
-- `requestStop` 是可选的受限终止请求。本 image 路径保留原有超时 kill 策略；
+- `requestStop` 是可选的受限终止请求。image 路径保留原有超时 kill 策略；
   普通客户端取消不调用它，响应超限仍由适配器终止其自己的 worker。
+  structure 不提供 requestStop：超时、取消及响应超限均只停止等待，不终止 worker。
 - 同步抛出只能表示工作尚未开始；已经启动后必须返回生命周期句柄并通过
   `result` 拒绝。否则适配器无法证明安全资源占用。
 - 生命周期缺失或 `closed` 拒绝时，明确报告未知并保留资源，不能猜测已退出。
@@ -99,8 +102,8 @@ ImageWorkspace 将它连接到现有 `image_result`，可在写任务运行时�
 记录报告未知，以及成功对象和文件哈希检查。新客户端不依赖旧 Coordinator
 内存；显式查询原工作区及原 ID 即可。查询失败不授权重新提交。
 
-此切片只在一个 Coordinator 实例内排队；默认 ImageWorkspace 各有一个实例。
-可信宿主可以显式注入共享实例并使用相同资源键。它不是跨进程文件锁，
+此切片只在一个 Coordinator 实例内排队；server 中 image/structure 共用一个实例。
+独立构造 workspace 时可显式注入实例。它不是跨进程文件锁，
 不能保证两个独立 MCP 进程的不同请求彼此串行。原有日志排他创建仍保护
 同 ID，不把它扩大成跨进程全局调度保证。
 `instance.queue` 仅保留为该写资源的 drain getter，不维护旧队列。
@@ -128,6 +131,27 @@ stdio 验收运行实际 Python 科学 worker，在其真实 prepared 日志 fsy
 通过仅用于测试的屏障控制时序：取消、排队、终止失败、原 ID 查询、独立数值
 核对、MCP PNG、无覆盖导出及新客户端恢复分别检查。它不是 DM、浏览器或模型看图验收。
 
-下一条迁移可以让 structure worker 复用同一生命周期接口；分析上下文应
+structure worker 已复用同一生命周期接口；分析上下文应
 继续保存现有不可变引用及 CAS 修订，而不是让执行观察代替科学对象权威。
 本切片没有实现任务图、Analysis Context 存储、Skill 包或多 Agent 管理。
+
+## 工作容量与可查询的执行观察
+
+资源冲突和进程容量分别约束：默认最多2个 work worker、1个 query worker。
+有空闲资源不代表有进程名额；结果已返回也不代表名额释放，仍等 actual close。
+查询使用保留容量，不被长计算占满；观察工具本身不启动进程，也不等待科学资源。
+不增加任何科学工具的原始超时。计时采用单调时钟，分别保留入队、启动、运行、
+停止等待、deadline 与实际 close 时间；runMs 是 worker 生命周期，包含 Python 启动、
+模块导入与退出，不冒称算法内核耗时。没有 worker 未报告的内部阶段。
+
+显式配置 `DM_MCP_EXECUTION_OBSERVABILITY=1` 后增加两个只读工具：
+
+- `execution_list(provider, request_id?, limit?)`：查询该已配置 image/structure provider 的最近观察。
+- `execution_info(provider, execution_id)`：查询 list 返回的 executionToken。
+
+观察包含 `{provider, workspace, session, requestId}` 范围与每次执行唯一 token。
+外部 session 为保留工作区请求日志的 `workspace-journal-v1` 命名空间，不冒充 DM 宿主会话；
+不同 provider、工作区和运行时 token 不能混查。同 ID 跨 image/structure 不串单。
+不能删除/替换工作区后承诺原日志恢复。最多保留256个终态观察；活跃任务不能被历史挤走。
+观察不会自然沿 async handler 的 Promise 属性传递，因此正式通过单独模块登记这些接口。
+它们不替代 image_result/structure_result；重启后原请求查询仍以各自持久日志为准。
