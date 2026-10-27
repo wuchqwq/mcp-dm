@@ -11,6 +11,9 @@
 *.ndjson
 *.log
 runtime/
+# The control-plane source is versioned; generated runtime directories stay private.
+!/lib/runtime/
+!/lib/runtime/*.mjs
 outputs/
 results/
 analysis/

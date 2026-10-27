@@ -2,14 +2,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,rmSync,existsSync} from 'node:fs';
+import {mkdtempSync,readFileSync,rmSync,existsSync,writeFileSync,realpathSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const python=process.env.DM_IMAGE_PYTHON||process.env.DM_TEST_PYTHON||'python';
 function client(workspace,backend='images'){
- const child=spawn(process.execPath,[path.join(root,'server.mjs')],{env:{...process.env,DM_MCP_BACKEND:backend,DM_NATIVE_SESSION:'a'.repeat(32),DM_IMAGE_WORKSPACE:workspace,DM_IMAGE_PYTHON:python},stdio:['pipe','pipe','pipe']});
+ // Test ownership only: EOF must drain this runtime's actual workers before
+ // deleting its synthetic source/workspace. Production shutdown is unchanged.
+ const bootstrap=path.join(path.dirname(workspace),'draining-test-server.mjs');
+ writeFileSync(bootstrap,`import {startMcpServer} from ${JSON.stringify(pathToFileURL(path.join(root,'server.mjs')).href)};\nimport {createServerRuntime} from ${JSON.stringify(pathToFileURL(path.join(root,'lib/tools/create_server_runtime.mjs')).href)};\nconst runtime=createServerRuntime();startMcpServer({runtime,exit:code=>{runtime.coordinator.whenIdle().then(()=>process.exit(code),error=>{process.stderr.write(String(error)+'\\n');process.exit(1);});}});\n`);
+ const child=spawn(process.execPath,[bootstrap],{env:{...process.env,DM_MCP_BACKEND:backend,DM_NATIVE_SESSION:'a'.repeat(32),DM_IMAGE_WORKSPACE:workspace,DM_IMAGE_PYTHON:python},stdio:['pipe','pipe','pipe']});
  let next=1,buffer='',stderr='';const pending=new Map();child.stderr.on('data',c=>stderr+=c);child.stdin.on('error',()=>{});
  child.stdout.on('data',c=>{buffer+=c;let n;while((n=buffer.indexOf('\n'))>=0){const msg=JSON.parse(buffer.slice(0,n));buffer=buffer.slice(n+1);const item=pending.get(msg.id);if(item){pending.delete(msg.id);clearTimeout(item.timer);item.resolve(msg);}}});
  const rpc=(method,params={})=>new Promise((resolve,reject)=>{const id=next++;const timer=setTimeout(()=>{pending.delete(id);reject(new Error('MCP timeout '+stderr));},30000);pending.set(id,{resolve,timer});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');});
@@ -19,6 +23,12 @@ function result(msg){assert.equal(msg.error,undefined);assert.notEqual(msg.resul
 function picture(msg){const img=msg.result.content.find(c=>c.type==='image');assert.ok(img,'MCP returns image content, not only a path');assert.equal(img.mimeType,'image/png');assert.equal(Buffer.from(img.data,'base64').subarray(0,8).toString('hex'),'89504e470d0a1a0a');return img;}
 function fixture(){const dir=mkdtempSync(path.join(tmpdir(),'dm-images-mcp-'));const source=path.join(dir,'source.tiff');
  const p=spawnSync(python,['-c',"import numpy as np,tifffile,sys; a=np.arange(16*24,dtype=np.uint16).reshape(16,24);tifffile.imwrite(sys.argv[1],np.stack([a,a+100,a+200]),photometric='minisblack',metadata=None)",source],{encoding:'utf8'});assert.equal(p.status,0,p.stderr);return {dir,source,workspace:path.join(dir,'workspace')};}
+function cleanupFixture(directory){
+ const temp=realpathSync.native(tmpdir()),target=realpathSync.native(directory),relative=path.relative(temp,target);
+ assert.ok(relative&&!relative.startsWith('..')&&!path.isAbsolute(relative)&&path.basename(target).startsWith('dm-images-mcp-'),'cleanup stays within this owned synthetic temporary fixture');
+ // Bounded Windows filesystem cleanup only; no scientific/client deadline changes.
+ rmSync(target,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+}
 
 test('standalone image catalog needs no DM and native opt-in composes without fallback',async()=>{
  const f=fixture();const c=client(f.workspace);try{
@@ -138,7 +148,7 @@ test('multi-turn context and FFT presentation revisions stay usable through actu
 });
 
 test('readable FFT presentation filters, axes and small arrows are actual MCP revisions',async()=>{
- const f=fixture();const c=client(f.workspace);try{
+ const f=fixture();const c=client(f.workspace);let primaryError;try{
   const original=readFileSync(f.source);
   const opened=result(await c.tool('image_open',{source_path:f.source,request_id:'figure-open'}));
   const frame=result(await c.tool('image_frame',{object_id:opened.object_id,frame_index:1,request_id:'figure-frame'}));
@@ -174,7 +184,11 @@ test('readable FFT presentation filters, axes and small arrows are actual MCP re
   assert.equal(inheritedWhite.annotations[0].color,'white');assert.equal(inheritedWhite.display.spectrum_filter,null);
   assert.equal((await c.tool('image_preview',{object_id:frame.object_id,display_preset:'fft_detail',request_id:'figure-preset-wrong-domain'})).result.isError,true);
   assert.deepEqual(readFileSync(f.source),original);
- }finally{await c.close();rmSync(f.dir,{recursive:true,force:true});}
+ }catch(error){primaryError=error;throw error;}finally{
+  try{await c.close();if(!primaryError)cleanupFixture(f.dir);}
+  catch(cleanupError){if(primaryError)throw new AggregateError([primaryError,cleanupError],'Image science failed and owned fixture cleanup also failed');throw cleanupError;}
+  // A primary failure keeps the synthetic evidence, including unknown journals.
+ }
 });
 
 test('frequency zoom preserves original bins, full complex export and anchored marks across MCP clients',async()=>{

@@ -32,8 +32,22 @@ execute explicit post-acquisition operations and return calibrated results.
 Do not require every task to capture, compute every operator or produce a report.
 Reports/replay are optional examples retained for compatibility, not the core
 acceptance gate. Keep native APIs, coordinate contracts, source protection and
-honest errors. Do not add an agent framework, scheduler, report platform or
-4D features as part of scope cleanup. Scope decisions are in docs/SCOPE_AUDIT.md.
+honest errors. Do not add a general Agent framework, multi-Agent manager,
+report platform or hardware-control/4D expansion as a side effect of scope cleanup.
+**Owner-approved architecture migration:** a deterministic ToolRegistry,
+execution coordinator and revision-aware AnalysisContext plus optional
+microscopy Skills are now explicitly in scope; follow
+docs/ORCHESTRATION_SKILLS_RFC.md.
+**Future repository boundary:** after Runtime rationalization, the scientific
+Agent/Skills/cross-provider orchestration will move to a separate repository;
+this repository remains an independently usable DigitalMicrograph MCP provider
+with verified GMS adapters and native capability gates. Keep generic runtime
+modules DM-independent and protect old MCP APIs throughout migration. Do not
+create or move the new repository as part of the first registry PR; no multi-Agent
+management is authorized. This runtime organizes existing tool execution,
+not scientific conclusions, and must preserve legacy tool names, backend gates,
+request recovery, explicit data identity and direct invocation without Skills.
+Scope decisions predating this approval remain in docs/SCOPE_AUDIT.md.
 Current product direction is [the interactive microscopy workflow](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md): make a verified DM image viewable to the Agent, support explicit non-destructive display recipes, local FFT visualization, revisable annotations and multi-turn researcher corrections. This is a proposed user workflow, not permission to claim unimplemented native display controls, a model-visible image or arbitrary DM write-back. Preserve source pixels and calibration; distinguish presentation mapping from scientific derived data and external computation.
 
 For future native operations, DigitalMicrograph is the processing engine.
@@ -107,6 +121,9 @@ metric with a basis hypothesis, not cubic P or a chemical phase proof. See
 docs/CRYSTALLOGRAPHY_WORKFLOW.md before changing this companion.
 
 - `server.mjs`: zero-dependency Node >=18 stdio MCP facade, strict tool schemas, serialized loopback requests, timeouts/cancellation. Stdout is MCP JSON only; diagnostics belong on stderr.
+- `lib/runtime/`: portable ToolRegistry, compatible schema validation and single-process ExecutionCoordinator. No DM/GMS, environment lookup, host selection or scientific algorithms. Coordinator manages resource/wait lifetimes, separate worker/query budgets and monotonic scoped observations through explicit provider ports; image/structure share an instance but retain their different termination policies. Provider journals remain authoritative. Its internal receipts/contracts are versioned separately from existing MCP/data formats. See docs/EXECUTION_COORDINATOR.md.
+- `lib/runtime/analysis_context.mjs`, `file_context_store.mjs`: optional reference-only current-analysis/CAS history. Require an explicit scientific binding validator; caller-supplied hashes cannot mark old results current. Late provider outcomes stay saved but lost CAS only creates a historical proposal. `lib/analysis_context_bindings.mjs` is the transitional provider adapter, not another science implementation. See docs/ANALYSIS_CONTEXT.md. Optional Agent-side skill sources live under `skills/scientific-agent/`; never install or require them automatically.
+- `lib/tools/`: this server's explicit capability composition and backend adapters. `create_server_runtime.mjs` owns DM-specific configuration; it is not the future Agent's global registry. DM adapters stay here long term; image/structure registrations are transitional compatibility routes for later extraction. See docs/TOOL_REGISTRY.md before adding modules; never extend the protocol facade with tool-name dispatch branches.
 - `bridge/dm_bridge.py`: Python 3.7-compatible host integration, a genuine DM backend and an explicit synthetic mock backend. `DigitalMicrograph` imports successfully only inside its host; do not fake a successful real backend.
 - `bridge/spectroscopy.py`: explicit-axis energy calibration and bounded ROI arithmetic. Real EDS/EELS/spectral SI remain NOT_TESTED until actual representative data are accepted.
 - `bridge/fourdstem.py`: bounded geometric virtual detector arithmetic. Array/memmap and native-reader entrypoints share one kernel. The reader callback initially requires canonical axes and returns small `[n,q_y,q_x]` chunks.
@@ -473,7 +490,7 @@ Keep detailed acceptance reports local. Public documentation should explain inst
 
 ```powershell
 python -B -m unittest discover -s tests -p 'test_*.py' -v
-node --test
+npm test
 $env:DM_TEST_PYTHON = (Get-Command python).Source
 node selftest.mjs
 ```
