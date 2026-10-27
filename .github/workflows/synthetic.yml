@@ -1,10 +1,9 @@
-name: Synthetic contracts
+# Full Windows/Python/C++ regression is intentionally opt-in to save Actions time.
+# Actions tab -> Full synthetic regression (manual) -> Run workflow.
+# PRs run the separate lightweight quick.yml; docs-only PRs trigger neither.
+name: Full synthetic regression (manual)
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main, review/runtime-stack-closeout-20261027]
 permissions:
   contents: read
 concurrency:
@@ -161,4 +160,4 @@ jobs:
           name: synthetic-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/synthetic-evidence/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 7
