@@ -133,7 +133,8 @@ stdio 验收运行实际 Python 科学 worker，在其真实 prepared 日志 fsy
 
 structure worker 已复用同一生命周期接口；分析上下文应
 继续保存现有不可变引用及 CAS 修订，而不是让执行观察代替科学对象权威。
-本切片没有实现任务图、Analysis Context 存储、Skill 包或多 Agent 管理。
+执行层本身没有任务图、Context 存储或多 Agent 管理。
+依赖它的[独立 Context／Skills 切片](ANALYSIS_CONTEXT.md)只保存分析引用及 CAS 修订。
 
 ## 工作容量与可查询的执行观察
 
@@ -155,3 +156,9 @@ structure worker 已复用同一生命周期接口；分析上下文应
 不能删除/替换工作区后承诺原日志恢复。最多保留256个终态观察；活跃任务不能被历史挤走。
 观察不会自然沿 async handler 的 Promise 属性传递，因此正式通过单独模块登记这些接口。
 它们不替代 image_result/structure_result；重启后原请求查询仍以各自持久日志为准。
+
+完整工程回归使用 `npm test`，将独立测试文件并行数固定为2；每个文件仍执行全部用例，
+内部受控长任务／查询并发也保留。多个测试各自启动独立 MCP 进程，并不共享一个容量池。
+无限制地并行这些进程会把 Python 导入／worker 生命周期拉长，触发专为超时注入设置的短门限；
+这与一个 server 的资源排队不同。比较正常／受控负载时保持相同输入、原截止时间及数值门限，
+分别报告 queueMs 和 worker 生命周期，不通过放宽超时隐藏失败。

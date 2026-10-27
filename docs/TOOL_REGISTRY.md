@@ -129,8 +129,8 @@ MCP 客户端继续使用 `tools/list` 与 `tools/call`。`describe` 是内部 A
 mcp-dm 也不能反向依赖新 Agent。
 
 Coordinator 迁移已在 image/structure 路径共享运行，内部执行观察与 provider 持久科学
-回执仍明确分开。RFC 后续的统一跨 provider OperationReceipt、修订感知
-AnalysisContext 与迁移后的 Skill 包尚未实现，不能称为已统一全部执行状态。
+回执仍明确分开。可选[AnalysisContext 与首批 Skills](ANALYSIS_CONTEXT.md)已接入引用修订，
+但统一跨 provider OperationReceipt／任务图与物理迁仓尚未实现，不能称为已统一全部执行状态。
 
 ## 后续接口消费边界
 
@@ -171,5 +171,5 @@ node --test tests/tool-registry-science-mcp.test.mjs
 
 这证明合成科学工具与 MCP 图片内容的组合契约，不等于真实 DM、浏览器、
 普通模型客户端实际看见图或真实材料判相验收。
-后续执行协调、修订感知 AnalysisContext 与 Skills 只按 RFC 的消费边界逐步实施，
-不能将此目录切片写成已经完成的全局 Agent 平台。
+共享执行、修订感知 AnalysisContext 与首批 Skills 按 RFC 的消费边界渐进接入，
+不构成全局 Agent 平台或多 Agent 管理器。
