@@ -30,6 +30,68 @@ jobs:
           python-version: '3.11'
       - name: Install independent scientific test dependencies
         run: python -m pip install -r requirements-dev.txt -r requirements-structure-tools.txt
+      - name: Build and execute source-bound native test surrogates
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, shutil, subprocess, time
+          root = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          source = root / 'experiments' / 'native-bridge' / 'mvp'
+          evidence = pathlib.Path(os.environ['RUNNER_TEMP']) / 'synthetic-evidence'
+          build = evidence / 'native'
+          build.mkdir(parents=True, exist_ok=False)
+          # Use an already installed compiler only. This creates synthetic test
+          # executables, not the DM plugin, and never loads vendor libraries.
+          requested = os.environ.get('DM_NATIVE_TEST_CXX')
+          candidates = [requested] if requested else ['C:/msys64/clang64/bin/clang++.exe', shutil.which('clang++.exe')]
+          compiler = next((pathlib.Path(value).resolve() for value in candidates if value and pathlib.Path(value).is_file()), None)
+          if compiler is None:
+              raise RuntimeError('No installed clang++ for required synthetic native coverage')
+          env = dict(os.environ)
+          env['PATH'] = str(compiler.parent) + os.pathsep + env.get('PATH', '')
+          flags = ['-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror', '-static', '-D_WIN32_WINNT=0x0602', '-I', str(source)]
+          sources = sorted(p for p in source.rglob('*') if p.suffix in {'.cpp', '.hpp', '.inc'})
+          def sha(file):
+              return hashlib.sha256(file.read_bytes()).hexdigest()
+          before = {str(p.relative_to(root)).replace('\\', '/'): sha(p) for p in sources}
+          report = {'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(), 'compiler': str(compiler), 'source_hashes': before, 'commands': [], 'outputs': {}, 'scope': 'Synthetic callbacks and fake host only; no DM plugin or new host qualification'}
+          def run(name, command, timeout):
+              started = time.monotonic()
+              with (build / (name + '.log')).open('w', encoding='utf-8') as log:
+                  proc = subprocess.run(command, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
+              record = {'name': name, 'command': command, 'exit_code': proc.returncode, 'seconds': round(time.monotonic()-started, 3)}
+              report['commands'].append(record)
+              print(json.dumps(record), flush=True)
+              if proc.returncode:
+                  print((build / (name + '.log')).read_text(encoding='utf-8', errors='replace'), flush=True)
+                  raise RuntimeError('Native test preparation failed: ' + name)
+          try:
+              run('compiler-version', [str(compiler), '--version'], 30)
+              run('compiler-target', [str(compiler), '-dumpmachine'], 30)
+              targets = [('fake_host', ['core.cpp', 'bridge.cpp', 'fake_adapter.cpp', 'fake_host.cpp'], ['-ladvapi32', '-luser32'])]
+              targets += [(name, ['core.cpp', name + '.cpp'], ['-lversion', '-lbcrypt']) for name in ['scientific_handoff_tests', 'frame_adapter_tests', 'pixel_adapter_tests', 'import_adapter_tests']]
+              for name, inputs, libs in targets:
+                  exe = build / (name + '.exe')
+                  run('build-' + name, [str(compiler)] + flags + [str(source / item) for item in inputs] + libs + ['-o', str(exe)], 300)
+                  report['outputs'][exe.name] = sha(exe)
+              fixtures = [('scientific_handoff_tests', 'scientific.json', []), ('frame_adapter_tests', 'frame.json', ['--write-fixture']), ('pixel_adapter_tests', 'pixel.json', []), ('import_adapter_tests', 'import.json', [])]
+              for name, filename, args in fixtures:
+                  fixture = build / filename
+                  run('run-' + name, [str(build / (name + '.exe'))] + args + [str(fixture)], 30)
+                  json.loads(fixture.read_text(encoding='utf-8'))
+                  report['outputs'][filename] = sha(fixture)
+              validator = "import {readFileSync} from 'node:fs'; import {validateNativeImport} from './lib/native_bridge.mjs'; const packet=JSON.parse(readFileSync(process.argv[1],'utf8')); validateNativeImport(packet.result,packet.args,'import-synthetic'); console.log('shipping IMPORT validator passed against fresh C++ fixture');"
+              run('shipping-import-crosscheck', ['node', '--input-type=module', '-e', validator, str(build / 'import.json')], 30)
+              after = {str(p.relative_to(root)).replace('\\', '/'): sha(p) for p in sources}
+              report['source_unchanged'] = before == after
+              if before != after:
+                  raise RuntimeError('Native sources changed during fixture preparation')
+              with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+                  for key, value in {'DM_NATIVE_FAKE_HOST_EXE': build / 'fake_host.exe', 'DM_NATIVE_SCIENTIFIC_FIXTURE': build / 'scientific.json', 'DM_NATIVE_FRAME_FIXTURE': build / 'frame.json', 'DM_NATIVE_PIXEL_FIXTURE': build / 'pixel.json'}.items():
+                      output.write(key + '=' + str(value) + '\n')
+              with open(os.environ['GITHUB_PATH'], 'a', encoding='utf-8') as output:
+                  output.write(str(compiler.parent) + '\n')
+          finally:
+              (build / 'manifest.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
       - name: Complete Python, Node and default mock regression
         shell: python
         run: |
@@ -70,11 +132,13 @@ jobs:
               item = {'suite': name, 'command': command, 'exit_code': code, 'seconds': round(time.monotonic()-started, 3), 'error': error}
               if name == 'python-complete':
                   item['summary'] = re.findall(r'Ran \d+ tests? in .*|^OK.*|^FAILED.*', text, re.MULTILINE)
+                  item['unexpected_skips'] = bool(re.search(r'OK \(skipped=[1-9]', text))
               elif name == 'node-complete':
                   item['summary'] = re.findall(r'^# (?:tests|suites|pass|fail|cancelled|skipped|todo|duration_ms).*', text, re.MULTILINE)
+                  item['unexpected_skips'] = bool(re.search(r'^# skipped [1-9]', text, re.MULTILINE))
               results.append(item)
-              print(json.dumps(item, ensure_ascii=True))
-              print('\n'.join(text.splitlines()[-35:]))
+              print(json.dumps(item, ensure_ascii=True), flush=True)
+              print('\n'.join(text.splitlines()[-35:]), flush=True)
           after = hashes()
           (evidence / 'source-after.json').write_text(json.dumps(after, indent=2, sort_keys=True), encoding='utf-8')
           changed = [name for name in files if before[name] != after[name]]
@@ -82,7 +146,7 @@ jobs:
           (evidence / 'summary.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
               output.write('# Source-bound synthetic regression\n\n```json\n' + json.dumps(report, indent=2) + '\n```\n')
-          if changed or any(item['exit_code'] for item in results):
+          if changed or any(item['exit_code'] or item.get('unexpected_skips', False) for item in results):
               raise SystemExit(1)
       - name: Preserve complete logs and source identity even on failure
         if: always()
