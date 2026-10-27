@@ -42,7 +42,10 @@ test('external module factories preserve catalog objects and have no constructor
       assert.equal(typeof c.backend, 'string');
       assert.equal(c.effects.sourceMutation, false);
       assert.ok(['required', 'optional', 'query', 'none'].includes(c.effects.requestId));
-      for (const field of ['resourceKeys', 'budgets']) assert.ok(c.execution[field].length && c.execution[field].every(v => typeof v === 'string' && v));
+      for (const field of ['resourceKeys', 'budgets']) {
+        if (field === 'resourceKeys' && module.id === 'images' && ['image_info', 'image_result'].includes(tool.definition.name)) assert.deepEqual(c.execution[field], [], 'read-only image ports acquire no write resource');
+        else assert.ok(c.execution[field].length && c.execution[field].every(v => typeof v === 'string' && v));
+      }
       for (const field of ['serialization', 'cancellation']) assert.equal(typeof c.execution[field], 'string');
       assert.ok(c.recovery.method && c.recovery.scope);
     });
@@ -143,6 +146,9 @@ test('scientific contracts retain distinct domains, existing queues and no quali
   assert.match(JSON.stringify(entry(images, 'image_remeasure').contract), /FFT-producer grid/);
   assert.equal(entry(images, 'image_info').contract.effects.requestId, 'none');
   assert.equal(entry(images, 'image_result').contract.effects.requestId, 'query');
+  assert.deepEqual(entry(images, 'image_info').contract.execution.resourceKeys, []);
+  assert.deepEqual(entry(images, 'image_result').contract.execution.resourceKeys, []);
+  assert.deepEqual(entry(images, 'image_fft').contract.execution.resourceKeys, ['image-workspace:' + images.workspace.workspace]);
   assert.match(entry(images, 'image_result').contract.execution.serialization, /bypass/);
   assert.match(JSON.stringify(entry(structures, 'structure_register').contract), /scale=1/);
   assert.match(JSON.stringify(entry(structures, 'structure_register').contract), /caller assertion/);

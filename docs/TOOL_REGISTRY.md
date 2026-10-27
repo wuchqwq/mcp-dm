@@ -106,8 +106,10 @@ MCP 客户端继续使用 `tools/list` 与 `tools/call`。`describe` 是内部 A
 也不能把某个算子的已验证 dtype 范围扩大到其他数据。
 这些诊断不是第二套资格状态；真实调用仍由原生／科学适配器执行硬校验。
 
-`execution.resourceKeys` 和预算是当前适配器约束的声明，不是已经实现的新调度器。
-本轮没有提取公共 worker 队列、数据库、任务图或新的重试策略。
+`execution.resourceKeys` 和预算由适配器声明。后续首条
+[Execution Coordinator 切片](EXECUTION_COORDINATOR.md)已迁出 image worker 的队列、
+等待取消及截止时间；structure 和 DM 路径仍使用各自原执行机制。
+没有数据库、任务图或自动重试策略，也没有跨进程全局调度保证。
 已开始请求取消等待后仍可能完成；继续使用原 `image_result`、`structure_result`
 或同一原生会话的 `dm_native_result` 查询。不得因目录重构重新提交未知副作用操作。
 可见窗口、科学结果和 viewer-close 的恢复命名空间也保持各自边界。
@@ -126,11 +128,11 @@ MCP 客户端继续使用 `tools/list` 与 `tools/call`。`describe` 是内部 A
 新 Agent 不能导入本仓库的私有 workspace、worker 或 GMS adapter 来绕开该边界，
 mcp-dm 也不能反向依赖新 Agent。
 
-RFC 后续 C／D／E 的 Coordinator、统一 OperationReceipt 状态、修订感知
-AnalysisContext 与迁移后的 Skill 包尚未在本切片实现。
-当前模块只是描述并委托现有队列、请求 journal 与不变对象，不能称为已经统一了执行状态。
+首条 Coordinator 迁移已在 image 路径运行，内部执行观察与 provider 持久科学
+回执仍明确分开。RFC 后续的统一跨 provider OperationReceipt、修订感知
+AnalysisContext 与迁移后的 Skill 包尚未实现，不能称为已统一全部执行状态。
 
-## 下一切片的接口消费边界（建议，尚未实现）
+## 后续接口消费边界
 
 | 消费方 | 建议的输入与责任边界 |
 | --- | --- |
@@ -138,9 +140,9 @@ AnalysisContext 与迁移后的 Skill 包尚未在本切片实现。
 | Analysis Context | `read(analysisId)` 与 `commit(expectedRevision, patch, dependencyProof)` 仅管理引用及 CAS 修订。显示更改、尺度／中心修订和新 capture／FFT producer 分别应用已有依赖规则；晚到结果不能覆盖更新的人工选择。 |
 | 专业 Skills | 在未来 Agent 侧声明所需工具、契约版本、可校验示例和科学限制。它们消费 provider 能力，旧工具直调仍独立可用；Skill 不能授权脚本或突破资格。 |
 
-这些是后续接口方案，不是已经发布的新方法或跨仓协议。本轮不创建对应空壳类、
-数据库、任务图或后台模型服务。下一步可先让一条既有 image worker 路径消费执行协调接口，
-证明资源占用持续到实际 worker 关闭、取消后原 ID 恢复以及错误保真，再扩大迁移。
+image 路径已消费明确的 invoke/recover 生命周期端口；其余仍是后续接口方案，
+不是已发布的跨仓协议。本轮不创建 Context 空壳类、数据库、任务图或后台模型服务。
+继续迁移时须保持资源占用持续到实际 worker 关闭、取消后原 ID 恢复及错误保真。
 
 `dm_python_module.mjs` 中原有 `dm_2d_preview`／`dm_2d_analyze`／`dm_2d_result`
 外部 helper 路由也属于兼容接线；它们的通用执行与科学部分应按职责后续迁出。
