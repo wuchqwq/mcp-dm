@@ -1,20 +1,94 @@
 name: Synthetic contracts
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, review/runtime-stack-closeout-20261027]
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   synthetic:
     runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
+      MPLBACKEND: Agg
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install -r requirements-dev.txt
-      - run: python -B -m unittest discover -s tests -p "test_*.py" -v
-      - run: npm test
-      - run: npm run test:mock
-        env:
-          DM_TEST_PYTHON: python
+      - name: Install independent scientific test dependencies
+        run: python -m pip install -r requirements-dev.txt -r requirements-structure-tools.txt
+      - name: Complete Python, Node and default mock regression
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, platform, re, subprocess, sys, time
+          root = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          os.chdir(root)
+          sys.path.insert(0, str(root))
+          evidence = pathlib.Path(os.environ['RUNNER_TEMP']) / 'synthetic-evidence'
+          evidence.mkdir(parents=True, exist_ok=True)
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          files = [name for name in subprocess.check_output(['git', 'ls-files', '-z']).decode('utf-8').split('\0') if name]
+          def hashes():
+              return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in files}
+          before = hashes()
+          (evidence / 'source-before.json').write_text(json.dumps(before, indent=2, sort_keys=True), encoding='utf-8')
+          (evidence / 'environment.txt').write_text(platform.platform() + '\n' + sys.version + '\n' + subprocess.check_output(['node', '--version'], text=True) + subprocess.check_output([sys.executable, '-m', 'pip', 'freeze'], text=True), encoding='utf-8')
+          env = dict(os.environ)
+          for variable in ['DM_TEST_PYTHON', 'DM_IMAGE_PYTHON', 'DM_STRUCTURE_PYTHON', 'DM_ANALYSIS_PYTHON']:
+              env[variable] = sys.executable
+          commands = [
+              ('python-complete', [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py', '-v']),
+              ('node-complete', ['node', '--test', '--test-concurrency=2']),
+              ('default-mock', ['node', 'selftest.mjs']),
+          ]
+          results = []
+          for name, command in commands:
+              started = time.monotonic()
+              logfile = evidence / (name + '.log')
+              error = None
+              with logfile.open('w', encoding='utf-8') as output:
+                  try:
+                      proc = subprocess.run(command, cwd=root, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=1500)
+                      code = proc.returncode
+                  except subprocess.TimeoutExpired:
+                      code, error = 124, 'CI process timeout; individual test deadlines unchanged'
+              text = logfile.read_text(encoding='utf-8', errors='replace')
+              item = {'suite': name, 'command': command, 'exit_code': code, 'seconds': round(time.monotonic()-started, 3), 'error': error}
+              if name == 'python-complete':
+                  item['summary'] = re.findall(r'Ran \d+ tests? in .*|^OK.*|^FAILED.*', text, re.MULTILINE)
+              elif name == 'node-complete':
+                  item['summary'] = re.findall(r'^# (?:tests|suites|pass|fail|cancelled|skipped|todo|duration_ms).*', text, re.MULTILINE)
+              results.append(item)
+              print(json.dumps(item, ensure_ascii=True))
+              print('\n'.join(text.splitlines()[-35:]))
+          after = hashes()
+          (evidence / 'source-after.json').write_text(json.dumps(after, indent=2, sort_keys=True), encoding='utf-8')
+          changed = [name for name in files if before[name] != after[name]]
+          report = {'source_sha': sha, 'git_tree': tree, 'tracked_files': len(files), 'changed_during_run': changed, 'results': results, 'scope': 'Windows synthetic regression and actual stdio scientific workers only. No live DM, private experimental data, browser/model-client acceptance or new native ABI qualification.'}
+          (evidence / 'summary.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write('# Source-bound synthetic regression\n\n```json\n' + json.dumps(report, indent=2) + '\n```\n')
+          if changed or any(item['exit_code'] for item in results):
+              raise SystemExit(1)
+      - name: Preserve complete logs and source identity even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/synthetic-evidence/
+          if-no-files-found: warn
+          retention-days: 30
