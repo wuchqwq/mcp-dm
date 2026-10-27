@@ -1,13 +1,11 @@
 # mcp-dm scope and roadmap
 
-## Next active milestone
+## Next active milestone (2026-10-28)
 
-See [可探索、可修订的显微分析工具](docs/NEXT_ANALYSIS_DEVELOPMENT.md) for the
-post-PR26 priorities and Codex handoff: actionable failure diagnostics, honestly
-unconfirmed Agent hypotheses, and a real multi-turn scientific task. GUI work
-is limited to actual blockers. The older implementation milestones below are
-context, not instructions to rebuild completed features. The independent
-GMS-compatibility work in PR #27 is reviewed separately.
+**Current product/development priority:** [Researcher-first Codex canvas and Materials Project Skill](docs/RESEARCHER_FIRST_PRODUCT_ROADMAP.md).
+Run the **real Codex + existing local Image Panel** observation/ROI/FFT/revision/export loop first, then add a **thin optional Materials Project reference Skill** using the *official* MP MCP (do not reimplement its server), and then enable clearly unconfirmed scientific candidate exploration. Reuse the already-merged ToolRegistry, ExecutionCoordinator, AnalysisContext, existing science modules and three microscopy Skills; do not rebuild the platform. Favor one actually usable research task over another round of architecture work or endless manual full-suite reruns. Full automatic CI remains in place.
+
+[Codex technical handoff](docs/CODEX_CLIENT_HANDOFF.md), [image-panel interaction contract](docs/LOCAL_IMAGE_PANEL.md) and [scientific candidate/diagnostic backlog](docs/NEXT_ANALYSIS_DEVELOPMENT.md) remain useful details. This new product roadmap supersedes their **development order**, not scientific safety/accuracy requirements or historical evidence. DSH is deferred; GMS compatibility PR #27 and Draft #3 remain independent.
 
 ## 当前优先级：交互式显微分析，不追求单轮自动判相
 
