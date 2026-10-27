@@ -4,6 +4,14 @@
 
 This is the entry point for an agent helping a researcher install or use the MCP. For code changes, also read AGENTS.md and the relevant implementation/tests. Do not treat instructions for using tools as permission to modify the repository, install dependencies, upload data or change unrelated client settings.
 
+Tool names and direct MCP calls remain compatible during the registry migration;
+no Agent package, Skill or analysis session is required. Optional registered
+groups can be disabled explicitly with `DM_MCP_DISABLED_MODULES=images,image-panel,structures`
+(comma-separated subset); disabling images also omits its panel. Core backend
+selection remains `DM_MCP_BACKEND`, with no implicit fallback. Developers adding
+a provider module should follow [the registry contract and repository boundary](docs/TOOL_REGISTRY.md),
+rather than editing the protocol server's dispatch logic.
+
 Planned interactive microscopy tasks (image return, iterative display/FFT adjustments, editable spot/streak/twin/defect annotations) are described in [the product roadmap](docs/INTERACTIVE_MICROSCOPY_ROADMAP.md). They are **not** automatically part of the connected tool catalog. Check actual capabilities and client image-display behavior before attempting or claiming any step; preserve numeric versus display distinctions.
 
 For Fourier-derived READ/NPY data, preserve both native DM calibration and
@@ -312,6 +320,29 @@ and [INSTALL.md](experiments/native-bridge/mvp/INSTALL.md).
 Do not equate a document visible in DM with an MCP image received by the model, or either with a permanent scientific file.
 
 ## 6. Data handoff and provenance
+
+The image and structure workers share a portable single-process execution coordinator.
+Existing tools remain directly callable; no Agent package, Skill or workflow
+session is required. Save each write's `request_id` before submission. Queued
+cancellation prevents submission; cancellation after start stops waiting only.
+An image timeout requests worker termination but is not proof that it stopped or rolled
+back. Query `image_result` with the original ID; an incomplete record is not
+permission to replay. See [execution and recovery](docs/EXECUTION_COORDINATOR.md).
+Structure timeouts retain their wait-only policy; they never terminate the worker.
+The provider composition reserves separate work/query capacity. To inspect scoped
+queue/run/wait/close observations, explicitly set `DM_MCP_EXECUTION_OBSERVABILITY=1`
+and use `execution_list` / `execution_info`; these are transient observations,
+while original scientific results remain in `image_result` / `structure_result`.
+
+For optional named current-analysis references, set an explicit absolute
+`DM_ANALYSIS_CONTEXT_WORKSPACE`. `analysis_create/read/update/proposal` keep
+immutable scoped references, freshness and CAS revisions across normal restart;
+they do not copy arrays or run science. Read the revision before work, save each
+provider outcome, then promote the explicit references. Late results remain
+historical. Use existing remeasurement/registration/comparison tools when inputs
+change; context does not make old results fresh by relabeling them. Recovery uses
+the original context request_id through `analysis_read`; scientific result queries
+stay with their providers. See [current analysis and optional Skills](docs/ANALYSIS_CONTEXT.md).
 
 Use a new output path; never overwrite a source, export or sidecar. Check the numerical format supports the required dtype and shape. Retain axis roles/order, units, both origin conventions where available, signed scales, source region, source identity, operation parameters and available input/output hashes.
 
