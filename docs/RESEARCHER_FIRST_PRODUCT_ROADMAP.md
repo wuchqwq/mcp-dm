@@ -1,7 +1,8 @@
 # Researcher-first MCP-DM：从“可调用工具”到“可协作的显微分析”
 
 > 产品方向：2026-10-28。**这是下一阶段的主动开发优先级，不是所有能力均已上线的声明。**
-> 当前基线：main \`d43a71a\`（#30–#35 已合入，Windows 合成回归已通过）。
+> 当前基线：main `d43a71a`（#30–#35 已合入，Windows 合成回归已通过）。
+> **第一项可执行开发任务：** [Issue #36：Codex × 科学画布，随后接入 MP Skill](https://github.com/wuchqwq/mcp-dm/issues/36)。
 > 这份文档决定**先做什么、希望用户如何使用**；科学数据契约、GMS 能力门禁和历史失败记录仍以现有技术文档为准。
 > 对外无需称为新聊天软件。Codex 先行；DSH 暂缓；GMS 兼容性 PR #27 / Draft #3 独立。
 
@@ -21,10 +22,10 @@
 
 - **Agent 宿主：**先使用本地 Codex（CLI / VS Code 支持范围以实测为准）。负责意图、推理、与人交流和已有工具编排；不新建聊天客户端或通用多 Agent 框架。
 - **MCP-DM：**DM Python/C++ 连接、已验证原生操作、能力/构建门禁、源保护、标定与可信数据交接；原有工具可独立直调，失败不能暗中切换计算后端。
-- **现有 Image Panel + image_*：**共同看图、框 ROI、点击/拖动标记、非破坏显示、FFT/数值导出。复用 \`image_panel_open/current/show\` 与既有标注锚点；不再建第二份图像状态。
+- **现有 Image Panel + image_*：**共同看图、框 ROI、点击/拖动标记、非破坏显示、FFT/数值导出。复用 `image_panel_open/current/show` 与既有标注锚点；不再建第二份图像状态。
 - **现有 AnalysisContext / ExecutionCoordinator：**保留当前引用、CAS 修订、过期依赖和原请求结果恢复；不要重新写一套任务图或科学日志。
 - **现有 structure_* / ASE / diffsims：**晶体结构、晶面几何、明确的晶带轴及运动学衍射模拟。区别几何匹配与物相证明；实验 FFT 与 SAED 的强度不可随意等同。
-- **Skills：**保留 \`skills/scientific-agent/\` 中的 router、observe/revise、crystallography compare；从最少的新 Skill 开始，按需展开长参考资料。
+- **Skills：**保留 `skills/scientific-agent/` 中的 router、observe/revise、crystallography compare；从最少的新 Skill 开始，按需展开长参考资料。
 
 原图、数值数组与显示 PNG 是不同层面。物理标定必须有来源；没有标定仍可做像素域探索。修正显示不改科学数组；修正标定/峰位使依赖测量过期，不应重复计算未变的 FFT。已经发出的副作用操作超时后先查原请求，不能重发制造第二份结果。
 
@@ -43,14 +44,14 @@
 
 ## 4. Materials Project：轻量 Skill，不复现 MP MCP
 
-新增一个独立可选 \`materials-project-reference\` Skill（实际放置/发现规则由当前 Codex 版本核实），用途是：**何时检索、如何保留多个候选、如何把 MP 结构交给现有 structure_* 进行对照**。
+新增一个独立可选 `materials-project-reference` Skill（实际放置/发现规则由当前 Codex 版本核实），用途是：**何时检索、如何保留多个候选、如何把 MP 结构交给现有 structure_* 进行对照**。
 
-**优先直接调用官方 Materials Project MCP**，作为 Codex 独立配置的外部 Provider；Skill 负责路由，**不复制 Materials Project 的 server、数据库、检索/相图算法，也不在 mcp-dm 内重写一个 MP MCP wrapper**。如官方 MCP 版本无法满足精确结构文件交接，先确认官方 \`mp-api\` 支持的原生导出接口，再考虑极薄的本地只读辅助（仅文件格式/数据交接），不自造材料检索逻辑。没有 MP 连接时明确提示可选配置，不让 DM 和无关图像功能失败。
+**优先直接调用官方 Materials Project MCP**，作为 Codex 独立配置的外部 Provider；Skill 负责路由，**不复制 Materials Project 的 server、数据库、检索/相图算法，也不在 mcp-dm 内重写一个 MP MCP wrapper**。如官方 MCP 版本无法满足精确结构文件交接，先确认官方 `mp-api` 支持的原生导出接口，再考虑极薄的本地只读辅助（仅文件格式/数据交接），不自造材料检索逻辑。没有 MP 连接时明确提示可选配置，不让 DM 和无关图像功能失败。
 
 最短参考流程：
 1. 从研究者给出的化学体系/元素范围和实验问题确定筛选条件；区分“限定元素体系”和“包含这些元素”。
-2. 先用官方 MCP 的 \`search\` 取**多条候选**的简短摘要和 MP ID；需要时按精确 ID \`fetch\`（\`fetch_many\` 等仅在实际安装版本存在时使用）。**不能直接以 formula/system \`fetch\` 的单个最稳定条目冒充完整候选集。**
-3. 只对值得比较的少量候选读取结构；记录 MP ID、检索时间、返回字段、结构版本/来源。结构/CIF 由官方已有数据能力获取，复用 \`structure_open\`、\`structure_orient\`、\`structure_simulate\` 和 \`structure_compare\`。
+2. 先用官方 MCP 的 `search` 取**多条候选**的简短摘要和 MP ID；需要时按精确 ID `fetch`（`fetch_many` 等仅在实际安装版本存在时使用）。**不能直接以 formula/system `fetch` 的单个最稳定条目冒充完整候选集。**
+3. 只对值得比较的少量候选读取结构；记录 MP ID、检索时间、返回字段、结构版本/来源。结构/CIF 由官方已有数据能力获取，复用 `structure_open`、`structure_orient`、`structure_simulate` 和 `structure_compare`。
 4. 将**未确认候选**与真正用户确认、拟合点与独立验证点分开；保留不匹配反射和多解，不通过任意调尺度/镜像强行拟合。
 
 API key 仅放在用户本机/宿主安全环境，绝不提交仓库或写进输出日志。检索 MP 不需要上传私有显微图像；不给远程查询接口自动附上原始图像/用户私有元数据。MP 官方服务的连通性与后续科学正确性须分别说明。
@@ -65,9 +66,9 @@ API key 仅放在用户本机/宿主安全环境，绝不提交仓库或写进�
 
 首版可用能力：在实际 Codex 客户端中通过现有 MCP 发现/调用工具，打开一张本地合成 TIFF，**实际看到**画布/图片、选择 ROI、FFT、简单测量/标注、拖动一个点或修订显示/标尺、正确重测、导出并在重连后继续。
 
-- 先检查并复用 \`setup/register_codex.ps1\`、\`server.mjs\`、\`image_panel_open/current/show\`、现有 Skills。必要时实现一个**小型** Codex 配置/Skill 安装适配器及最直接的继续操作。
+- 先检查并复用 `setup/register_codex.ps1`、`server.mjs`、`image_panel_open/current/show`、现有 Skills。必要时实现一个**小型** Codex 配置/Skill 安装适配器及最直接的继续操作。
 - 不为每条路径写复杂向导；打开与“继续”就够了。模型未收到真实图片时允许 Panel 可见的 MVP，但清楚标记模型视觉为 NOT_TESTED/UNSUPPORTED。
-- 不等待真实 GMS 环境才推进；\`DM_MCP_BACKEND=images\` 的独立 Python 科学环境足以完成首版。在已有权限和用户本机环境下随后做真实 DM 接力。
+- 不等待真实 GMS 环境才推进；`DM_MCP_BACKEND=images` 的独立 Python 科学环境足以完成首版。在已有权限和用户本机环境下随后做真实 DM 接力。
 - **交付是可实际使用的演示，附 1 条可复现任务路径与阻塞点**，而非只有注册脚本或测试集合。
 
 ### Slice B：Materials Project Skill × 晶体学候选的真实对照
