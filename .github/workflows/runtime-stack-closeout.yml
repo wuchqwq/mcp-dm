@@ -1,0 +1,97 @@
+name: Runtime stack exact-source closeout
+on:
+  push:
+    branches: [validation/runtime-stack-closeout-20261027]
+    paths: [.github/workflows/runtime-stack-closeout.yml]
+permissions:
+  contents: read
+jobs:
+  windows-frozen-source:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
+      MPLBACKEND: Agg
+      REVIEW_SOURCE_SHA: 3d95edb0236e839180d20a9665bba3c7bc127227
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3d95edb0236e839180d20a9665bba3c7bc127227
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install independent synthetic scientific dependencies
+        run: python -m pip install -r requirements-dev.txt -r requirements-structure-tools.txt
+      - name: Full frozen-source Python, Node and mock regression
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, platform, re, subprocess, sys, time
+          root = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          os.chdir(root)
+          sys.path.insert(0, str(root))
+          evidence = pathlib.Path(os.environ['RUNNER_TEMP']) / 'runtime-closeout'
+          evidence.mkdir(parents=True, exist_ok=True)
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          if sha != os.environ['REVIEW_SOURCE_SHA']:
+              raise RuntimeError('Unexpected source revision')
+          files = subprocess.check_output(['git', 'ls-files', '-z']).decode('utf-8').split('\0')
+          files = [name for name in files if name]
+          def hashes():
+              return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in files}
+          before = hashes()
+          (evidence / 'source-before.json').write_text(json.dumps(before, indent=2, sort_keys=True), encoding='utf-8')
+          subprocess.run(['git', 'archive', '--format=zip', '-o', str(evidence / 'frozen-source.zip'), sha], check=True)
+          (evidence / 'environment.txt').write_text(platform.platform() + '\n' + sys.version + '\n' + subprocess.check_output(['node', '--version'], text=True) + subprocess.check_output([sys.executable, '-m', 'pip', 'freeze'], text=True), encoding='utf-8')
+          env = dict(os.environ)
+          env['DM_TEST_PYTHON'] = sys.executable
+          env['DM_IMAGE_PYTHON'] = sys.executable
+          env['DM_STRUCTURE_PYTHON'] = sys.executable
+          env['DM_ANALYSIS_PYTHON'] = sys.executable
+          commands = [
+              ('python-complete', [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py', '-v']),
+              ('node-complete', ['node', '--test', '--test-concurrency=2']),
+              ('default-mock', ['node', 'selftest.mjs']),
+          ]
+          results = []
+          for name, command in commands:
+              started = time.monotonic()
+              logfile = evidence / (name + '.log')
+              error = None
+              with logfile.open('w', encoding='utf-8') as output:
+                  try:
+                      proc = subprocess.run(command, cwd=root, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=1500)
+                      code = proc.returncode
+                  except subprocess.TimeoutExpired:
+                      code, error = 124, 'Review-level process timeout; individual test deadlines unchanged'
+              text = logfile.read_text(encoding='utf-8', errors='replace')
+              item = {'suite': name, 'command': command, 'exit_code': code, 'seconds': round(time.monotonic()-started, 3), 'error': error}
+              if name == 'python-complete':
+                  item['summary'] = re.findall(r'Ran \d+ tests? in .*|^OK.*|^FAILED.*', text, re.MULTILINE)
+              elif name == 'node-complete':
+                  item['summary'] = re.findall(r'^# (?:tests|suites|pass|fail|cancelled|skipped|todo|duration_ms).*', text, re.MULTILINE)
+              results.append(item)
+              print(json.dumps(item, ensure_ascii=True))
+              print('\n'.join(text.splitlines()[-35:]))
+          after = hashes()
+          (evidence / 'source-after.json').write_text(json.dumps(after, indent=2, sort_keys=True), encoding='utf-8')
+          changes = [name for name in files if before[name] != after[name]]
+          report = {'source_sha': sha, 'git_tree': tree, 'tracked_files': len(files), 'changed_during_run': changes, 'results': results, 'scope': 'Windows synthetic tests and real stdio scientific workers only; no live DM, private data, model-client/browser acceptance or new native ABI qualification'}
+          (evidence / 'summary.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write('# Frozen runtime closeout\n\nSource: `' + sha + '`\n\n```json\n' + json.dumps(report, indent=2) + '\n```\n')
+          if changes or any(item['exit_code'] for item in results):
+              raise SystemExit(1)
+      - name: Preserve source-bound evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-closeout-${{ github.run_id }}
+          path: ${{ runner.temp }}/runtime-closeout/
+          if-no-files-found: warn
+          retention-days: 30
