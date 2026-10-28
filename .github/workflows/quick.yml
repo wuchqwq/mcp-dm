@@ -41,10 +41,18 @@ jobs:
           node-version: '22'
       - name: Check MCP entry syntax
         run: node --check server.mjs
-      - name: Portable registry / coordinator / context / Skill tests
+      - name: Portable registry / context / Skill and Image Panel tests
         run: |
           node --test --test-concurrency=2 \
             tests/tool-registry.test.mjs \
             tests/execution-coordinator.test.mjs \
             tests/analysis-context.test.mjs \
-            tests/skill-contracts.test.mjs
+            tests/skill-contracts.test.mjs \
+            tests/image-panel-ui.test.mjs \
+            tests/image-panel-viewport.test.mjs \
+            tests/image-panel-presentation.test.mjs \
+            tests/image-panel-figure-export.test.mjs \
+            tests/image-panel-presentation-transport.test.mjs \
+            tests/image-panel-draft-transport.test.mjs \
+            tests/image-panel-concurrency.test.mjs \
+            tests/image-panel-feedback.test.mjs

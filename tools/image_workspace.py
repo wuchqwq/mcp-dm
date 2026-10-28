@@ -1383,11 +1383,51 @@ def coordinate_transform(coords, current, edges, inverse=False):
     return result
 
 
+def annotation_presentation(value):
+    """Validate display-only metadata without modifying a scientific anchor.
+
+    Offsets use base-render pixels. They never supply source coordinates or an
+    authority change; no SVG, HTML, styling program or arbitrary font is stored.
+    """
+    fields = {"marker_shape", "marker_radius", "line_width", "category", "layer", "label", "geometry_visible"}
+    need(type(value) is dict and set(value) <= fields, "Unknown annotation presentation field")
+    enums = {"marker_shape": ("circle", "square", "double_circle", "diamond", "cross"),
+             "category": ("A", "B", "shared", "unexplained", "none"),
+             "layer": ("experimental", "simulation_A", "simulation_B")}
+    for key, choices in enums.items():
+        need(key not in value or value[key] in choices, "Invalid annotation presentation " + key)
+    for key, lower, upper in (("marker_radius", 4, 12), ("line_width", .5, 3)):
+        need(key not in value or number(value[key]) and lower <= value[key] <= upper,
+             "Annotation presentation " + key + " is out of range")
+    need("geometry_visible" not in value or type(value["geometry_visible"]) is bool,
+         "geometry_visible must be an explicit boolean")
+    if "label" in value:
+        label = value["label"]
+        need(type(label) is dict and set(label) <= {"text", "offset", "font_size", "leader", "pinned", "visible", "figure_visible", "important",
+                                                  "measurement_object_id", "measurement_kind"},
+             "Unknown presentation label field")
+        need("text" not in label or type(label["text"]) is str and len(label["text"]) <= 256,
+             "Presentation label text exceeds its display-only budget")
+        need("offset" not in label or type(label["offset"]) is list and len(label["offset"]) == 2 and
+             all(number(v) and abs(v) <= 4096 for v in label["offset"]),
+             "Presentation label offset requires two finite bounded base-render pixels")
+        need("font_size" not in label or number(label["font_size"]) and 8 <= label["font_size"] <= 32,
+             "Presentation label font_size must be in 8..32 display pixels")
+        need("measurement_object_id" not in label or type(label["measurement_object_id"]) is str and
+             re.fullmatch(r"[a-f0-9]{32}", label["measurement_object_id"]) is not None,
+             "Presentation measurement_object_id must be a saved 32-hex object reference")
+        need("measurement_kind" not in label or label["measurement_kind"] in ("distance", "period"),
+             "Presentation measurement_kind must be distance or period")
+        for key in ("leader", "pinned", "visible", "figure_visible", "important"):
+            need(key not in label or type(label[key]) is bool, "Presentation label " + key + " must be an explicit boolean")
+    return value
+
+
 def annotation(item, image_size, panels, reproject=False):
     if reproject:
         anchor = item.get("anchor")
         need(anchor is not None, "Annotation has no unique source anchor; replace or remove it before re-rendering")
-        supplied = {key: item[key] for key in ("kind", "text", "status", "note", "annotation_id", "line_width", "arrowhead_size", "arrow_length", "color") if key in item}
+        supplied = {key: item[key] for key in ("kind", "text", "status", "note", "annotation_id", "line_width", "arrowhead_size", "arrow_length", "color", "presentation") if key in item}
         # Old immutable records predate the display-length cap. Re-render their
         # original shaft rather than retroactively applying the new default.
         if item.get("kind") == "arrow" and "arrow_length" not in item:
@@ -1395,8 +1435,9 @@ def annotation(item, image_size, panels, reproject=False):
         supplied.update(anchor)
         item = supplied
     allowed = {"kind", "coordinates", "text", "status", "note", "annotation_id", "coordinate_space", "source_object_id",
-               "line_width", "arrowhead_size", "arrow_length", "color"}
+               "line_width", "arrowhead_size", "arrow_length", "color", "presentation"}
     need(type(item) is dict and set(item) <= allowed, "Unknown annotation field")
+    presentation = annotation_presentation(item["presentation"]) if "presentation" in item else None
     kind, coords = item.get("kind"), item.get("coordinates")
     lengths = {"point": 2, "text": 2, "rectangle": 4, "line": 4, "arrow": 4}
     need(type(coords) is list and all(number(value) for value in coords) and
@@ -1494,6 +1535,7 @@ def annotation(item, image_size, panels, reproject=False):
             "line_width": line_width, "arrowhead_size": arrowhead_size,
             **arrow_display,
             "color": color,
+            **({"presentation": presentation} if presentation is not None else {}),
             **({"annotation_id": ident} if ident is not None else {}),
             "visibility": "outside_view" if space != "rendered_image_pixels" and not visible else "visible",
             "mapping_status": "one_source" if len(matches) == 1 else "not_a_single_source_region"}

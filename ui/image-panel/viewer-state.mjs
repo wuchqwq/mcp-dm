@@ -1,6 +1,7 @@
 // Browser-only viewport/draft helpers. These never change scientific coordinates.
 import {transformCoordinates} from './coordinates.mjs';
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+export function equalRecords(a,b){const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;return JSON.stringify(canonical(a))===JSON.stringify(canonical(b));}
 export function zoomAt(view, point, factor, {min=.1,max=16}={}) {
   if(![view.scale,...point,factor].every(Number.isFinite)||view.scale<=0||factor<=0)throw new Error('Invalid viewport');
   const scale=Math.max(min,Math.min(max,view.scale*factor)),ratio=scale/view.scale;
@@ -11,7 +12,7 @@ export function relatedViewport(view,previous,next,viewportSize){
   if(!previous||!next)return null;
   if(previous.frame_identity&&next.frame_identity&&previous.frame_identity.frame_object_id!==next.frame_identity.frame_object_id)return null;
   const old=previous.object??previous,current=next.object??next;
-  if(old.scientific_grid_identity&&current.scientific_grid_identity&&JSON.stringify(old.scientific_grid_identity)!==JSON.stringify(current.scientific_grid_identity))return null;
+  if(old.scientific_grid_identity&&current.scientific_grid_identity&&!equalRecords(old.scientific_grid_identity,current.scientific_grid_identity))return null;
   const pairs=[];
   for(const a of old.panels??[])for(const b of current.panels??[]){
     if(a.source_object_id===b.source_object_id&&a.domain===b.domain&&JSON.stringify(a.fft_shape_yx)===JSON.stringify(b.fft_shape_yx))pairs.push([a,b]);

@@ -7,6 +7,8 @@ import {readFileSync} from 'node:fs';
 import * as coordinates from '../ui/image-panel/coordinates.mjs';
 import * as viewerState from '../ui/image-panel/viewer-state.mjs';
 import * as viewerRender from '../ui/image-panel/viewer-render.mjs';
+import * as annotationPresentation from '../ui/image-panel/annotation-presentation.mjs';
+import * as figureExport from '../ui/image-panel/figure-export.mjs';
 import {performance} from 'node:perf_hooks';
 import {randomUUID} from 'node:crypto';
 
@@ -17,7 +19,7 @@ const panel={domain:'spatial_pixels',source_object_id:sourceId,source_rect_xyxy:
 function fixture(){return {object:{object_id:viewId,kind:'view',panels:[copy(panel)],annotations:[],display:{gamma:1,display_range:[0,255]}},tools:[],png_base64:'synthetic',clean_png_base64:'synthetic-clean',render_base_id:viewId,selection:null,last_operation:null};}
 function pixelBytes(w,h){return Uint8ClampedArray.from({length:w*h*4},(_,i)=>i%4===3?255:(i*17+31)%256);}
 async function harness(initial=fixture()){
- const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null,actionSequence=0,actionFailure=null;
+ const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null,actionSequence=0,actionFailure=null,waitMeasurement=null,measurementResponse=null;
  const canvasContexts=[];
  class Context{
   constructor(canvas){this.canvas=canvas;this.lastPixels=null;canvasContexts.push(this);}
@@ -38,7 +40,7 @@ async function harness(initial=fixture()){
  const elements=new Map();const $=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
  $('zoom').value='1';$('mode').value='line';$('status').value='hypothesized';$('fft-window').value='hann';$('fft-mean').checked=true;
  const math=Object.create(Math);math.pow=(a,b)=>{stats.pow++;return Math.pow(a,b);};
- const sandbox={...coordinates,...viewerState,...viewerRender,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
+ const sandbox={...coordinates,...viewerState,...viewerRender,...annotationPresentation,...figureExport,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
   document:{getElementById:$,createElement:tag=>new Element(tag),querySelectorAll:()=>[],addEventListener(){}},
   sessionStorage:{getItem:()=> 'synthetic-token',setItem(){}},location:{hash:'',pathname:'/'},history:{replaceState(){}},
   Option:class{constructor(text,value){this.text=text;this.value=value;}},
@@ -49,16 +51,16 @@ async function harness(initial=fixture()){
    if(!options.body){getCalls.push(url);if(url==='/api/revision')return {ok:true,json:async()=>({state_revision:server.state_revision,object_id:server.object.object_id,pending_result:server.pending_result})};}
    if(options.body){const body=JSON.parse(options.body);
     if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);server.edit_state={...copy(body.params),base_object_id:server.object.object_id};return {ok:true,json:async()=>body.lightweight?{object_id:server.object.object_id,edit_state:copy(server.edit_state)}:copy(server)};}
-    calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;
+    calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;if(body.action==='measure'&&waitMeasurement)await waitMeasurement;
     if(actionFailure){const error=actionFailure;actionFailure=null;return {ok:false,json:async()=>({error})};}
     if(body.action==='edit'&&body.params.auto_commit){
      const result=nextActionResult?copy(nextActionResult):copy(server);nextActionResult=null;
-     for(const update of body.params.updates){const mark=result.object.annotations.find(m=>m.annotation_id===update.annotation_id);assert.ok(mark,'autosave must update an existing stable mark');for(const [field,value]of Object.entries(update)){if(field==='coordinates')mark.anchor.coordinates=copy(value);else if(field!=='annotation_id')mark[field]=copy(value);}}
+     for(const update of body.params.updates){const mark=result.object.annotations.find(m=>m.annotation_id===update.annotation_id);assert.ok(mark,'autosave must update an existing stable mark');for(const [field,value]of Object.entries(update)){if(field==='coordinates')mark.anchor.coordinates=copy(value);else if(!['annotation_id','presentation_replace'].includes(field))mark[field]=copy(value);}}
      if(result.object.object_id===server.object.object_id)result.object.object_id=(++actionSequence).toString(16).padStart(32,'0');
      result.state_revision=(server.state_revision??0)+1;result.edit_state=copy(server.edit_state);result.auto_edit_committed=true;server=result;
     }else if(nextActionResult){server=copy(nextActionResult);nextActionResult=null;}
     if(body.action==='measure'||body.action==='select')server.selection=copy(body.params.selection);
-    server.last_operation={action:body.action};
+    server.last_operation={...(body.action==='measure'&&measurementResponse?copy(measurementResponse):{}),action:body.action};
    }
    return {ok:true,json:async()=>copy(server)};
   }
@@ -77,6 +79,7 @@ async function harness(initial=fixture()){
   delayAction(promise){waitAction=promise;},
   failAction(message='Synthetic save failure; query original request'){actionFailure=message;},
   actionResult(value){nextActionResult=copy(value);},
+  measureResponse(value){measurementResponse=copy(value);},delayMeasurement(promise){waitMeasurement=promise;},
   setServer(value){server=copy(value);},server:()=>copy(server)};
 }
 
@@ -173,7 +176,8 @@ async function editHarness(){const h=await harness(annotated());h.$('existing').
 test('edit uses pointerup position even with no final pointermove event',async()=>{
  const h=await editHarness();h.event('pointerdown',10,10);h.event('pointermove',12,13);h.event('pointerup',18,19);h.flush();
  await h.settle();assert.equal(h.calls.length,1);assert.equal(h.calls[0].params.auto_commit,true);assert.deepEqual(h.calls[0].params.updates[0].coordinates,[38,31,60,52]);
- assert.equal(h.calls[0].params.updates[0].status,'hypothesized');
+ assert.equal(h.calls[0].params.updates[0].status,undefined,'geometry edit must not resubmit confirmation state');
+ assert.equal(h.server().object.annotations[0].status,'hypothesized');
  assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[38,31,60,52]);assert.notEqual(h.inspect().state.object.object_id,viewId);
 });
 
@@ -328,4 +332,37 @@ test('reciprocal calibration form uses the current domain and signed scale, not 
  const h=await harness(f);assert.equal(Number(h.$('scale-x').value),.2);assert.equal(Number(h.$('scale-y').value),-.4);assert.equal(h.$('unit').value,'1/nm');assert.equal(h.$('scope').value,'image');
  h.$('source').value='Explicit synthetic calibration correction';await h.click('calibrate');
  assert.equal(h.calls.at(-1).params.coordinate_domain,'reciprocal_space');assert.deepEqual(h.calls.at(-1).params.xy_scale,{x:.2,y:-.4,unit:'1/nm'});
+});
+
+test('dragging an independently positioned label saves presentation only and preserves the confirmed scientific anchor',async()=>{
+ const f=fixture();f.object.annotations=[{annotation_id:'indexed-peak',kind:'point',text:'(1 -1 0)',color:'white',status:'user_confirmed',anchor:{source_object_id:sourceId,coordinate_space:'source_pixels',coordinates:[60,52]},presentation:{category:'A',label:{text:'g₁',offset:[15,12],pinned:true}}}];
+ const h=await harness(f),original=copy(f.object.annotations[0]);h.$('mode').value='select';h.flush();
+ h.event('pointerdown',57,54);assert.equal(h.inspect().drag.kind,'label');h.event('pointermove',67,62);h.flush();
+ assert.deepEqual(h.inspect().state.object.annotations[0].anchor,original.anchor);assert.equal(h.calls.length,0);
+ h.event('pointerup',67,62);h.flush();await h.settle();
+ assert.equal(h.calls.length,1);const update=h.calls[0].params.updates[0];assert.deepEqual(Object.keys(update).sort(),['annotation_id','presentation','presentation_replace']);assert.equal(update.presentation_replace,true);
+ assert.deepEqual(update.presentation.label.offset,[25,20]);assert.equal(update.presentation.label.pinned,true);
+ const saved=h.server().object.annotations[0];assert.deepEqual(saved.anchor,original.anchor);assert.equal(saved.status,'user_confirmed');assert.equal(saved.text,original.text);assert.equal(saved.presentation.label.text,original.presentation.label.text);
+});
+
+test('moving a measured endpoint hides its stale numeric label until a new measurement record supplies valid units',async()=>{
+ for(const result of [{object_id:'new-distance-record',physical_distance:3.2,physical_unit:'nm'},{object_id:'pixel-only-record',physical_distance:null,physical_unit:null,distance_pixels:30}]){
+  const f=annotated();f.object.annotations[0].status='user_confirmed';f.object.annotations[0].text='d = 2.5 nm';f.object.annotations[0].presentation={label:{text:'d = 2.5 nm',offset:[40,5],pinned:true,visible:true,measurement_object_id:'old-distance-record',measurement_kind:'distance'}};
+  const h=await harness(f);let measured;h.delayMeasurement(new Promise(resolve=>{measured=resolve;}));h.measureResponse(result);
+  h.$('existing').value='line-a';h.$('existing').onchange();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+  const moved=h.server().object.annotations[0];assert.deepEqual(moved.anchor.coordinates,[38,31,60,52]);assert.equal(moved.status,'user_confirmed');assert.equal(moved.presentation.label.visible,false);assert.equal(moved.presentation.label.measurement_object_id,'old-distance-record');
+  assert.doesNotMatch(h.$('annotation-layer').innerHTML,/data-part="label"/);
+  assert.equal(h.calls[0].action,'edit');assert.equal(h.calls[0].params.updates[0].status,undefined);assert.equal(h.calls[1].action,'measure');assert.deepEqual(h.calls[1].params.selection.coordinates,[38,31,60,52]);
+  measured();await h.settle();const saved=h.server().object.annotations[0];assert.equal(saved.status,'user_confirmed');assert.deepEqual(saved.anchor.coordinates,[38,31,60,52]);
+  if(result.physical_unit){assert.equal(h.calls.length,3);assert.equal(saved.presentation.label.visible,true);assert.equal(saved.presentation.label.measurement_object_id,'new-distance-record');assert.equal(saved.presentation.label.text,'d = 3.2 nm');assert.match(saved.note,/new-distance-record/);}
+  else {assert.equal(h.calls.length,2);assert.equal(saved.presentation.label.visible,false);assert.equal(saved.presentation.label.measurement_object_id,'old-distance-record');assert.match(h.$('message').textContent,/没有可信物理单位/);}
+ }
+});
+
+test('figure mode locks scientific geometry and new selections while leaving the original anchor available',async()=>{
+ const f=annotated();f.object.annotations[0].presentation={label:{visible:false}};const h=await harness(f);await h.click('figure-mode');assert.equal(h.$('figure-mode').textContent,'出图模式');
+ h.$('mode').value='select';h.event('pointerdown',10,10);h.event('pointermove',18,19);h.event('pointerup',18,19);h.flush();await h.settle();
+ assert.equal(h.inspect().drag,null);assert.equal(h.inspect().editCoordinates,null);assert.equal(h.calls.length,0);assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[30,22,60,52]);
+ h.$('mode').value='rectangle';h.event('pointerdown',80,60);h.event('pointermove',110,80);h.event('pointerup',110,80);h.flush();await h.settle();
+ assert.equal(h.inspect().draft,null);assert.equal(h.inspect().dirty,false);assert.equal(h.calls.length,0);assert.doesNotMatch(h.$('annotation-layer').innerHTML,/data-part="handles"/);
 });

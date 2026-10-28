@@ -1,5 +1,8 @@
 # Optional local image interaction panel
 
+For independent editable labels, diffraction typography, domain layers and
+publication SVG/PNG output, see [Microscopy annotations and figure export](PUBLICATION_ANNOTATIONS.md).
+
 The regular `image_*` MCP tools return PNG content plus scientific coordinates.
 They do not currently receive mouse selections from every MCP client. This
 optional browser panel supplies that gesture surface using the **same actual
