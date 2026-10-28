@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "skill": "materials-project-reference",
+  "contract": {
+    "evidence": "upstream_source_review_not_live_catalog",
+    "source": "https://github.com/materialsproject/api/blob/f107e6dba9601b1f84387b01e3bf1465937804f0/mp_api/mcp/tools.py",
+    "tools": {
+      "search": {"type":"object","required":["query"],"additionalProperties":false,"properties":{"query":{"type":"string"}}},
+      "fetch": {"type":"object","required":["idx"],"additionalProperties":false,"properties":{"idx":{"type":"string"}}}
+    }
+  },
+  "intent": "Illustrative reference search; IDs, directions and simulation conditions are trial examples, not experimental evidence",
+  "candidate_status": "hypothesized",
+  "official_calls": [
+    {"tool":"search","arguments":{"query":"Ti-O"}},
+    {"tool":"fetch","arguments":{"idx":"mp-2657"}}
+  ],
+  "local_calls": [
+    {"tool":"structure_open","arguments":{"source_path":"${CIF_PATH}","request_id":"mp-example-open"}},
+    {"tool":"structure_orient","arguments":{"object_id":"11111111111111111111111111111111","zone_axis_uvw":[0,0,1],"request_id":"mp-example-orient"}},
+    {"tool":"structure_simulate","arguments":{"object_id":"11111111111111111111111111111111","orientation_id":"22222222222222222222222222222222","voltage_kv":200,"reciprocal_radius_inv_angstrom":1,"max_excitation_error_inv_angstrom":0.02,"size":64,"request_id":"mp-example-simulate"}},
+    {"tool":"structure_compare","arguments":{"object_id":"33333333333333333333333333333333","measurement_paths":["${MEASUREMENT_PATH}"],"experimental_kind":"real_space_fft","registration":{"rotation_deg":0,"scale":1,"translation_inv_angstrom":[0,0],"flip_y":false,"basis":"Synthetic call shape: Agent-proposed unconfirmed zero-rotation trial; independently established screen parity. No fit or validation claimed."},"max_residual_inv_angstrom":0.05,"request_id":"mp-example-unconfirmed-compare"}}
+  ]
+}

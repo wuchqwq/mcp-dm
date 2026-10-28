@@ -271,6 +271,10 @@ walkthrough](docs/CODEX_MICROSCOPY_QUICKSTART.md) and [setup options](docs/CODEX
 Keep its new provider name separate from an existing DM registration. Internal
 object/request IDs and named-analysis revisions are the Agent's responsibility.
 
+The optional [Materials Project reference Skill](docs/MATERIALS_PROJECT_REFERENCE.md)
+uses a separate official provider and hands selected structures to the existing
+ASE/diffsims tools. Its absence does not affect local image analysis or DM.
+
 ### Optional preview environment
 
 Use external Python 3.10+ and a new environment outside GMS:
