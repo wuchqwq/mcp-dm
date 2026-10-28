@@ -8,12 +8,15 @@ tools and DM continue to work.
 ## Connect once
 
 Install the official `mp-api[mcp]` in a **separate Python environment**, never
-GMS Python or the existing image environment. The inspected upstream package
-requires Python >=3.11 and includes pymatgen/emmet and FastMCP; this is a
-substantial optional dependency, not part of the default mcp-dm installation.
-Use the official package/version available to the user and record it; do not
-assume the upstream main branch is the installed release. Package source is
-BSD-3-Clause-LBNL; MP data/service usage has its own applicable terms.
+GMS Python or the existing image environment. The inspected upstream revision
+`f107e6db` requires **Python >=3.12** and includes pymatgen/emmet and FastMCP;
+this is a substantial optional dependency, not part of the default mcp-dm
+installation. Other releases may have different Python requirements: use their
+published package metadata rather than applying this pinned revision's minimum
+to every version. Use the official package/version available to the user and
+record it; do not assume the upstream main branch is the installed release.
+Package source is BSD-3-Clause-LBNL; MP data/service usage has its own applicable
+terms. This does not raise the Python requirement of the separate image tools.
 See [official setup](https://docs.materialsproject.org/services/ml-and-ai-applications/mcp)
 and the [inspected package metadata](https://github.com/materialsproject/api/blob/f107e6dba9601b1f84387b01e3bf1465937804f0/pyproject.toml).
 
@@ -40,6 +43,38 @@ explicitly without overwriting an existing same-name Skill. It can then support:
 Check the connected provider's actual `tools/list` before calling it. Official
 documentation and installed releases can differ; a source review is not a live
 service acceptance result.
+
+## Install only this optional Skill
+
+`setup/install_codex_skills.ps1` deliberately installs only the three existing
+microscopy Skills. It does not install `materials-project-reference` or the
+Materials Project provider. To add this one optional Skill, run the following
+command **from the mcp-dm repository root**, using an available independent
+Python executable (no third-party packages are needed for copying):
+
+```powershell
+python -c "import os, shutil; from pathlib import Path; source = Path('skills/materials-project-reference').resolve(strict=True); home = Path(os.environ.get('CODEX_HOME') or (Path.home() / '.codex')).expanduser(); destination = home / 'skills' / 'materials-project-reference'; shutil.copytree(source, destination); print('Installed Skill:', destination)"
+```
+
+This follows the existing installer: `$CODEX_HOME/skills`, or `~/.codex/skills`
+when `CODEX_HOME` is unset. Keep a configured `CODEX_HOME` absolute. For a client
+with a different discovered Skill directory, have the local Agent substitute
+that explicit destination instead of assuming every client uses this layout.
+
+The complete directory is copied, including `SKILL.md`, `examples.json`,
+`references/connection.md` and `scripts/save_reference.py`, so relative links and
+the format helper remain available after installation. `shutil.copytree` uses
+its default no-overwrite behavior: an existing same-name directory causes an
+error, rather than merging with or replacing it. Other Skills and Codex
+configuration are untouched. This is an opt-in copy, not an update command;
+an interrupted copy may leave a partial new directory that needs inspection
+before retrying. Do not bypass a duplicate refusal with an overwrite option.
+
+The command does **not** install `mp-api`, ASE or any other dependencies,
+register a provider, read an API key, or access the network. Refresh/restart the
+client's Skill discovery and explicitly invoke `materials-project-reference`
+once to check discovery. A successful copy does not prove that the model loaded
+the Skill or that the official MP provider is connected.
 
 ## Search, select, retrieve
 
