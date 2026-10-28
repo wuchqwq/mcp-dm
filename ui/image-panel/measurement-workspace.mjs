@@ -3,6 +3,7 @@
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const asRecord=entry=>entry.measurement??entry;
 const statusNames={current:'当前',active:'当前',historical:'历史',history:'历史',stale:'待重测',needs_remeasure:'待重测',needs_remeasurement:'待重测',unknown:'未知'};
+export function requiresMeasurementJump(entry){return Boolean(entry&&(!entry.same_grid||!entry.visible_in_current_view||!entry.annotation_matches_current));}
 const unitText=value=>typeof value==='string'&&value.trim()?value:'未知';
 export const measurementNumber=value=>finite(value)?Number(value.toPrecision(7)).toString():'未知';
 export function measurementValues(entry){
@@ -100,7 +101,7 @@ export class MeasurementWorkspace {
    row.onclick=()=>this.select(m.object_id);row.onkeydown=event=>{if(['Enter',' '].includes(event.key)){event.preventDefault();this.select(m.object_id);}};body.append(row);
   }
   const selected=this.selected();this.renderDetails(this.el('measurement-detail'),selected?measurementDetails(selected):[['结果','选择一行查看科学坐标、来源与版本；查看不会重算']]);
-  if(this.el('measurement-jump')){this.el('measurement-jump').hidden=!selected||selected.same_grid!==false&&selected.visible_in_current_view!==false;this.el('measurement-jump').disabled=!selected;}
+  if(this.el('measurement-jump')){this.el('measurement-jump').hidden=!requiresMeasurementJump(selected);this.el('measurement-jump').disabled=!selected;}
   if(this.el('measurement-update'))this.el('measurement-update').disabled=!selected||selected.can_remeasure===false||['historical','history'].includes(selected.status);
  }
  download(delimiter,extension){try{const entries=this.exportSelection();if(!entries.length)throw new Error('当前没有可导出的保存测量');const blob=new Blob(['\uFEFF',exportMeasurementTable(entries,{delimiter})],{type:extension==='csv'?'text/csv;charset=utf-8':'text/tab-separated-values;charset=utf-8'}),url=URL.createObjectURL(blob),a=this.document.createElement('a');a.href=url;a.download=`mcp-dm-measurements.${extension}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){this.onError(error);}}

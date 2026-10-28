@@ -9,7 +9,7 @@ import * as viewerState from '../ui/image-panel/viewer-state.mjs';
 import * as viewerRender from '../ui/image-panel/viewer-render.mjs';
 import * as annotationPresentation from '../ui/image-panel/annotation-presentation.mjs';
 import * as figureExport from '../ui/image-panel/figure-export.mjs';
-import {MeasurementWorkspace as ProviderMeasurementWorkspace} from '../ui/image-panel/measurement-workspace.mjs';
+import {MeasurementWorkspace as ProviderMeasurementWorkspace,requiresMeasurementJump} from '../ui/image-panel/measurement-workspace.mjs';
 import {performance} from 'node:perf_hooks';
 import {randomUUID} from 'node:crypto';
 
@@ -43,7 +43,7 @@ async function harness(initial=fixture()){
  const elements=new Map();const $=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
  $('zoom').value='1';$('mode').value='line';$('status').value='hypothesized';$('fft-window').value='hann';$('fft-mean').checked=true;
  const math=Object.create(Math);math.pow=(a,b)=>{stats.pow++;return Math.pow(a,b);};
- const sandbox={...coordinates,...viewerState,...viewerRender,...annotationPresentation,...figureExport,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
+ const sandbox={...coordinates,...viewerState,...viewerRender,...annotationPresentation,...figureExport,requiresMeasurementJump,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
   MeasurementWorkspace:class extends ProviderMeasurementWorkspace{constructor(options){super({...options,document:sandbox.document});}},
   document:{getElementById:$,createElement:tag=>new Element(tag),querySelectorAll:()=>[],addEventListener(){}},
   sessionStorage:{getItem:()=> 'synthetic-token',setItem(){}},location:{hash:'',pathname:'/'},history:{replaceState(){}},
@@ -52,7 +52,7 @@ async function harness(initial=fixture()){
   ImageData:class{constructor(data,width,height){this.data=data;this.width=width;this.height=height;}},
   requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id),
   fetch:async(url,options)=>{
-   if(!options.body){getCalls.push(url);if(url.startsWith('/api/measurements?'))return {ok:true,json:async()=>({current:{...copy(server.object),object_id:server.object.object_id},entries:[],truncated:false})};if(url==='/api/revision')return {ok:true,json:async()=>({state_revision:server.state_revision,object_id:server.object.object_id,pending_result:server.pending_result})};}
+   if(!options.body){getCalls.push(url);if(url.startsWith('/api/measurements?'))return {ok:true,json:async()=>({current:{...copy(server.object),object_id:server.object.object_id},entries:copy(server.measurement_entries??[]),truncated:false})};if(url==='/api/revision')return {ok:true,json:async()=>({state_revision:server.state_revision,object_id:server.object.object_id,pending_result:server.pending_result})};}
    if(options.body){const body=JSON.parse(options.body);
     if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);server.edit_state={...copy(body.params),base_object_id:server.object.object_id};return {ok:true,json:async()=>body.lightweight?{object_id:server.object.object_id,edit_state:copy(server.edit_state)}:copy(server)};}
     calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;if(body.action==='measure'&&waitMeasurement)await waitMeasurement;
@@ -484,4 +484,35 @@ test('P0: recipe layout batch refreshes the selected inspector even when another
  h.$('existing').value='line-b';h.$('existing').onchange();assert.equal(h.$('label-size').value,16);
  h.actionResult(restored);h.$('recipe-text').value=JSON.stringify(recipe);await h.click('load-recipe-text');await h.finish();
  assert.ok(h.calls.some(c=>c.action==='edit-layout'));assert.equal(h.$('label-size').value,12);assert.equal(h.$('marker-shape').value,'circle');assert.deepEqual(h.server().object.annotations[1].anchor,saved.object.annotations[1].anchor);
+});
+
+test('historical moved or missing marks expose the same explicit jump requested by selection',async()=>{
+ for(const missing of [false,true]){
+  const initial=annotated(),saved=copy(initial),oldId='e'.repeat(32),currentId='f'.repeat(32),savedView='d'.repeat(32);
+  saved.object.object_id=savedView;saved.object.annotations[0].anchor.coordinates=[30,22,55,50];
+  if(missing)initial.object.annotations=[];
+  const old={object_id:oldId,kind:'measure',annotation_id:'line-a',name:'old A',status:'historical',points:[[30,22],[55,50]],coordinate_space:'source_pixels',input_object_id:savedView,same_grid:true,visible_in_current_view:true,annotation_matches_current:false};
+  const current={...copy(old),object_id:currentId,name:'current A',status:'current',points:[[30,22],[60,52]],input_object_id:viewId,annotation_matches_current:!missing};
+  initial.measurement_entries=[old,current];const h=await harness(initial);await h.settle();
+  h.$('measurement-history').checked=true;h.$('measurement-history').onchange();
+  const row=id=>h.$('measurement-rows').children.find(value=>value.dataset.measurementId===id);
+  row(oldId).onclick();await h.settle();
+  assert.match(h.$('message').textContent,/跳到结果原视图/);
+  assert.equal(h.$('measurement-jump').hidden,false,missing?'missing annotation must allow original-view navigation':'moved annotation must allow original-view navigation');
+  assert.equal(h.calls.length,0,'viewing the old result cannot remeasure or switch views');
+  assert.equal(h.inspect().state.object.object_id,viewId);assert.deepEqual(h.inspect().state.object.annotations,initial.object.annotations);
+  const restored=copy(saved);restored.measurement_entries=[{...copy(old),annotation_matches_current:true},{...copy(current),annotation_matches_current:false}];
+  h.actionResult(restored);await h.click('measurement-jump');await h.settle();
+  assert.deepEqual(h.calls.map(value=>value.action),['measurement-jump']);assert.equal(h.calls[0].params.measurement_object_id,oldId);
+  assert.equal(h.inspect().state.object.object_id,savedView);assert.deepEqual(h.inspect().state.object.annotations,saved.object.annotations);
+  assert.equal(row(oldId).attributes['aria-selected'],'true','the old row remains selected, not the newer measurement of that annotation');
+  assert.equal(h.$('measurement-jump').hidden,true,'the exact original mark now matches');
+  assert.deepEqual(h.server().measurement_entries.map(value=>({object_id:value.object_id,points:value.points})),initial.measurement_entries.map(value=>({object_id:value.object_id,points:value.points})));
+ }
+ for(const flags of [{same_grid:true,visible_in_current_view:true,annotation_matches_current:true},{same_grid:false,visible_in_current_view:false,annotation_matches_current:false},{same_grid:true,visible_in_current_view:false,annotation_matches_current:true}]){
+  const initial=annotated();initial.measurement_entries=[{object_id:'e'.repeat(32),kind:'measure',annotation_id:'line-a',status:'current',points:[[30,22],[60,52]],coordinate_space:'source_pixels',...flags}];
+  const h=await harness(initial);await h.settle();h.$('measurement-rows').children[0].onclick();await h.settle();
+  assert.equal(h.$('measurement-jump').hidden,!requiresMeasurementJump(initial.measurement_entries[0]));assert.equal(h.calls.length,0);
+ }
+ assert.equal(requiresMeasurementJump(null),false);
 });
