@@ -5,6 +5,11 @@ do not require a DM process, invoke a GMS Python interpreter, identify a unique
 phase, or replace a failed native operation. Existing FCC/BCC/HCP indexing
 examples remain optional; generic structure input does not enter that pipeline.
 
+For a bounded batch over 1–3 candidates without preassigned HKL, see the
+[Hypothesis Explorer recipe](HYPOTHESIS_EXPLORER.md): an executed synthetic
+experiment, static overlays/tables, retained ambiguity and prospective next
+observations. It reuses these tools through an optional local CLI.
+
 ## Enable and use
 
 Create a separate Python environment and install `requirements-structure-tools.txt`.
