@@ -1,108 +1,13 @@
 #!/usr/bin/env node
-/** Stdio MCP facade. Trusted tool composition lives in lib/tools; scientific
- * execution, provenance and recovery stay in the existing backend adapters. */
+/** DigitalMicrograph compatibility entry point. Existing tool names, backend
+ * selection and initialized server identity remain unchanged. */
 import process from 'node:process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {RpcError} from './lib/runtime/schema.mjs';
 import {createServerRuntime} from './lib/tools/create_server_runtime.mjs';
+import {startStdioMcpServer} from './lib/runtime/stdio_mcp_server.mjs';
 
-export function startMcpServer({runtime=createServerRuntime(),input=process.stdin,output=process.stdout,exit=code=>process.exit(code)}={}){
-const SERVER_NAME='digitalmicrograph';
-const SERVER_VERSION='0.6.0';
-const PROTOCOL_VERSION='2024-11-05';
-function send(msg) {
-  output.write(JSON.stringify(msg) + "\n");
+export function startMcpServer({runtime=createServerRuntime(),...options}={}){
+  return startStdioMcpServer({runtime,serverName:'digitalmicrograph',serverVersion:'0.6.0',...options});
 }
-
-function ok(id, result) {
-  send({ jsonrpc: "2.0", id, result });
-}
-
-function fail(id, code, message) {
-  send({ jsonrpc: "2.0", id, error: { code, message } });
-}
-
-const running = new Map();
-async function handle(msg) {
-  if (!msg || typeof msg !== "object" || Array.isArray(msg) || msg.jsonrpc !== "2.0" || typeof msg.method !== "string"
-      || (Object.hasOwn(msg, "id") && !(typeof msg.id === "string" || Number.isSafeInteger(msg.id)))) {
-    return fail(null, -32600, "Invalid Request");
-  }
-  const { id, method, params } = msg;
-  if (id === undefined) {
-    if (method === "notifications/cancelled") running.get(params?.requestId)?.abort();
-    return;
-  }
-  if (params !== undefined && (params === null || typeof params !== "object" || Array.isArray(params))) return fail(id, -32602, "params 必须是对象");
-  if (method === "initialize") {
-    return ok(id, {
-      protocolVersion: PROTOCOL_VERSION,
-      capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-      instructions: runtime.instructions,
-    });
-  }
-  if (method === "ping") return ok(id, {});
-  if (method === "tools/list") return ok(id, { tools: runtime.registry.listTools() });
-  if (method === "tools/call") {
-    if (!params || typeof params.name !== "string") return fail(id, -32602, "需要工具名称");
-    if (running.has(id)) return fail(id, -32600, "Duplicate in-flight request id");
-    const controller = new AbortController();
-    running.set(id, controller);
-    try {
-      const result = await runtime.registry.call(params.name, params.arguments, {signal: controller.signal});
-      if (!controller.signal.aborted) return ok(id, result);
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      if (err instanceof RpcError) return fail(id, err.code, err.message);
-      return ok(id, {
-        content: [{ type: "text", text: `错误: ${err.message}` }],
-        isError: true,
-      });
-    } finally {
-      running.delete(id);
-    }
-  }
-  if (method === "resources/list") return ok(id, { resources: [] });
-  if (method === "prompts/list") return ok(id, { prompts: [] });
-  return fail(id, -32601, `Method not found: ${method}`);
-}
-
-let stdinBuffer = "";
-input.setEncoding("utf8");
-input.on("data", (chunk) => {
-  stdinBuffer += chunk;
-  if (Buffer.byteLength(stdinBuffer, "utf8") > 2 * 1024 * 1024) {
-    stdinBuffer = "";
-    fail(null, -32600, "Request exceeds 2 MiB");
-    return;
-  }
-  let idx;
-  while ((idx = stdinBuffer.indexOf("\n")) >= 0) {
-    const line = stdinBuffer.slice(0, idx).trim();
-    stdinBuffer = stdinBuffer.slice(idx + 1);
-    if (!line) continue;
-    let msg;
-    try {
-      msg = JSON.parse(line);
-    } catch {
-      fail(null, -32700, "Parse error");
-      continue;
-    }
-    handle(msg).catch((err) => {
-      if (msg && msg.id !== undefined) fail(msg.id, -32603, err.message);
-    });
-  }
-});
-
-let closed=false;
-function close(){if(closed)return;closed=true;runtime.close();process.off('SIGINT',close);exit(0);}
-input.on('end',close);
-process.on('SIGINT',close);
-return {close};
-}
-
-// Importable for an explicitly composed, trusted optional module. Importing
-// the protocol facade alone does not create workers, sockets or a listener.
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))startMcpServer();

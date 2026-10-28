@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/**'
       - 'server.mjs'
+      - 'science-server.mjs'
       - 'selftest.mjs'
       - 'package.json'
       - 'lib/**'
@@ -39,8 +40,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Check MCP entry syntax
-        run: node --check server.mjs
+      - name: Check both MCP entries and their shared facade
+        run: |
+          node --check server.mjs
+          node --check science-server.mjs
+          node --check lib/runtime/stdio_mcp_server.mjs
       - name: Portable registry / context / Skill and Image Panel tests
         run: |
           node --test --test-concurrency=2 \
@@ -48,6 +52,8 @@ jobs:
             tests/execution-coordinator.test.mjs \
             tests/analysis-context.test.mjs \
             tests/skill-contracts.test.mjs \
+            tests/science-server.test.mjs \
+            tests/stdio-entry-compat.test.mjs \
             tests/image-panel-ui.test.mjs \
             tests/image-panel-drag-constraints.test.mjs \
             tests/image-panel-viewport.test.mjs \
