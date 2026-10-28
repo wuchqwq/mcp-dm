@@ -10,6 +10,7 @@ import {selectionRectangle} from '../ui/image-panel/coordinates.mjs';
 import {annotationPresentation} from '../lib/image_workspace.mjs';
 import {validate} from '../lib/runtime/schema.mjs';
 import {figureDisplayParameters,readFigureRecipe,recipeIdentity} from '../ui/image-panel/figure-export.mjs';
+import {readImageMeasurements,writeMeasurementLink} from '../lib/image_measurement_records.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const objectId=/^[a-f0-9]{32}$/;
@@ -193,8 +194,17 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
     if(!(current.annotations??[]).some(m=>m.annotation_id===u.annotation_id)||ids.has(u.annotation_id))fail('Layout edits require distinct existing annotation IDs');ids.add(u.annotation_id);}
    r=await journalCall('image_annotate',{object_id:current.object_id,updates:p.updates});
   }
+  else if(body.action==='measurement-jump'){
+   fields(p,['measurement_object_id']);
+   const entry=readImageMeasurements({workspace,objectId:current.object_id}).entries.find(value=>value.object_id===p.measurement_object_id);
+   if(!entry)fail('Measurement is not in this source workspace',404);
+   if(editState.dirty||editState.gesture_active)fail('Save or discard drafts before explicitly jumping to a historical view',409);
+   r=await displayObject(await journalCall('image_info',{object_id:entry.input_object_id}));
+  }
   else if(body.action==='measure'){
-   fields(p,['selection']);const selected=checkSelection(p.selection),domain=selected.panel.domain;
+   fields(p,['selection','annotation_id','measurement_object_id']);const selected=checkSelection(p.selection),domain=selected.panel.domain;
+   const mark=p.annotation_id===undefined?null:(current.annotations??[]).find(value=>value.annotation_id===p.annotation_id);
+   if(p.annotation_id!==undefined&&(!mark||mark.kind!==selected.kind||!sameRecord(mark.anchor?.coordinates,selected.coordinates)||mark.anchor?.source_object_id!==selected.source_object_id||mark.anchor?.coordinate_space!==selected.coordinate_space))fail('Measurement mark does not match the exact saved scientific selection',409);
    const spectral=domain==='frequency',scalar=domain==='source_array_indices',peak=selected.kind==='point';
    if(!['frequency','source_array_indices','spatial_pixels'].includes(domain))fail('Unsupported measurement domain');
    let dc=null;
@@ -213,8 +223,13 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
    const target=current.object_id;
    const args={object_id:target,points:peak?[dc,selected.coordinates]:[selected.coordinates.slice(0,2),selected.coordinates.slice(2)],
     coordinate_space:spectral?'frequency_cycles_per_pixel':scalar?'source_array_indices':'source_pixels'};
-   r=await journalCall('image_measure',args);
-   lastOperation={...publicObject(r.data),...(peak?{reference:spectral?'mathematical DC [0,0]; geometric period, not phase identification':'recorded calibrated DC; not an independently verified beam centre'}:{})};
+   if(p.measurement_object_id!==undefined){
+    const entry=readImageMeasurements({workspace,objectId:current.object_id}).entries.find(value=>value.object_id===p.measurement_object_id);
+    if(!entry||p.annotation_id&&entry.annotation_id!==p.annotation_id)fail('Original measurement is not bound to this annotation/source',409);
+    r=await journalCall('image_remeasure',{object_id:target,measurement_object_id:entry.object_id,points:args.points,source_text:'Researcher revised or remeasured this exact saved GUI selection; no phase confirmation.'});
+   }else r=await journalCall('image_measure',args);
+   if(mark)writeMeasurementLink(workspace,{measurement_object_id:r.data.object_id,input_object_id:target,annotation_id:mark.annotation_id,measurement_kind:Number.isInteger(r.data.dc_reference_point_index)?'dc_to_peak':'two_point',name:mark.text??'',...(p.measurement_object_id?{previous_measurement_object_id:p.measurement_object_id}:{})});
+   lastOperation={...publicObject(r.data),...(mark?{annotation_id:mark.annotation_id}:{}),...(peak?{reference:spectral?'mathematical DC [0,0]; geometric period, not phase identification':'recorded calibrated DC; not an independently verified beam centre'}:{})};
    selection=selected;saveSelection();return state();
   }
   else if(body.action==='calibrate'){fields(p,['scope','xy_scale','source_text','coordinate_domain']);r=await displayObject(await journalCall('image_calibrate',{object_id:current.object_id,...p}));}
@@ -275,7 +290,7 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
    saveSelection();const response={...state(),presentation:{request_id:body.request_id,status:queued?'queued':'shown',object_id:r.data.object_id}};writeJournal(path.join(presentationDirectory,`${body.request_id}.response.json`),response);return response;
   }catch(error){writeJournal(path.join(presentationDirectory,`${body.request_id}.response.json`),{presentation:{request_id:body.request_id,status:'failed',error:error.message}});throw error;}
  };
- const staticFiles=new Map([['/',['index.html','text/html; charset=utf-8']],['/app.mjs',['app.mjs','text/javascript; charset=utf-8']],['/coordinates.mjs',['coordinates.mjs','text/javascript; charset=utf-8']],['/style.css',['style.css','text/css; charset=utf-8']],['/viewer-state.mjs',['viewer-state.mjs','text/javascript; charset=utf-8']],['/viewer-render.mjs',['viewer-render.mjs','text/javascript; charset=utf-8']],['/annotation-presentation.mjs',['annotation-presentation.mjs','text/javascript; charset=utf-8']],['/figure-export.mjs',['figure-export.mjs','text/javascript; charset=utf-8']]]);
+ const staticFiles=new Map([['/',['index.html','text/html; charset=utf-8']],['/app.mjs',['app.mjs','text/javascript; charset=utf-8']],['/coordinates.mjs',['coordinates.mjs','text/javascript; charset=utf-8']],['/style.css',['style.css','text/css; charset=utf-8']],['/viewer-state.mjs',['viewer-state.mjs','text/javascript; charset=utf-8']],['/viewer-render.mjs',['viewer-render.mjs','text/javascript; charset=utf-8']],['/annotation-presentation.mjs',['annotation-presentation.mjs','text/javascript; charset=utf-8']],['/figure-export.mjs',['figure-export.mjs','text/javascript; charset=utf-8']],['/measurement-workspace.mjs',['measurement-workspace.mjs','text/javascript; charset=utf-8']]]);
  const server=http.createServer(async(req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
   try{
@@ -285,6 +300,12 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
    if(req.headers.origin&&req.headers.origin!==origin)fail('Cross-origin requests refused',403);
    res.setHeader('Content-Type','application/json');
    if(req.method==='GET'&&url.pathname==='/api/state'){res.end(JSON.stringify(state()));return;}
+   if(req.method==='GET'&&url.pathname==='/api/measurements'){
+    if([...url.searchParams.keys()].some(key=>key!=='object_id')||url.searchParams.get('object_id')!==current.object_id)fail('Measurement inspection requires the exact current object',409);
+    const inspected=current.object_id,revision=stateRevision;
+    const records=readImageMeasurements({workspace,objectId:inspected});
+    res.end(JSON.stringify({...records,object_id:inspected,state_revision:revision}));return;
+   }
    if(req.method==='GET'&&url.pathname==='/api/revision'){res.end(JSON.stringify({state_revision:stateRevision,object_id:current.object_id,pending_result:pendingResult?{object_id:pendingResult.prepared.object.object_id,request_id:pendingResult.request_id}:null,edit_state:{draft_revision:editState.draft_revision,dirty:editState.dirty,gesture_active:editState.gesture_active}}));return;}
    if(req.method==='GET'&&url.pathname==='/api/present'){res.end(JSON.stringify(presentationReceipt(url.searchParams.get('request_id'))));return;}
    if(req.method!=='POST'||!['/api/action','/api/present'].includes(url.pathname))fail('Not found',404);if(req.headers.origin!==origin||!req.headers['content-type']?.startsWith('application/json'))fail('Same-origin JSON required',403);

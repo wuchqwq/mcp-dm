@@ -9,6 +9,7 @@ import * as viewerState from '../ui/image-panel/viewer-state.mjs';
 import * as viewerRender from '../ui/image-panel/viewer-render.mjs';
 import * as annotationPresentation from '../ui/image-panel/annotation-presentation.mjs';
 import * as figureExport from '../ui/image-panel/figure-export.mjs';
+import {MeasurementWorkspace as ProviderMeasurementWorkspace} from '../ui/image-panel/measurement-workspace.mjs';
 import {performance} from 'node:perf_hooks';
 import {randomUUID} from 'node:crypto';
 
@@ -29,10 +30,12 @@ async function harness(initial=fixture()){
   clearRect(){} fillText(){} strokeRect(){} setLineDash(){} beginPath(){} arc(){} stroke(){} moveTo(){} lineTo(){} closePath(){} save(){} restore(){} fill(){}
  }
  class Element{
-  constructor(id){this.id=id;this.value='';this.style={};this.children=[];this.listeners={};this.classList={toggle(){}};this.textContent='';this.width=128;this.height=96;}
+  constructor(id){this.id=id;this.value='';this.style={};this.dataset={};this.attributes={};this.children=[];this.listeners={};this.classList={toggle(){}};this.textContent='';this.width=128;this.height=96;}
   addEventListener(name,fn){this.listeners[name]=fn;}
   replaceChildren(...children){this.children=children;this.value=children[0]?.value??'';}
-  append(child){this.children.push(child);}
+  append(...children){this.children.push(...children);}
+  setAttribute(name,value){this.attributes[name]=value;}
+  querySelector(){return null;}
   getContext(){return this.context??=new Context(this);}
   getBoundingClientRect(){return {left:0,top:0,width:this.width,height:this.height};}
   setPointerCapture(){}
@@ -41,6 +44,7 @@ async function harness(initial=fixture()){
  $('zoom').value='1';$('mode').value='line';$('status').value='hypothesized';$('fft-window').value='hann';$('fft-mean').checked=true;
  const math=Object.create(Math);math.pow=(a,b)=>{stats.pow++;return Math.pow(a,b);};
  const sandbox={...coordinates,...viewerState,...viewerRender,...annotationPresentation,...figureExport,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
+  MeasurementWorkspace:class extends ProviderMeasurementWorkspace{constructor(options){super({...options,document:sandbox.document});}},
   document:{getElementById:$,createElement:tag=>new Element(tag),querySelectorAll:()=>[],addEventListener(){}},
   sessionStorage:{getItem:()=> 'synthetic-token',setItem(){}},location:{hash:'',pathname:'/'},history:{replaceState(){}},
   Option:class{constructor(text,value){this.text=text;this.value=value;}},
@@ -48,7 +52,7 @@ async function harness(initial=fixture()){
   ImageData:class{constructor(data,width,height){this.data=data;this.width=width;this.height=height;}},
   requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id),
   fetch:async(url,options)=>{
-   if(!options.body){getCalls.push(url);if(url==='/api/revision')return {ok:true,json:async()=>({state_revision:server.state_revision,object_id:server.object.object_id,pending_result:server.pending_result})};}
+   if(!options.body){getCalls.push(url);if(url.startsWith('/api/measurements?'))return {ok:true,json:async()=>({current:{...copy(server.object),object_id:server.object.object_id},entries:[],truncated:false})};if(url==='/api/revision')return {ok:true,json:async()=>({state_revision:server.state_revision,object_id:server.object.object_id,pending_result:server.pending_result})};}
    if(options.body){const body=JSON.parse(options.body);
     if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);server.edit_state={...copy(body.params),base_object_id:server.object.object_id};return {ok:true,json:async()=>body.lightweight?{object_id:server.object.object_id,edit_state:copy(server.edit_state)}:copy(server)};}
     calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;if(body.action==='measure'&&waitMeasurement)await waitMeasurement;
@@ -59,9 +63,10 @@ async function harness(initial=fixture()){
      if(result.object.object_id===server.object.object_id)result.object.object_id=(++actionSequence).toString(16).padStart(32,'0');
      result.state_revision=(server.state_revision??0)+1;result.edit_state=copy(server.edit_state);result.auto_edit_committed=true;server=result;
     }else if(nextActionResult){server=copy(nextActionResult);nextActionResult=null;}
+    if(body.action==='mark'){const {panel:selectionPanel,...anchor}=body.params.selection;server.object.annotations.push({annotation_id:body.params.annotation_id,kind:anchor.kind,anchor:copy(anchor),text:body.params.text,color:body.params.color,status:body.params.status});server.object.object_id=(++actionSequence).toString(16).padStart(32,'0');server.state_revision=(server.state_revision??0)+1;server.selection=copy(body.params.selection);}
     if(body.action==='measure'||body.action==='select')server.selection=copy(body.params.selection);
     const measured=body.action==='measure'&&measurementResponse?(typeof measurementResponse==='function'?measurementResponse(body):copy(measurementResponse)):{};
-    server.last_operation=body.action==='recover'&&recoveryResponse?copy(recoveryResponse):{...(body.action==='measure'?{kind:'measure',coordinate_space:body.params.selection.coordinate_space,points:[body.params.selection.coordinates.slice(0,2),body.params.selection.coordinates.slice(2)]}:{}),...measured,action:body.action};
+    server.last_operation=body.action==='recover'&&recoveryResponse?copy(recoveryResponse):{...(body.action==='measure'?{kind:'measure',coordinate_space:body.params.selection.coordinate_space,points:[body.params.selection.coordinates.slice(0,2),body.params.selection.coordinates.slice(2)]}:{}),...measured,action:body.action,...(body.action==='mark'?{annotation_ids:[body.params.annotation_id]}:{})};
    }
    return {ok:true,json:async()=>copy(server)};
   }
@@ -88,9 +93,10 @@ async function harness(initial=fixture()){
 test('measure then hand off uses the same anchored selection without redrawing',async()=>{
  const h=await harness();h.draw();const selection=h.inspect().draft;
  await h.click('measure');assert.deepEqual(h.inspect().draft.coordinates,selection.coordinates);
- await h.click('share');assert.equal(h.calls.at(-1).action,'select');assert.equal(h.calls.length,2);
- assert.deepEqual(h.calls[1].params.selection.coordinates,selection.coordinates);
- assert.equal(h.calls[1].params.selection.source_object_id,sourceId);
+ await h.click('share');assert.equal(h.calls.at(-1).action,'select');assert.deepEqual(h.calls.map(call=>call.action),['mark','measure','select']);
+ assert.deepEqual(h.calls[2].params.selection.coordinates,selection.coordinates);
+ assert.equal(h.calls[2].params.selection.source_object_id,sourceId);
+ assert.equal(h.calls[1].params.annotation_id,h.calls[0].params.annotation_id,'measurement is bound to the newly saved scientific mark');
  assert.match(h.$('message').textContent,/选择已交接/);
 });
 
@@ -139,8 +145,9 @@ test('odd FFT selection retains its original signed frequencies through measure 
  const s=fixture(),p={domain:'frequency',source_object_id:sourceId,fft_shape_yx:[55,95],fft_rect_xyxy:[38,22,58,34],image_rect_xyxy:[0,0,128,96]};
  s.object.panels=[p];s.object.kind='fft_view';const h=await harness(s);h.draw('point');const before=h.inspect().draft;
  await h.click('measure');await h.click('share');
- assert.deepEqual(h.calls[1].params.selection.coordinates,before.coordinates);
- assert.equal(h.calls[1].params.selection.coordinate_space,'frequency_cycles_per_pixel');
+ assert.deepEqual(h.calls.map(call=>call.action),['mark','measure','select']);
+ assert.deepEqual(h.calls[2].params.selection.coordinates,before.coordinates);
+ assert.equal(h.calls[2].params.selection.coordinate_space,'frequency_cycles_per_pixel');
 });
 
 test('pointer moves coalesce into one animation frame and reuse the tone bitmap',async()=>{
@@ -257,7 +264,7 @@ test('refresh and read-only measurement never erase unsaved display or mark draf
  const h=await editHarness();h.draw('line');h.$('gamma').value='1.5';h.$('gamma').oninput();h.flush();
  const local=h.inspect();await h.click('reload');assert.deepEqual(h.inspect().editCoordinates,local.editCoordinates);assert.equal(h.$('gamma').value,'1.5');
  h.$('mode').value='line';h.event('pointerdown',60,20);h.event('pointerup',90,30);h.flush();await h.click('measure');
- assert.deepEqual(h.inspect().editCoordinates,local.editCoordinates);assert.equal(h.$('gamma').value,'1.5');assert.equal(h.inspect().dirty,true);
+ assert.deepEqual(h.inspect().editCoordinates,local.editCoordinates);assert.equal(Number(h.$('gamma').value),1.5);assert.equal(h.inspect().dirty,true);
 });
 
 test('a late save cannot erase a newer drag and observation remains enabled while waiting',async()=>{
@@ -291,7 +298,7 @@ test('fresh browser draft revision advances the existing shared lease instead of
 test('revision polling uses small metadata and automatically presents a new clean result',async()=>{
  const h=await harness(),before=h.getCalls.length;await h.poll();assert.deepEqual(h.getCalls.slice(before),['/api/revision']);
  const next=fixture();next.object.object_id='c'.repeat(32);next.state_revision=2;h.setServer(next);await h.poll();
- assert.deepEqual(h.getCalls.slice(before),['/api/revision','/api/revision','/api/state']);assert.equal(h.inspect().state.object.object_id,next.object.object_id);
+ assert.deepEqual(h.getCalls.slice(before),['/api/revision','/api/revision','/api/state','/api/measurements?object_id='+next.object.object_id]);assert.equal(h.inspect().state.object.object_id,next.object.object_id);
 });
 
 test('Agent result notice never overwrites an unsaved local display draft',async()=>{
