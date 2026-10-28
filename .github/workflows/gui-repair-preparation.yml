@@ -27,6 +27,20 @@ jobs:
           node-version: '22'
       - name: Apply source-guarded changes
         run: python3 tools/apply_gui_fix.py
+      - name: Retain explicit ambiguity refusal and scalar ROI scope
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('ui/image-panel/app.mjs');s=p.read_text()
+          old="let kind=$('mode').value==='edit'?'select':$('mode').value;const selectionBefore={draft:draft?JSON.parse(JSON.stringify(draft)):null,selectedId};let blankSelect=false;try{"
+          new=old+"\n  if(kind==='select'&&selectedId){const selectedMark=state.object.annotations?.find(mark=>mark.annotation_id===selectedId);if(selectedMark?.anchor)markPanel(selectedMark);}"
+          assert s.count(old)==1
+          p.write_text(s.replace(old,new))
+          p=Path('ui/image-panel/user-workflow.mjs');s=p.read_text()
+          old="if(action==='roi'||action==='statistics')return kind==='rectangle'&&['spatial_pixels','source_array_indices','frequency'].includes(domain)?'':'请选择矩形 ROI';"
+          new="if(action==='roi')return kind==='rectangle'&&['spatial_pixels','frequency'].includes(domain)?'':'请选择可查看的实空间或 FFT 矩形 ROI';\n if(action==='statistics')return kind==='rectangle'&&['spatial_pixels','source_array_indices','frequency'].includes(domain)?'':'请选择矩形 ROI';"
+          assert s.count(old)==1
+          p.write_text(s.replace(old,new))
       - name: Syntax and focused UI regression only
         run: |
           set -o pipefail
@@ -38,7 +52,7 @@ jobs:
       - name: Commit only reviewed GUI and focused tests to this feature branch
         run: |
           test "$GITHUB_REF" = 'refs/heads/fix/gui-human-workflow-20261028'
-          git add ui/image-panel/app.mjs ui/image-panel/data-probes.mjs ui/image-panel/index.html ui/image-panel/style.css tools/image_panel.mjs tests/image-panel-ui.test.mjs
+          git add ui/image-panel/app.mjs ui/image-panel/user-workflow.mjs ui/image-panel/data-probes.mjs ui/image-panel/index.html ui/image-panel/style.css tools/image_panel.mjs tests/image-panel-ui.test.mjs
           git config user.name 'MCP-DM GUI maintenance'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'fix(ui): prevent accidental edits and complete direct researcher workflows'
