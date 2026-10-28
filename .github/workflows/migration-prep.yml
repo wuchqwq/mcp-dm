@@ -1,0 +1,48 @@
+name: Migration preparation (scoped)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/migration-prep.yml'
+      - 'migration/**'
+      - 'tools/prepare_repository_split.py'
+      - 'tests/test_repository_split.py'
+      - 'tests/repository-split-smoke.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-preparation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preparation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preserve explicit reviewed source snapshots for offline preparation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin e6f1301a29cb0d4e6d5e6a4b5856e2cdf6b3169a a158b1ac58af7d3b6e68d9e95afb17becaedfe2c
+          git update-ref refs/heads/migration-source-entry e6f1301a29cb0d4e6d5e6a4b5856e2cdf6b3169a
+          git update-ref refs/heads/migration-source-gui a158b1ac58af7d3b6e68d9e95afb17becaedfe2c
+          mkdir -p "$RUNNER_TEMP/migration-preparation"
+          git bundle create "$RUNNER_TEMP/migration-preparation/source.bundle" HEAD refs/heads/migration-source-entry refs/heads/migration-source-gui
+          git bundle verify "$RUNNER_TEMP/migration-preparation/source.bundle"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: migration-preparation-source
+          path: ${{ runner.temp }}/migration-preparation/source.bundle
+          retention-days: 1
+          if-no-files-found: error
