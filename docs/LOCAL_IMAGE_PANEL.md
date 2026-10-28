@@ -1,5 +1,8 @@
 # Optional local image interaction panel
 
+Researchers can now open a local TIFF, recover multiple measurements and export
+their table without a model session: see the [Researcher Data Inspector](RESEARCHER_DATA_INSPECTOR.md).
+
 For independent editable labels, diffraction typography, domain layers and
 publication SVG/PNG output, see [Microscopy annotations and figure export](PUBLICATION_ANNOTATIONS.md).
 
