@@ -25,6 +25,12 @@ Compare saved un-rasterized reflections/HKL with committed experimental
 measurements. An HRTEM/ptychography FFT and a SAED pattern do not share a general
 intensity interpretation. Prefer geometric residuals; a similar PNG is no phase
 proof. Keep unmatched reflections, alternative candidates and model limitations.
+The Agent may propose unconfirmed structures, orientations and reflection
+correspondences and test explicit geometric comparisons. Keep those proposals
+as hypotheses: do not assert `user_confirmed` merely to enter a registration
+tool that requires confirmed correspondences. State any explicit trial rotation
+used by `structure_compare`; report fitted and independently held-out points
+separately. Suggest the next discriminating observation when candidates remain.
 
 For confirmed correspondences, `structure_register` estimates only the permitted
 proper in-plane rotation with independent experiment scale fixed, zero translation

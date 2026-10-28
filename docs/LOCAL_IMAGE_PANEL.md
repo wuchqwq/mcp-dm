@@ -49,6 +49,10 @@ process interaction.
   and drag an existing mark or its small endpoint handles. **保存这条标记** submits one sparse update, retaining every
   other mark and its anchor. Color and candidate/confirmed/retracted status
   remain separate. Orange is a proposed second-phase display convention only.
+  After saving a single new/edited mark, that exact visible mark remains the
+  current scientific selection and `last_operation.annotation_ids` identifies
+  it. The researcher can say “recalculate” without clicking the peak again.
+  Retracted/out-of-view marks and multi-mark edits are not guessed selections.
 - A line can be measured; an FFT point is measured relative to mathematical
   DC `[0,0]`, even when DC lies outside a zoom. A period is geometric evidence,
   not a phase identification. Active XY calibration determines whether physical
@@ -124,3 +128,30 @@ recovery → export chain with synthetic TIFF bytes unchanged. Browser rendering
 and actual human drag acceptance must be reported separately from those tests.
 This panel does not qualify DM-native operators, other TIFF dtypes or physical
 interpretations. Private experimental paths/images must not enter public tests.
+
+## Client lifetime and reconnect
+
+Use a persistent Codex conversation/client while making selections in the
+panel. The helper can survive an ordinary MCP stdin disconnect, but it is not
+an operating-system service: `detached`/`unref` does not guarantee survival when
+an ancestor application terminates its entire process tree. In a Windows
+one-shot `codex exec` trial, the panel rendered successfully and then its
+helper stopped after the command exited. A still-visible browser image was
+therefore not a live selection connection; its next gesture could not reach
+the backend. Do not claim a completed selection until `image_panel_current`
+returns the corresponding coordinates.
+
+Keep the interactive client or its persistent app-server running for the
+human–Agent exchange. A new MCP connection may reuse a **still-live** registered
+panel and its saved original request. The standalone CLI above is also useful
+in an independently kept-open terminal; by itself that CLI does not create a
+managed `image_panel_open` registry entry. Its selection-file option remains a
+manual compatibility handoff, not a replacement for the normal panel tools.
+
+If the helper has stopped, querying its old open request does not restart it.
+Recover the saved scientific objects or named analysis, then explicitly open
+a new panel on the chosen saved object with a new panel-open request. This
+creates a new viewing session, not a retry of an uncertain scientific
+operation. Unsaved browser drafts are not guaranteed across host termination;
+the last saved arrays, calibration, annotations and original result records
+remain separate from the panel lifetime.

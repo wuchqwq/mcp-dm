@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "skill": "microscopy-router",
-  "tool_refs": ["image_info", "image_result", "structure_info", "structure_result", "execution_list", "execution_info", "analysis_create", "analysis_read", "analysis_update", "analysis_proposal"],
+  "tool_refs": ["image_info", "image_result", "structure_info", "structure_result", "execution_list", "execution_info", "analysis_create", "analysis_read", "analysis_update", "analysis_proposal", "image_panel_open", "image_panel_current", "image_panel_show"],
   "scenarios": [
     {"intent": "Inspect the selected immutable image without recomputing", "calls": [{"tool": "image_info", "arguments": {"object_id": "11111111111111111111111111111111"}}]},
     {"intent": "Recover an original structure request in the explicitly configured workspace", "calls": [{"tool": "structure_result", "arguments": {"request_id": "saved-structure-request"}}]},
     {"intent": "Explain queue waiting without submitting scientific work", "calls": [{"tool": "execution_list", "arguments": {"provider": "image", "request_id": "saved-image-request", "limit": 10}}]},
     {"intent": "Name an optional task and read its selected references", "calls": [{"tool": "analysis_create", "arguments": {"analysis_id": "example-analysis", "request_id": "skill-create-analysis", "reason": "Start explicit synthetic reference task"}}, {"tool": "analysis_read", "arguments": {"analysis_id": "example-analysis"}}]},
-    {"intent": "Recover an exact context mutation after reopening the client", "calls": [{"tool": "analysis_read", "arguments": {"analysis_id": "example-analysis", "request_id": "skill-create-analysis"}}]}
+    {"intent": "Recover an exact context mutation after reopening the client", "calls": [{"tool": "analysis_read", "arguments": {"analysis_id": "example-analysis", "request_id": "skill-create-analysis"}}]},
+    {"intent": "Continue from the actual local panel selection and offer a saved result without overriding newer drafts", "calls": [{"tool": "image_panel_current", "arguments": {"panel_id": "77777777777777777777777777777777"}}, {"tool": "image_panel_show", "arguments": {"panel_id": "77777777777777777777777777777777", "object_id": "88888888888888888888888888888888", "expected_object_id": "33333333333333333333333333333333", "draft_revision": 2, "request_id": "skill-route-show"}}]}
   ]
 }
