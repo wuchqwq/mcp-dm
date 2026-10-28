@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "source_path": "tools/image_panel.mjs",
+  "before": "env:{...process.env,DM_MCP_BACKEND:'images',DM_IMAGE_WORKSPACE:workspace,DM_IMAGE_PYTHON:python}",
+  "after": "env:{...process.env,DM_MCP_BACKEND:'images',DM_IMAGE_WORKSPACE:workspace,DM_IMAGE_PYTHON:python,MICROSCOPY_IMAGE_WORKSPACE:workspace,MICROSCOPY_PYTHON:python,MICROSCOPY_STRUCTURE_WORKSPACE:'',MICROSCOPY_CONTEXT_WORKSPACE:'',MICROSCOPY_EXECUTION_OBSERVABILITY:'0'}",
+  "reason": "Forward the exact panel workspace/interpreter to the independent science entry; preserve legacy aliases without importing a DM provider."
+}

@@ -1,0 +1,29 @@
+# Local environments and secrets
+.venv*/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+!.env.example
+.codex/
+.DS_Store
+Thumbs.db
+# Private specimens, generated arrays and runtime workspaces
+*.dm3
+*.dm4
+*.npy
+*.npz
+*.tif
+*.tiff
+*.log
+*.ndjson
+outputs/
+results/
+analysis/
+private/
+runtime/
+!/lib/runtime/
+!/lib/runtime/*.mjs

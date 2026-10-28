@@ -1,5 +1,5 @@
+# Source-scoped migration smoke; no pip install, GMS host, C++ build or full suite.
 name: Migration preparation (scoped)
-
 on:
   pull_request:
     branches: [main]
@@ -8,16 +8,13 @@ on:
       - 'migration/**'
       - 'tools/prepare_repository_split.py'
       - 'tests/test_repository_split.py'
-      - 'tests/repository-split-smoke.mjs'
+      - 'tests/repository-split-catalog.test.mjs'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: migration-preparation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
 jobs:
   preparation:
     runs-on: ubuntu-latest
@@ -25,24 +22,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Preserve explicit reviewed source snapshots for offline preparation
+      - name: Migration safety tests
+        run: |
+          python -B -m unittest discover -s tests -p test_repository_split.py -v
+      - name: Compose pinned unmerged inputs only in a disposable worktree
         shell: bash
         run: |
           set -euo pipefail
           git fetch --no-tags origin e6f1301a29cb0d4e6d5e6a4b5856e2cdf6b3169a a158b1ac58af7d3b6e68d9e95afb17becaedfe2c
-          git update-ref refs/heads/migration-source-entry e6f1301a29cb0d4e6d5e6a4b5856e2cdf6b3169a
-          git update-ref refs/heads/migration-source-gui a158b1ac58af7d3b6e68d9e95afb17becaedfe2c
-          mkdir -p "$RUNNER_TEMP/migration-preparation"
-          git bundle create "$RUNNER_TEMP/migration-preparation/source.bundle" HEAD refs/heads/migration-source-entry refs/heads/migration-source-gui
-          git bundle verify "$RUNNER_TEMP/migration-preparation/source.bundle"
+          git worktree add --detach "$RUNNER_TEMP/split-source" HEAD
+          for sha in e6f1301a29cb0d4e6d5e6a4b5856e2cdf6b3169a a158b1ac58af7d3b6e68d9e95afb17becaedfe2c; do
+            git -C "$RUNNER_TEMP/split-source" -c user.name='Migration smoke' -c user.email='migration@localhost' merge --no-ff --no-edit "$sha"
+          done
+          python -B tools/prepare_repository_split.py --source-ref "$(git -C "$RUNNER_TEMP/split-source" rev-parse HEAD)" --recipe-ref "$(git rev-parse HEAD)" --output "$RUNNER_TEMP/split-candidates"
+      - name: Independent exported providers and exact original catalog parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/split-candidates/microscopy-core" && npm test)
+          (cd "$RUNNER_TEMP/split-candidates/mcp-dm" && npm test)
+          SPLIT_SOURCE_ROOT="$RUNNER_TEMP/split-source" SPLIT_OUTPUT_ROOT="$RUNNER_TEMP/split-candidates" node --test tests/repository-split-catalog.test.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: migration-preparation-source
-          path: ${{ runner.temp }}/migration-preparation/source.bundle
-          retention-days: 1
+          name: independent-provider-candidates
+          path: ${{ runner.temp }}/split-candidates
+          retention-days: 7
           if-no-files-found: error
