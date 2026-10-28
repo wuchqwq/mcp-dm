@@ -17,7 +17,7 @@ const panel={domain:'spatial_pixels',source_object_id:sourceId,source_rect_xyxy:
 function fixture(){return {object:{object_id:viewId,kind:'view',panels:[copy(panel)],annotations:[],display:{gamma:1,display_range:[0,255]}},tools:[],png_base64:'synthetic',clean_png_base64:'synthetic-clean',render_base_id:viewId,selection:null,last_operation:null};}
 function pixelBytes(w,h){return Uint8ClampedArray.from({length:w*h*4},(_,i)=>i%4===3?255:(i*17+31)%256);}
 async function harness(initial=fixture()){
- const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null;
+ const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null,actionSequence=0,actionFailure=null;
  const canvasContexts=[];
  class Context{
   constructor(canvas){this.canvas=canvas;this.lastPixels=null;canvasContexts.push(this);}
@@ -48,9 +48,15 @@ async function harness(initial=fixture()){
   fetch:async(url,options)=>{
    if(!options.body){getCalls.push(url);if(url==='/api/revision')return {ok:true,json:async()=>({state_revision:server.state_revision,object_id:server.object.object_id,pending_result:server.pending_result})};}
    if(options.body){const body=JSON.parse(options.body);
-    if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);return {ok:true,json:async()=>copy(server)};}
+    if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);server.edit_state={...copy(body.params),base_object_id:server.object.object_id};return {ok:true,json:async()=>body.lightweight?{object_id:server.object.object_id,edit_state:copy(server.edit_state)}:copy(server)};}
     calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;
-    if(nextActionResult){server=copy(nextActionResult);nextActionResult=null;}
+    if(actionFailure){const error=actionFailure;actionFailure=null;return {ok:false,json:async()=>({error})};}
+    if(body.action==='edit'&&body.params.auto_commit){
+     const result=nextActionResult?copy(nextActionResult):copy(server);nextActionResult=null;
+     for(const update of body.params.updates){const mark=result.object.annotations.find(m=>m.annotation_id===update.annotation_id);assert.ok(mark,'autosave must update an existing stable mark');for(const [field,value]of Object.entries(update)){if(field==='coordinates')mark.anchor.coordinates=copy(value);else if(field!=='annotation_id')mark[field]=copy(value);}}
+     if(result.object.object_id===server.object.object_id)result.object.object_id=(++actionSequence).toString(16).padStart(32,'0');
+     result.state_revision=(server.state_revision??0)+1;result.edit_state=copy(server.edit_state);result.auto_edit_committed=true;server=result;
+    }else if(nextActionResult){server=copy(nextActionResult);nextActionResult=null;}
     if(body.action==='measure'||body.action==='select')server.selection=copy(body.params.selection);
     server.last_operation={action:body.action};
    }
@@ -60,15 +66,16 @@ async function harness(initial=fixture()){
  const renderSource=readFileSync(new URL('../ui/image-panel/viewer-render.mjs',import.meta.url),'utf8').replace(/^export /gm,'');
  const script=renderSource+'\n'+source.replace(/^import .*from '\.\/[^']+\.mjs';\r?\n/gm,'')
   .replace('refresh().then(','globalThis.ready=refresh().then(')
-  +'\nglobalThis.pollUI=pollRevision;globalThis.inspect=()=>({draft,drag,editCoordinates,state,pending,dirty:dirty(),view,draftRevision:historyDraft.revision});';
+  +'\nglobalThis.pollUI=pollRevision;globalThis.inspect=()=>({draft,drag,editCoordinates,state,pending,dirty:dirty(),view,draftRevision:historyDraft.revision,queuedEdits:[...queuedEdits],autoFailed,busy});';
  vm.runInNewContext(script,sandbox,{filename:'ui/image-panel/app.mjs'});await sandbox.ready;
  const flush=()=>{for(const [id,callback] of [...frames]){frames.delete(id);callback();}};
  const event=(type,x=10,y=10,extra={})=>{$('canvas').listeners[type]?.({clientX:x,clientY:y,pointerId:1,button:0,...extra});};
  const click=async id=>{await $(id).onclick();flush();};
  const draw=(kind='line')=>{$('mode').value=kind;event('pointerdown',10,10);event('pointermove',40,35);event('pointerup',40,35);flush();};
  return {$,calls,draftCalls,getCalls,stats,frames,flush,event,click,draw,poll:()=>sandbox.pollUI(),inspect:()=>copy(sandbox.inspect()),contexts:canvasContexts,
-  settle:async()=>{for(let i=0;i<20;i++)await Promise.resolve();},
+  settle:async()=>{for(let i=0;i<80;i++)await Promise.resolve();flush();},
   delayAction(promise){waitAction=promise;},
+  failAction(message='Synthetic save failure; query original request'){actionFailure=message;},
   actionResult(value){nextActionResult=copy(value);},
   setServer(value){server=copy(value);},server:()=>copy(server)};
 }
@@ -102,8 +109,16 @@ test('an older server selection does not replace a newer unsent local selection 
  await h.click('share');assert.deepEqual(h.calls.at(-1).params.selection.coordinates,current);
 });
 
-test('changed object never inherits a local selection from an older revision',async()=>{
- const h=await harness();h.draw();const next=fixture();next.object.object_id='c'.repeat(32);h.setServer(next);
+test('same scientific grid display revision preserves the exact local selection despite its new object ID',async()=>{
+ const initial=fixture();initial.object.scientific_grid_identity={array_sha256:'same-scientific-array',source_rect_xyxy:[20,12,148,108]};
+ const h=await harness(initial);h.draw();const selected=h.inspect().draft;
+ const next=copy(initial);next.object.object_id='c'.repeat(32);next.object.display.gamma=1.7;h.setServer(next);
+ await h.click('reload');assert.deepEqual(h.inspect().draft,selected);
+ await h.click('share');assert.equal(h.calls.at(-1).expected_object_id,next.object.object_id);assert.deepEqual(h.calls.at(-1).params.selection.coordinates,selected.coordinates);assert.equal(h.calls.at(-1).params.selection.source_object_id,sourceId);
+});
+
+test('unrelated scientific image does not inherit a local selection from the older image',async()=>{
+ const h=await harness();h.draw();const next=fixture();next.object.object_id='c'.repeat(32);next.object.panels[0].source_object_id='d'.repeat(32);h.setServer(next);
  await h.click('reload');assert.equal(h.inspect().draft,null);
  await h.click('share');assert.equal(h.calls.length,0);
 });
@@ -157,8 +172,9 @@ async function editHarness(){const h=await harness(annotated());h.$('existing').
 
 test('edit uses pointerup position even with no final pointermove event',async()=>{
  const h=await editHarness();h.event('pointerdown',10,10);h.event('pointermove',12,13);h.event('pointerup',18,19);h.flush();
- await h.click('save-mark');assert.deepEqual(h.calls[0].params.updates[0].coordinates,[38,31,60,52]);
+ await h.settle();assert.equal(h.calls.length,1);assert.equal(h.calls[0].params.auto_commit,true);assert.deepEqual(h.calls[0].params.updates[0].coordinates,[38,31,60,52]);
  assert.equal(h.calls[0].params.updates[0].status,'hypothesized');
+ assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[38,31,60,52]);assert.notEqual(h.inspect().state.object.object_id,viewId);
 });
 
 test('pointercancel and lost capture roll back the current gesture without saving',async()=>{
@@ -168,13 +184,14 @@ test('pointercancel and lost capture roll back the current gesture without savin
  }
 });
 
-test('a second drag starts from the unsaved edited coordinates; cancellation preserves that draft',async()=>{
- const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();
- const first=h.inspect().editCoordinates;
+test('a second drag starts from the queued edit; cancellation preserves it and the latest edit eventually saves',async()=>{
+ const h=await editHarness();let done;h.delayAction(new Promise(resolve=>{done=resolve;}));h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ const first=h.inspect().queuedEdits[0][1].update.coordinates;assert.deepEqual(first,[38,31,60,52]);
  h.event('pointerdown',18,19);h.event('pointermove',21,22);h.event('pointercancel');h.flush();
- assert.deepEqual(h.inspect().editCoordinates,first);
+ assert.equal(h.inspect().editCoordinates,null);assert.deepEqual(h.inspect().queuedEdits[0][1].update.coordinates,first);
  h.event('pointerdown',18,19);h.event('pointerup',22,23);h.flush();
- await h.click('save-mark');assert.deepEqual(h.calls[0].params.updates[0].coordinates,[42,35,60,52]);
+ assert.deepEqual(h.inspect().queuedEdits[0][1].update.coordinates,[42,35,60,52]);done();await h.settle();
+ assert.equal(h.calls.length,2);assert.deepEqual(h.calls.at(-1).params.updates[0].coordinates,[42,35,60,52]);assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[42,35,60,52]);assert.equal(h.inspect().dirty,false);
 });
 
 test('another pointer cannot take over an in-progress gesture',async()=>{
@@ -193,7 +210,7 @@ test('completed gestures publish the exact scientific selection without a model 
 test('default select mode directly finds and drags an anchored mark with no ID entry',async()=>{
  const h=await harness(annotated());h.$('mode').value='select';h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();
  assert.equal(h.$('existing').value,'line-a');assert.equal(h.$('mark-id').value,'line-a');
- await h.click('save-mark');assert.deepEqual(h.calls.at(-1).params.updates[0].coordinates,[38,31,60,52]);
+ await h.settle();assert.deepEqual(h.calls.at(-1).params.updates[0].coordinates,[38,31,60,52]);assert.equal(h.inspect().queuedEdits.length,0);
 });
 
 test('new marks get safe IDs automatically, independent of user text and scientific status',async()=>{
@@ -202,10 +219,12 @@ test('new marks get safe IDs automatically, independent of user text and scienti
  assert.match(h.calls.at(-1).params.annotation_id,/^mark-[a-f0-9]{24}$/);assert.equal(h.calls.at(-1).params.status,'hypothesized');
 });
 
-test('undo and redo restore draft scientific geometry without backend writes',async()=>{
- const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();const moved=h.inspect().editCoordinates;
- await h.click('undo');assert.equal(h.inspect().editCoordinates,null);await h.click('redo');assert.deepEqual(h.inspect().editCoordinates,moved);
- assert.equal(h.calls.length,0);
+test('undo and redo of an autosaved annotation create compensating versions instead of pretending to delete history',async()=>{
+ const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ const moved=copy(h.server().object.annotations[0].anchor.coordinates),firstId=h.server().object.object_id;
+ await h.click('undo');await h.settle();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[30,22,60,52]);assert.notEqual(h.server().object.object_id,firstId);
+ await h.click('redo');await h.settle();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,moved);
+ assert.equal(h.calls.length,3);assert.ok(h.calls.every(c=>c.action==='edit'&&c.params.auto_commit));
 });
 
 test('refresh and read-only measurement never erase unsaved display or mark drafts',async()=>{
@@ -216,16 +235,15 @@ test('refresh and read-only measurement never erase unsaved display or mark draf
 });
 
 test('a late save cannot erase a newer drag and observation remains enabled while waiting',async()=>{
- const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();let done;
- h.delayAction(new Promise(resolve=>{done=resolve;}));const saving=h.click('save-mark');await h.settle();
- h.event('pointerdown',18,19);h.event('pointerup',22,23);h.flush();const newer=h.inspect().editCoordinates;
- assert.deepEqual(newer,[42,35,60,52]);done();await saving;assert.deepEqual(h.inspect().editCoordinates,newer);
- assert.equal(h.inspect().dirty,true);assert.ok(h.inspect().pending);assert.equal(h.$('pending-result').hidden,false);
+ const h=await editHarness();let done;h.delayAction(new Promise(resolve=>{done=resolve;}));h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ assert.equal(h.inspect().busy,true);h.event('pointerdown',18,19);h.event('pointermove',22,23);h.flush();const newer=h.inspect().editCoordinates;
+ assert.deepEqual(newer,[42,35,60,52]);done();await h.settle();assert.deepEqual(h.inspect().editCoordinates,newer);assert.ok(h.inspect().drag);
+ h.event('pointerup',22,23);h.flush();await h.settle();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,newer);assert.equal(h.inspect().dirty,false);
 });
 
 test('saving one mark preserves a separate unsaved display draft',async()=>{
  const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();h.$('gamma').value='1.7';h.$('gamma').oninput();h.flush();
- await h.click('save-mark');assert.equal(h.$('gamma').value,1.7);assert.equal(h.inspect().editCoordinates,null);assert.equal(h.inspect().dirty,true);
+ await h.click('save-mark');await h.settle();assert.equal(Number(h.$('gamma').value),1.7);assert.equal(h.inspect().editCoordinates,null);assert.equal(h.inspect().dirty,true);
 });
 
 test('FFT scientific settings are visible choices and forwarded rather than silently fixed',async()=>{
@@ -257,15 +275,15 @@ test('Agent result notice never overwrites an unsaved local display draft',async
 
 test('reopening a panel with an outstanding dirty lease requires an explicit discard',async()=>{
  const s=fixture();s.edit_state={draft_revision:18,dirty:true,gesture_active:false};const h=await harness(s);assert.equal(h.inspect().dirty,true);
- assert.equal(h.draftCalls.at(-1).params.dirty,true);assert.match(h.$('message').textContent,/无法恢复/);await h.click('discard-local');assert.equal(h.inspect().dirty,false);
+ assert.equal(h.draftCalls.at(-1).params.dirty,true);assert.match(h.$('message').textContent,/先前未保存.*明确撤回/);await h.click('discard-local');assert.equal(h.inspect().dirty,false);
 });
 
-test('drag publishes the exact unsaved annotation edit and undo explicitly clears it',async()=>{
- const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
- const edit=h.draftCalls.at(-1).params.annotation_edit;
- assert.deepEqual(edit,{annotation_id:'line-a',coordinates:[38,31,60,52]});
- assert.equal(h.draftCalls.at(-1).params.dirty,true);
- await h.click('undo');await h.settle();assert.equal(h.draftCalls.at(-1).params.annotation_edit,null);
+test('gesture start publishes a blocking lease while pointer moves stay local and pointerup commits exact coordinates',async()=>{
+ const h=await editHarness();h.event('pointerdown',10,10);h.event('pointermove',18,19);h.flush();await h.settle();
+ assert.deepEqual(h.draftCalls.at(-1).params.annotation_edit,{annotation_id:'line-a',coordinates:[30,22,60,52]});
+ assert.deepEqual(h.inspect().editCoordinates,[38,31,60,52]);
+ assert.equal(h.draftCalls.at(-1).params.gesture_active,true);assert.equal(h.calls.length,0);
+ h.event('pointerup',18,19);h.flush();await h.settle();assert.equal(h.draftCalls.at(-1).params.annotation_edit,null);assert.equal(h.inspect().dirty,false);assert.equal(h.calls.length,1);
 });
 
 test('text/color/status are returned as unsaved edits without committing a scientific object',async()=>{
@@ -273,12 +291,18 @@ test('text/color/status are returned as unsaved edits without committing a scien
  assert.deepEqual(h.draftCalls.at(-1).params.annotation_edit,{annotation_id:'line-a',text:'a revised candidate',color:'orange',status:'retracted'});assert.equal(h.calls.length,0);
 });
 
-test('choosing a different mark cannot silently drop an unsaved edit',async()=>{
+test('choosing another mark queues the prior edit and preserves both edits while a save waits',async()=>{
  const s=annotated();s.object.annotations.push({...copy(s.object.annotations[0]),annotation_id:'line-b',anchor:{...copy(s.object.annotations[0].anchor),coordinates:[90,22,120,52]}});
- const h=await harness(s);h.$('existing').value='line-a';h.$('existing').onchange();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();const edit=h.inspect().editCoordinates;
- h.$('existing').value='line-b';h.$('existing').onchange();assert.equal(h.$('existing').value,'line-a');assert.deepEqual(h.inspect().editCoordinates,edit);assert.match(h.$('message').textContent,/未保存/);
- h.$('mode').value='select';h.event('pointerdown',70,10);h.event('pointerup',80,20);h.flush();assert.equal(h.$('existing').value,'line-a');assert.deepEqual(h.inspect().editCoordinates,edit);assert.equal(h.inspect().drag,null);
- h.$('existing').value='';h.$('existing').onchange();assert.equal(h.$('existing').value,'line-a');assert.deepEqual(h.inspect().editCoordinates,edit);
+ const h=await harness(s);let done;h.delayAction(new Promise(resolve=>{done=resolve;}));h.$('existing').value='line-a';h.$('existing').onchange();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ h.$('existing').value='line-b';h.$('existing').onchange();assert.equal(h.$('existing').value,'line-b');assert.deepEqual(h.inspect().queuedEdits[0][1].update.coordinates,[38,31,60,52]);
+ h.$('mode').value='select';h.event('pointerdown',70,10);h.event('pointerup',80,20);h.flush();assert.equal(h.$('existing').value,'line-b');assert.equal(h.inspect().queuedEdits.length,2);
+ done();await h.settle();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[38,31,60,52]);assert.deepEqual(h.server().object.annotations[1].anchor.coordinates,[100,32,120,52]);assert.equal(h.inspect().dirty,false);
+});
+
+test('failed autosave retains its latest local edit and does not silently replay',async()=>{
+ const h=await editHarness();h.failAction();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ assert.equal(h.inspect().autoFailed,true);assert.equal(h.inspect().dirty,true);assert.deepEqual(h.inspect().queuedEdits[0][1].update.coordinates,[38,31,60,52]);assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[30,22,60,52]);
+ await h.settle();assert.equal(h.calls.length,1);assert.match(h.$('message').textContent,/失败|保留/);
 });
 
 test('saving a mark advances the visible identity even when a separate Agent result remains queued',async()=>{
