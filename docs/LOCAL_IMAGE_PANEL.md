@@ -44,15 +44,26 @@ process interaction.
   Integer processing rectangles snap outward to bin/pixel edges; the exact
   rectangle is displayed **before** submission. Scientific annotations retain
   their continuous original coordinates. There is no hidden clipping.
+- The canvas tools sit beside the image; the inspector starts closed. Select a
+  mark to open its properties, or open settings for display, calibration, FFT
+  options and recovery diagnostics. The source badge uses recorded provenance;
+  synthetic demonstrations are identified explicitly.
 - Click a peak/location, draw a line or short arrow and save; its internal ID
   is generated automatically. In the default selection mode, directly click
-  and drag an existing mark or its small endpoint handles. **保存这条标记** submits one sparse update, retaining every
+  and drag an existing mark or its small endpoint handles. Releasing a drag or
+  changing a field automatically submits a sparse edit, retaining every
   other mark and its anchor. Color and candidate/confirmed/retracted status
   remain separate. Orange is a proposed second-phase display convention only.
   After saving a single new/edited mark, that exact visible mark remains the
   current scientific selection and `last_operation.annotation_ids` identifies
   it. The researcher can say “recalculate” without clicking the peak again.
   Retracted/out-of-view marks and multi-mark edits are not guessed selections.
+  Saving an annotation or revising display preserves the camera when the
+  scientific grid and its view mapping are compatible. Switching source/frame
+  or an incompatible crop fits the new view. Failed saves keep local edits;
+  use the original request recovery before retrying an unknown write.
+  Undoing an automatically saved edit creates a compensating immutable revision;
+  it does not delete history. Unsaved gesture/display undo stays local.
 - A line can be measured; an FFT point is measured relative to mathematical
   DC `[0,0]`, even when DC lies outside a zoom. A period is geometric evidence,
   not a phase identification. Active XY calibration determines whether physical
@@ -87,6 +98,33 @@ Mouse-centred wheel zoom and Space/middle-button drag pan the **display**, leavi
 coordinates unchanged. Imported scalar frequency arrays without a full FFT
 grid retain array-index semantics; the panel does not invent original
 frequency/real-space mapping. A selection must remain in one exact panel.
+
+Pointer moves paint locally on the next animation frame. Draft delivery keeps
+only the newest unsent snapshot and uses small acknowledgements, without
+returning image Base64 on every move. Gesture boundaries retain immediate
+durable protection; intermediate convenience snapshots coalesce. A late Agent
+result stays queued while there is an active gesture or unsaved draft.
+
+## Reproduce the interaction fixture
+
+In an independent analysis Python environment (NumPy, Pillow, tifffile), run:
+
+```powershell
+python examples/panel_workbench_fixture.py --output C:\analysis\panel-demo
+```
+
+The printed manifest supplies the workspace and object for the opening command
+above. This creates a calibrated synthetic periodic texture with 28 marks
+(24 points, two ROIs and two lines), not an experimental TEM image.
+
+The interaction refresh was exercised in the actual local browser with this
+fixture: zoom/pan, automatic point drag save, ROI FFT, peak measurement and
+handoff, display revision, queued Agent preview and export. The FFT peak example
+returned 0.0555556 cycles/pixel and 0.36 nm under the stated synthetic 0.02 nm
+grid. These are fixture geometry, not a material identification. The original
+array and older annotation versions remained intact. Targeted UI, camera,
+draft transport, concurrency and feedback tests were run; no native DM or full
+Windows/Python/C++ qualification is implied.
 
 ## Return the current choice to the Agent
 
