@@ -25,7 +25,8 @@ export function selectionActionReason(action,picked,object={}){
  if(action==='full')return object.panels?.some(p=>p.domain==='frequency')?'':'当前不是可放大的复数 FFT 视图';
  if(!picked||!Array.isArray(coords)||!coords.every(Number.isFinite))return '先在图中选择区域、点或线';
  if(action==='select')return '';
- if(action==='roi'||action==='statistics')return kind==='rectangle'&&['spatial_pixels','source_array_indices','frequency'].includes(domain)?'':'请选择矩形 ROI';
+ if(action==='roi')return kind==='rectangle'&&['spatial_pixels','frequency'].includes(domain)?'':'请选择可查看的实空间或 FFT 矩形 ROI';
+ if(action==='statistics')return kind==='rectangle'&&['spatial_pixels','source_array_indices','frequency'].includes(domain)?'':'请选择矩形 ROI';
  if(action==='fft')return kind==='rectangle'&&domain==='spatial_pixels'?'':'局部 FFT 需要实空间矩形 ROI';
  if(action==='profile')return ['line','arrow'].includes(kind)&&coords.length===4?'':'请画一条线以读取强度剖面';
  if(action==='measure'){

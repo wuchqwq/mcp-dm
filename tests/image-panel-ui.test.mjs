@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import * as coordinates from '../ui/image-panel/coordinates.mjs';
+import * as userWorkflow from '../ui/image-panel/user-workflow.mjs';
 import * as viewerState from '../ui/image-panel/viewer-state.mjs';
 import * as viewerRender from '../ui/image-panel/viewer-render.mjs';
 import * as annotationPresentation from '../ui/image-panel/annotation-presentation.mjs';
@@ -44,7 +45,7 @@ async function harness(initial=fixture()){
  const elements=new Map();const $=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
  $('zoom').value='1';$('mode').value='line';$('status').value='hypothesized';$('fft-window').value='hann';$('fft-mean').checked=true;
  const math=Object.create(Math);math.pow=(a,b)=>{stats.pow++;return Math.pow(a,b);};
- const sandbox={...coordinates,...viewerState,...viewerRender,...annotationPresentation,...figureExport,requiresMeasurementJump,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
+ const sandbox={...userWorkflow,...coordinates,...viewerState,...viewerRender,...annotationPresentation,...figureExport,requiresMeasurementJump,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
   MeasurementWorkspace:class extends ProviderMeasurementWorkspace{constructor(options){super({...options,document:sandbox.document});}},
   DataProbes:class extends ProviderDataProbes{constructor(options){super({...options,document:sandbox.document,setTimer:(fn,delay)=>{const id=++probeTimerId;probeTimers.set(id,{fn,delay});return id;},clearTimer:id=>probeTimers.delete(id)});}},
   document:{getElementById:$,createElement:tag=>new Element(tag),querySelectorAll:()=>[],addEventListener(){}},
@@ -522,4 +523,39 @@ test('historical moved or missing marks expose the same explicit jump requested 
   assert.equal(h.$('measurement-jump').hidden,!requiresMeasurementJump(initial.measurement_entries[0]));assert.equal(h.calls.length,0);
  }
  assert.equal(requiresMeasurementJump(null),false);
+});
+
+
+// Human workflow regressions: actual app handlers with this file's existing DOM/API shim.
+function humanPointFixture(){const s=fixture();s.object.annotations=[{annotation_id:'human-A',kind:'point',text:'A',color:'cyan',status:'hypothesized',anchor:{source_object_id:sourceId,coordinate_space:'source_pixels',coordinates:[60,50]}}];return s;}
+test('human workflow: choosing a mark never leaves a sticky edit mode; blank drag cannot move it',async()=>{
+ const h=await harness(humanPointFixture());h.$('mode').value='select';h.event('pointerdown',40,38);h.event('pointerup',40,38);await h.finish();
+ assert.equal(h.$('mode').value,'select');const before=copy(h.server().object.annotations[0].anchor);
+ h.event('pointerdown',90,70);h.event('pointermove',105,85);h.event('pointerup',105,85);await h.finish();
+ assert.equal(h.inspect().draft.kind,'rectangle');assert.deepEqual(h.server().object.annotations[0].anchor,before);assert.equal(h.calls.filter(c=>c.action==='edit').length,0);
+ h.event('pointerdown',100,75);h.event('pointerup',100,75);await h.finish();assert.equal(h.inspect().draft,null);
+});
+test('human workflow: undo newer Gamma before older science geometry; redo follows the same chronological order',async()=>{
+ const h=await harness(humanPointFixture());h.$('mode').value='select';h.event('pointerdown',40,38);h.event('pointerup',50,38);await h.finish();
+ const moved=copy(h.server().object.annotations[0].anchor.coordinates);assert.deepEqual(moved,[70,50]);
+ h.$('gamma').value='2';h.$('gamma').oninput();await h.click('undo');await h.finish();
+ assert.equal(Number(h.$('gamma').value),1);assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,moved);
+ await h.click('undo');await h.finish();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[60,50]);
+ await h.click('redo');await h.finish();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,moved);
+ await h.click('redo');assert.equal(Number(h.$('gamma').value),2);
+});
+test('human workflow: a newer marker move is undone before an earlier unsaved Gamma change',async()=>{
+ const h=await harness(humanPointFixture());h.$('gamma').value='2';h.$('gamma').oninput();h.$('mode').value='select';h.event('pointerdown',40,38);h.event('pointerup',50,38);await h.finish();
+ await h.click('undo');await h.finish();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[60,50]);assert.equal(Number(h.$('gamma').value),2);
+ await h.click('undo');assert.equal(Number(h.$('gamma').value),1);
+});
+test('human workflow: a rectangle measurement is refused before creating a scientific mark',async()=>{
+ const h=await harness();h.draw('rectangle');await h.click('measure');assert.equal(h.calls.length,0);assert.equal(h.server().object.annotations.length,0);assert.match(h.$('message').textContent,/线段|ROI/);
+});
+test('human workflow: saved-view back opens the stored object and never resubmits FFT',async()=>{
+ const first=fixture(),h=await harness(first);h.draw('rectangle');const fft=copy(first);fft.object.object_id='c'.repeat(32);fft.object.kind='fft';fft.object.panels=[{domain:'frequency',source_object_id:'d'.repeat(32),fft_shape_yx:[96,128],image_rect_xyxy:[0,0,128,96]}];h.actionResult(fft);await h.click('fft');
+ assert.equal(h.$('view-back').disabled,false);h.actionResult(first);await h.click('view-back');assert.equal(h.calls.at(-1).action,'show');assert.equal(h.calls.at(-1).params.object_id,viewId);assert.equal(h.calls.filter(c=>c.action==='fft').length,1);assert.equal(h.inspect().state.object.object_id,viewId);
+});
+test('human workflow: result tabs expose one result type without changing the scientific object',async()=>{
+ const h=await harness();await h.click('results-tab-profile');assert.equal(h.$('results-profile').hidden,false);assert.equal(h.$('results-measurements').hidden,true);assert.equal(h.$('numeric-data').open,true);await h.click('results-tab-measurements');assert.equal(h.$('numeric-data').open,false);assert.equal(h.calls.length,0);
 });
