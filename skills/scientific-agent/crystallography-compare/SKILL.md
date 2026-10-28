@@ -32,6 +32,13 @@ prospective observation target. See [Hypothesis Explorer](../../../docs/HYPOTHES
 for the executed synthetic example and configuration. This is a CLI recipe,
 not a newly advertised MCP tool or global orientation search. Keep all points
 used to select candidates/roll/HKL labeled search evidence, not held-out validation.
+When the researcher corrects a single-domain explanation with "there is twinning",
+save only that scoped presence statement via `image_context` metadata.research_observation
+(or read its saved reference from `image_panel_current`). Do not confirm a twin
+law or HKL on their behalf. The optional [FCC twin feedback recipe](../../../docs/TWIN_FEEDBACK_LOOP.md)
+retains the initial comparison, tests constrained Sigma3 alternatives and returns
+A/B/shared/unexplained marks to the same Panel. Use `synthetic_fixture` for demo
+input, never impersonate human confirmation; remeasure after peak/scale changes.
 The Agent may propose unconfirmed structures, orientations and reflection
 correspondences and test explicit geometric comparisons. Keep those proposals
 as hypotheses: do not assert `user_confirmed` merely to enter a registration

@@ -1188,11 +1188,21 @@ class Workspace:
             previous, _ = self.object(request.get("object_id"))
             base, _, inherited = self.resolved(previous["object_id"])
             provided = request.get("metadata")
-            allowed = {"reconstruction_type", "data_meaning", "frame_meaning", "xy_scale", "source_text", "value_unit", "frame_scale"}
+            allowed = {"reconstruction_type", "data_meaning", "frame_meaning", "xy_scale", "source_text", "value_unit", "frame_scale", "research_observation"}
             need(type(provided) is dict and set(provided) <= allowed, "Only explicit versioned user-context fields are allowed")
             combined = dict(inherited or {})
             for key, value in provided.items():
-                if key == "frame_scale" and value is not None:
+                if key == "research_observation":
+                    need(type(value) is dict and set(value) == {"kind", "source_text", "authority"} and
+                         value["kind"] == "twinning_present" and value["authority"] in ("user_confirmed", "synthetic_fixture") and
+                         type(value["source_text"]) is str and bool(value["source_text"].strip()) and len(value["source_text"]) <= 1000,
+                         "A scoped twinning observation needs its actual statement and researcher/synthetic authority; it cannot confirm a twin law or HKL")
+                    metadata["research_observation_scope"] = {
+                        "confirmation_scope": "twinning_present_only",
+                        "scientific_grid_identity": self.measurement_grid_identity(previous["object_id"]),
+                        "source_object_id": previous["object_id"],
+                        "authority_semantics": "caller-reported statement, not independently authenticated or scientific proof"}
+                elif key == "frame_scale" and value is not None:
                     need(type(value) is dict and set(value) <= {"origin", "step", "unit", "source"} and
                          all(value.get(field) is None or number(value[field]) for field in ("origin", "step")) and
                          all(value.get(field) is None or type(value[field]) is str and len(value[field]) <= 2048 for field in ("unit", "source")),
