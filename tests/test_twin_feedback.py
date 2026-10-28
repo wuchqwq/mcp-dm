@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 HAS_TOOLS = all(importlib.util.find_spec(name) is not None for name in ("numpy", "scipy", "ase", "tifffile"))
 if HAS_TOOLS:
@@ -17,7 +18,87 @@ if HAS_TOOLS:
     from tools.image_workspace import Workspace, execute as image_execute
     from tools.hypothesis_explorer import save_json
     from tools.twin_feedback import (classify_joint, digest, measurements, primitive,
-                                     require_conventional_fcc, revise, annotate, RecipeCalls)
+                                     prepare_initial, require_conventional_fcc, revise, annotate, RecipeCalls)
+
+
+@unittest.skipUnless(HAS_TOOLS, "Optional independent image/structure environment is required")
+class InitialSelectionTests(unittest.TestCase):
+    """Selection contract with stubbed saved comparisons, not a simulator test."""
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.output = self.root / "initial"
+        self.report_path = self.root / "report.json"
+        self.bcc_path = self.root / "bcc-comparison" / "object.json"
+        self.fcc_path = self.root / "fcc-comparison" / "object.json"
+        self.other_fcc_path = self.root / "fcc-other-zone" / "object.json"
+        self.rows = [{"label": "rank-1 BCC", "comparison_path": str(self.bcc_path), "status": "hypothesized"},
+                     {"label": "FCC", "comparison_path": str(self.fcc_path), "zone_axis_uvw": [1, -1, 0], "status": "hypothesized"},
+                     {"label": "FCC", "comparison_path": str(self.other_fcc_path), "zone_axis_uvw": [0, -1, 1], "status": "hypothesized"}]
+        save_json(self.root / "input.json", {"current_image_object_id": "current", "measurement_paths": []})
+        save_json(self.report_path, {"input_sha256": digest(self.root / "input.json"), "rows": self.rows})
+        self.fcc = {"cell_angstrom": np.eye(3).tolist(), "positions_angstrom": [[0, 0, 0], [0, .5, .5], [.5, 0, .5], [.5, .5, 0]],
+                    "symbols": ["Cu"]*4, "pbc": [True]*3}
+        for name, atoms in (("fcc", self.fcc), ("bcc", {**self.fcc, "positions_angstrom": [[0, 0, 0], [.5, .5, .5]], "symbols": ["Fe"]*2})):
+            directory = self.root / name
+            directory.mkdir()
+            save_json(directory / "atoms.json", atoms)
+        self.loader = patch("tools.twin_feedback.saved_structure", side_effect=self.saved_comparison).start()
+        self.addCleanup(patch.stopall)
+        patch("tools.twin_feedback.measurements", return_value=([], {"grid": "unchanged"}, self.root / "images")).start()
+        self.annotation = patch("tools.twin_feedback.annotate", return_value={"object_id": "display", "manifest_path": "display.json"}).start()
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def saved_comparison(self, path):
+        name = "bcc" if Path(path) == self.bcc_path else "fcc"
+        workspace = Mock()
+        workspace.object.side_effect = [({"structure_object_id": name}, self.root), ({}, self.root / name)]
+        return {"kind": "compare", "simulation_object_id": "simulation", "observations": [], "matched": []}, workspace
+
+    def test_missing_selection_never_uses_rank_one_or_writes_output(self):
+        with self.assertRaisesRegex(ValueError, "Explicitly select"):
+            prepare_initial(self.report_path, self.output)
+        self.loader.assert_not_called()
+        self.annotation.assert_not_called()
+        self.assertFalse(self.output.exists())
+
+    def test_explicit_lower_rank_fcc_beats_no_default_and_preserves_all_alternatives(self):
+        before = self.report_path.read_bytes()
+        stage = prepare_initial(self.report_path, self.output, comparison_path=self.fcc_path)
+        self.loader.assert_called_once_with(self.fcc_path)
+        self.assertEqual(stage["row"], self.rows[1])
+        self.assertEqual(stage["comparison_path"], str(self.fcc_path))
+        self.assertEqual(stage["initial_report_sha256"], digest(self.report_path))
+        self.assertEqual(stage["initial_report_path"], str(self.report_path))
+        self.assertIn("remain hypothesized", stage["selection_basis"])
+        self.assertEqual(self.report_path.read_bytes(), before)
+        self.assertEqual(json.loads(self.report_path.read_text(encoding="utf-8"))["rows"], self.rows)
+
+    def test_comparison_path_distinguishes_two_fcc_orientation_alternatives(self):
+        stage = prepare_initial(self.report_path, self.output, comparison_path=self.other_fcc_path)
+        self.assertEqual(stage["row"]["zone_axis_uvw"], [0, -1, 1])
+        self.assertEqual(stage["row"]["status"], "hypothesized")
+
+    def test_explicit_bcc_is_still_refused_before_any_recipe_output(self):
+        with self.assertRaisesRegex(ValueError, "four-atom FCC"):
+            prepare_initial(self.report_path, self.output, comparison_path=self.bcc_path)
+        self.annotation.assert_not_called()
+        self.assertFalse(self.output.exists())
+
+    def test_unknown_and_ambiguous_report_comparisons_are_refused(self):
+        with self.assertRaisesRegex(ValueError, "absent or ambiguous"):
+            prepare_initial(self.report_path, self.output, comparison_path=self.root / "unknown.json")
+        ambiguous = self.root / "ambiguous"
+        ambiguous.mkdir()
+        save_json(ambiguous / "input.json", json.loads((self.root / "input.json").read_text(encoding="utf-8")))
+        save_json(ambiguous / "report.json", {"input_sha256": digest(ambiguous / "input.json"), "rows": [self.rows[1], self.rows[1]]})
+        with self.assertRaisesRegex(ValueError, "absent or ambiguous"):
+            prepare_initial(ambiguous / "report.json", self.output, comparison_path=self.fcc_path)
+        self.loader.assert_not_called()
+        self.annotation.assert_not_called()
+        self.assertFalse(self.output.exists())
 
 
 @unittest.skipUnless(HAS_TOOLS, "Optional independent image/structure environment is required")

@@ -172,20 +172,30 @@ def annotate(calls, current_id, records, classes):
     return calls.call("image", "annotate", object_id=preview["object_id"], annotations=marks)
 
 
-def prepare_initial(report_path, output):
+def prepare_initial(report_path, output, comparison_path=None):
+    require(comparison_path is not None, "Explicitly select an existing report comparison with --comparison; ranking is not researcher selection")
+    selected_path = Path(comparison_path)
+    require(selected_path.is_absolute(), "Use an absolute saved comparison manifest path")
+    selected_path = selected_path.resolve()
     report_path = Path(report_path).resolve()
     report, config = read_json(report_path), read_json(report_path.parent / "input.json")
     require(digest(report_path.parent / "input.json") == report["input_sha256"], "Initial configuration changed")
-    best = report["rows"][0]
-    comparison, _ = saved_structure(best["comparison_path"])
+    selected = [row for row in report["rows"] if Path(row["comparison_path"]).resolve() == selected_path]
+    require(len(selected) == 1, "Select exactly one existing report comparison; absent or ambiguous selections are refused")
+    row = selected[0]
+    comparison, workspace = saved_structure(selected_path)
     require(comparison["kind"] == "compare", "Initial result must be a committed comparison")
+    simulation, _ = workspace.object(comparison["simulation_object_id"])
+    _, directory = workspace.object(simulation["structure_object_id"])
+    require_conventional_fcc(read_json(directory / "atoms.json"))
     records, binding, image_workspace = measurements(config, config["current_image_object_id"])
     require([r["object_id"] for r in records] == [r["measurement_object_id"] for r in comparison["observations"]], "Initial measurements differ")
     matched = {m["measurement_index"] for m in comparison["matched"]}
     calls = RecipeCalls(output, image_workspace)
     display = annotate(calls, config["current_image_object_id"], records, ["A" if i in matched else "unexplained" for i in range(len(records))])
     stage = {"stage": "single_domain_before_feedback", "initial_report_path": str(report_path), "initial_report_sha256": digest(report_path),
-             "comparison_path": best["comparison_path"], "row": best, "image_workspace": str(image_workspace),
+             "comparison_path": str(selected_path), "row": row, "image_workspace": str(image_workspace),
+             "selection_basis": "Explicit existing report comparison; phase, twin law and HKL remain hypothesized.",
              "display_object_id": display["object_id"], "display_manifest_path": display["manifest_path"],
              "analysis_binding": binding, "matched_count": len(matched), "unexplained_count": len(records)-len(matched),
              "source_measurement_hashes": {path: digest(path) for path in config["measurement_paths"]}}
@@ -289,6 +299,7 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     initial = commands.add_parser("initial")
     initial.add_argument("--report", required=True)
+    initial.add_argument("--comparison", required=True, help="Absolute comparison manifest path from one existing report row; no rank-based default")
     initial.add_argument("--output", required=True)
     revised = commands.add_parser("revise")
     revised.add_argument("--initial", required=True)
@@ -297,7 +308,7 @@ def main():
     args = parser.parse_args()
     require(Path(args.output).is_absolute(), "Use a new absolute output directory")
     if args.command == "initial":
-        stage = prepare_initial(args.report, args.output)
+        stage = prepare_initial(args.report, args.output, comparison_path=args.comparison)
         result = {"initial_path": str(Path(args.output).resolve() / "initial.json"), "display_object_id": stage["display_object_id"],
                   "matched_count": stage["matched_count"], "unexplained_count": stage["unexplained_count"]}
     else:
