@@ -3,11 +3,36 @@ import {layoutAnnotations,renderAnnotationsSVG} from './annotation-presentation.
 import {equalRecords} from './viewer-state.mjs';
 const enc=new TextEncoder(),copy=value=>JSON.parse(JSON.stringify(value));
 export function recipeIdentity(state){const calibration=state.object.xy_calibration??state.object.calibration_record??state.object.calibration??null;return {panels:copy(state.object.panels??[]),frame:state.frame_identity??null,anchors:(state.object.annotations??[]).map(m=>({annotation_id:m.annotation_id,kind:m.kind,anchor:m.anchor??null,status:m.status})),grid:state.object.scientific_grid_identity??null,calibration:calibration?Object.fromEntries(['calibration_id','revision','status','coordinate_domain','xy_scale','scale','unit','dc_index_xy'].filter(k=>calibration[k]!==undefined).map(k=>[k,copy(calibration[k])])):null};}
+// Only authoritative display controls are replayed; renderer provenance is
+// retained in display_recipe but is never sent back as processing parameters.
+export function figureDisplayParameters(display,panels){
+ const bad=()=>{throw new Error('图面配方缺少完整、有效的显示参数；请从原图版本重新导出');};
+ if(!display||typeof display!=='object'||Array.isArray(display)||!Array.isArray(panels)||!panels.length)bad();
+ const {gamma,display_range:range,max_size:maximum,upscale,interpolation}=display;
+ if(!Number.isFinite(gamma)||gamma<.05||gamma>20||!Array.isArray(range)||range.length!==2||!range.every(Number.isFinite)||range[0]>range[1]||!Number.isSafeInteger(maximum)||maximum<32||maximum>1024||typeof upscale!=='boolean'||!['nearest','lanczos'].includes(interpolation))bad();
+ const params={gamma,display_range:copy(range),max_size:maximum,upscale,interpolation},spectral=panels.every(p=>p.domain==='frequency');
+ if(panels.some(p=>p.domain==='frequency')&&!spectral)bad();
+ if(spectral){
+  if(!['log_amplitude','amplitude','power'].includes(display.representation)||display.scale_bar!==undefined||display.spectrum_axes!==undefined&&typeof display.spectrum_axes!=='boolean'||display.spectrum_axes===true&&maximum<256||display.display_preset!=null&&(display.display_preset!=='fft_detail'||display.display_preset_revision!==2))bad();
+  const full=[0,0,panels[0].fft_shape_yx?.[1],panels[0].fft_shape_yx?.[0]],rect=display.frequency_rect===null?full:display.frequency_rect??panels[0].fft_rect_xyxy??full,shape=panels[0].fft_shape_yx;
+  if(panels.length!==1||!Array.isArray(shape)||shape.length!==2||!shape.every(v=>Number.isSafeInteger(v)&&v>0)||!Array.isArray(rect)||rect.length!==4||!rect.every(v=>Number.isSafeInteger(v)&&v>=0)||rect[0]>=rect[2]||rect[1]>=rect[3]||rect[2]>shape[1]||rect[3]>shape[0])bad();
+  const filter=display.spectrum_filter??null;
+  if(filter!==null&&(typeof filter!=='object'||Array.isArray(filter)||Object.keys(filter).some(k=>!['smooth_sigma_bins','background_sigma_bins'].includes(k))||!Number.isFinite(filter.smooth_sigma_bins)||filter.smooth_sigma_bins<0||filter.smooth_sigma_bins>4||!Number.isFinite(filter.background_sigma_bins)||filter.background_sigma_bins<1||filter.background_sigma_bins>64||filter.background_sigma_bins<=filter.smooth_sigma_bins))bad();
+  Object.assign(params,{representation:display.representation,spectrum_axes:display.spectrum_axes??false,spectrum_filter:copy(filter),frequency_rect:copy(rect)});
+ }else{
+  if(!panels.every(p=>['spatial_pixels','source_array_indices'].includes(p.domain))||typeof display.scale_bar!=='boolean'||['representation','spectrum_filter','spectrum_axes','frequency_rect'].some(k=>display[k]!==undefined))bad();
+  params.scale_bar=display.scale_bar;
+ }
+ return params;
+}
 export function makeFigureRecipe(state,preferences){return {schema:'mcp-dm-figure-v1',source_object_id:state.object.object_id,source:recipeIdentity(state),display_recipe:copy(state.effective_display??state.object.display??{}),preferences:copy(preferences),annotations:(state.object.annotations??[]).filter(m=>m.annotation_id).map(m=>({annotation_id:m.annotation_id,presentation:copy(m.presentation??{})})),limitation:'Display recipe only. Enlarged PNG adds no measured resolution. Scientific arrays, anchors and confirmation states are unchanged.'};}
 export function readFigureRecipe(value,state){
  if(!value||value.schema!=='mcp-dm-figure-v1'||!equalRecords(value.source,recipeIdentity(state)))throw new Error('图面配方的科学锚点、标定或网格与当前图不一致；请先打开原图版本');
+ if(!/^[a-f0-9]{32}$/.test(value.source_object_id??''))throw new Error('图面配方缺少原始显示版本');
+ figureDisplayParameters(value.display_recipe,value.source.panels);
  if(!Array.isArray(value.annotations)||value.annotations.length>128||!value.preferences||!['real-space','diffraction','multi-domain'].includes(value.preferences.preset)||!['analysis','figure'].includes(value.preferences.mode))throw new Error('无效的图面配方');
  const known=new Set((state.object.annotations??[]).map(m=>m.annotation_id)),seen=new Set();
+ if(value.annotations.length!==known.size)throw new Error('无效的图面配方：缺少完整或含重复的标签样式引用');
  return value.annotations.map(m=>{if(!known.has(m.annotation_id)||seen.has(m.annotation_id)||!m.presentation||typeof m.presentation!=='object'||Array.isArray(m.presentation))throw new Error('无效或重复的标签引用');seen.add(m.annotation_id);return {annotation_id:m.annotation_id,presentation:copy(m.presentation)};});
 }
 export function figureScaleBar(record){if(!record?.visible||!Array.isArray(record.image_endpoints_xyxy)||!Number.isFinite(record.length)||record.length<=0||typeof record.unit!=='string')return null;const [x,y,x1]=record.image_endpoints_xyxy;if(![x,y,x1].every(Number.isFinite))return null;return {x,y,length:x1-x,label:`${record.length} ${record.unit}`,color:'#fff'};}

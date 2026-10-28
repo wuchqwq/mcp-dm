@@ -4,7 +4,9 @@ import {createHash} from 'node:crypto';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createImagePanel} from '../tools/image_panel.mjs';
+import {spawnSync} from 'node:child_process';
+import {createImagePanel,StdioImageClient} from '../tools/image_panel.mjs';
+import {makeFigureRecipe,figureDisplayParameters,recipeIdentity} from '../ui/image-panel/figure-export.mjs';
 
 const A='a'.repeat(32),B='b'.repeat(32),C='c'.repeat(32),D='d'.repeat(32),F='f'.repeat(32);
 const clone=value=>structuredClone(value);
@@ -25,10 +27,10 @@ async function fixture(run,{calibrated=false,spectral=false,changedGrid=false,lo
  const workspace=mkdtempSync(path.join(tmpdir(),'dm-presentation-transport-')),calls=[];
  const panelGrid=spectral?{domain:'frequency',source_object_id:F,fft_shape_yx:[32,32],image_rect_xyxy:[0,0,32,32]}:grid;
  const initialMark=spectral?{...clone(mark),anchor:{coordinate_space:'frequency_cycles_per_pixel',source_object_id:F,coordinates:[.125,.125]}}:clone(mark);
- const base={kind:'view',parent_object_id:F,panels:[panelGrid],scientific_grid_identity:scientificGrid,shape_yx:[32,32],display:{gamma:1},annotations:[initialMark],
+ const base={kind:'view',parent_object_id:F,panels:[panelGrid],scientific_grid_identity:scientificGrid,shape_yx:[32,32],display:{gamma:1,display_range:[0,255],max_size:32,upscale:false,interpolation:'lanczos',...(spectral?{representation:'log_amplitude',frequency_rect:[0,0,32,32],spectrum_axes:false,spectrum_filter:null}:{scale_bar:false})},annotations:[initialMark],
   ...(calibrated?{xy_calibration:{status:'active',coordinate_domain:'real_space'}}:{})};
- const records=new Map([[A,{...clone(base),object_id:A}],[F,{kind:'frame',object_id:F,frame_index:0}]]);
- let panel,failed=false;
+ const records=new Map([[A,{...clone(base),object_id:A}],[F,{kind:'frame',object_id:F,frame_index:0,source_object_id:'e'.repeat(32)}]]);
+ let panel,failed=false,previewSequence=0;
  const client={async rpc(method){return {result:method==='tools/list'?{tools:['image_info','image_preview','image_result','image_annotate'].map(name=>({name,inputSchema:{}}))}:{}};},
   async tool(name,args){
    calls.push({name,args:clone(args)});
@@ -47,8 +49,9 @@ async function fixture(run,{calibrated=false,spectral=false,changedGrid=false,lo
     records.set(D,data);return {data:clone(data),png:cleanBytes.toString('base64')};
    }
    assert.equal(name,'image_preview');
-   const scaled=args.scale_bar===true,id=scaled?C:B;
-   const data={...clone(base),object_id:id,parent_object_id:args.object_id,request_id:args.request_id,annotations:[],scale_bar:scaled?scaleBar:{visible:false}};
+   const scaled=args.scale_bar===true,id=scaled?C:(++previewSequence===1?B:previewSequence.toString(16).padStart(32,'0'));
+   const parent=records.get(args.object_id),controls=Object.fromEntries(Object.entries(args).filter(([key])=>!['request_id','object_id'].includes(key)));
+   const data={...clone(base),object_id:id,parent_object_id:args.object_id,request_id:args.request_id,display:{...clone(parent.display),...controls},annotations:args.gamma!==undefined?clone(parent.annotations):[],scale_bar:scaled?scaleBar:{visible:false}};
    if(reorderedKeys)data.panels=reversedKeys(data.panels);
    if(changedGrid&&!scaled)data.panels=[{...panelGrid,image_rect_xyxy:[0,0,31,32]}];
    if(!scaled){
@@ -154,4 +157,80 @@ test('lost figure replies query the original render without resubmission or acci
   assert.equal(result.data.figure_base,undefined);assert.equal(result.data.figure_base_recovery.state,'scale_render_saved_clean_render_not_submitted');
   assert.equal(calls.filter(value=>value.name==='image_preview').length,1);assert.equal(panel.state().object.object_id,A);
  },{calibrated:true,lostReply:'scale'});
+});
+
+const figurePreferences={preset:'real-space',mode:'figure',columns:'single',fontPt:8,layers:{experimental:true,simulation_A:false,simulation_B:false},legend:false,scaleBar:false,letter:'a'};
+
+test('figure display restore replays explicit gamma/range and rejects missing or unbound recipes before writing',async()=>fixture(async({panel,act,calls})=>{
+ const before=clone(panel.state()),recipe=makeFigureRecipe(before,figurePreferences);
+ assert.equal((await act('preview',{gamma:2,display_range:[20,200]})).status,200);
+ assert.equal(panel.state().effective_display.gamma,2);
+ const restored=await act('restore-figure-display',{recipe});assert.equal(restored.status,200,JSON.stringify(restored.data));
+ assert.equal(restored.data.effective_display.gamma,1);assert.deepEqual(restored.data.effective_display.display_range,[0,255]);
+ assert.deepEqual(restored.data.object.annotations,before.object.annotations);assert.deepEqual(recipeIdentity(restored.data),recipe.source);
+ const sent=calls.filter(v=>v.name==='image_preview').at(-1).args;
+ for(const [key,value]of Object.entries(figureDisplayParameters(recipe.display_recipe,recipe.source.panels)))assert.deepEqual(sent[key],value);
+ const count=calls.filter(v=>v.name==='image_preview').length;
+ for(const mutate of [r=>delete r.display_recipe,r=>delete r.display_recipe.gamma,r=>{r.display_recipe.gamma=3;},r=>{r.source.panels[0].source_object_id=C;},r=>{r.source.calibration={calibration_id:C};},r=>{r.source.grid.array_sha256='2'.repeat(64);},r=>{r.source.anchors[0].status='hypothesized';}]){
+  const bad=clone(recipe);mutate(bad);const result=await act('restore-figure-display',{recipe:bad});assert.ok([400,409].includes(result.status),JSON.stringify(result));
+ }
+ assert.equal(calls.filter(v=>v.name==='image_preview').length,count);assert.ok(calls.every(v=>v.name!=='image_fft'));
+}));
+
+test('uncertain figure display restoration queries the exact original saved render without re-execution',async()=>fixture(async({panel,act,calls})=>{
+ const recipe=makeFigureRecipe(panel.state(),figurePreferences),before=clone(panel.state().object);
+ const failed=await act('restore-figure-display',{recipe});assert.equal(failed.status,400);assert.match(failed.data.error,/Original request_id=/);
+ const original=panel.state().last_operation.request_id;assert.deepEqual(panel.state().object,before);
+ const recovered=await act('recover');assert.equal(recovered.status,200,JSON.stringify(recovered.data));
+ assert.equal(recovered.data.effective_display.gamma,1);assert.deepEqual(recovered.data.object.annotations,before.annotations);
+ assert.equal(calls.filter(v=>v.name==='image_preview').length,1);assert.equal(calls.filter(v=>v.name==='image_result').at(-1).args.request_id,original);
+ assert.equal(JSON.parse(readFileSync(path.join(panel.journal,`${original}.request.json`),'utf8')).name,'image_preview');
+},{lostReply:'clean'}));
+
+test('explicit recovery retains the original journaled request identity after later operations',async()=>fixture(async({panel,act,calls})=>{
+ assert.equal((await act('preview',{gamma:2})).status,200);const original=panel.state().object.request_id;
+ assert.equal((await act('preview',{gamma:3})).status,200);assert.notEqual(panel.state().last_operation.request_id,original);
+ const previews=calls.filter(v=>v.name==='image_preview').length,recovered=await act('recover',{request_id:original});assert.equal(recovered.status,200);
+ assert.equal(calls.filter(v=>v.name==='image_result').at(-1).args.request_id,original);assert.equal(recovered.data.object.request_id,original);assert.equal(recovered.data.effective_display.gamma,2);assert.equal(calls.filter(v=>v.name==='image_preview').length,previews);
+ const queries=calls.filter(v=>v.name==='image_result').length;
+ assert.equal((await act('recover',{request_id:'../foreign'})).status,400);assert.equal((await act('recover',{request_id:'not-journaled'})).status,404);assert.equal((await act('recover',{request_id:null})).status,400);assert.equal(calls.filter(v=>v.name==='image_result').length,queries);
+}));
+
+// Opt in explicitly for bounded backend acceptance; ordinary lightweight CI
+// keeps the controlled transport contracts and needs no analysis environment.
+test('real MCP restores gamma, range and exact clean PNG pixels over spatial and saved FFT arrays',{skip:process.env.DM_PANEL_REAL_RECIPE_TEST!=='1'},async()=>{
+ const python=process.env.DM_IMAGE_PYTHON??process.env.DM_TEST_PYTHON??'python',dir=mkdtempSync(path.join(tmpdir(),'dm-figure-display-mcp-')),source=path.join(dir,'synthetic.tiff');let setup,panel;
+ try{
+  const fixture=spawnSync(python,['-c',"import numpy as np,tifffile,sys; y,x=np.indices((32,48)); tifffile.imwrite(sys.argv[1],((x*197+y*357)%4096).astype(np.uint16),photometric='minisblack',metadata=None); print(sys.executable)",source],{encoding:'utf8'});assert.equal(fixture.status,0,fixture.stderr);const executable=fixture.stdout.trim(),sourceBytes=readFileSync(source);
+  const pixelDigest=base64=>{const r=spawnSync(executable,['-c',"from PIL import Image; import io,hashlib,sys; im=Image.open(io.BytesIO(sys.stdin.buffer.read())).convert('RGBA'); print(str(im.size)+hashlib.sha256(im.tobytes()).hexdigest())"],{input:Buffer.from(base64,'base64'),encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
+  for(const spectral of [false,true]){
+   const workspace=path.join(dir,spectral?'frequency':'spatial');setup=new StdioImageClient({workspace,python:executable});await setup.rpc('initialize',{});let sequence=0;
+   const tool=async(name,args)=>(await setup.tool(name,{...args,request_id:`display-fixture-${++sequence}`})).data;
+   const opened=await tool('image_open',{source_path:source}),frame=await tool('image_frame',{object_id:opened.object_id,frame_index:0}),calibrated=await tool('image_calibrate',{object_id:frame.object_id,scope:'image',xy_scale:{x:.02,y:.02,unit:'nm'},source_text:'Synthetic display-restore calibration; not experimental metrology'});
+   let scientific=calibrated;
+   if(spectral)scientific=await tool('image_fft',{object_id:calibrated.object_id,rect:[0,0,48,32],window:'none',subtract_mean:false});
+   const view=await tool('image_preview',{object_id:scientific.object_id,gamma:1,display_range:spectral?[0,18]:[0,4095],max_size:96,upscale:true,interpolation:'nearest',...(spectral?{representation:'log_amplitude',spectrum_axes:false,spectrum_filter:null,frequency_rect:[4,2,44,30]}:{scale_bar:false})}),space=spectral?'frequency_cycles_per_pixel':'source_pixels',points=spectral?[[0,0],[.125,.125]]:[[3,4],[13,4]],measurement=await tool('image_measure',{object_id:view.object_id,points,coordinate_space:space});
+   const annotated=await tool('image_annotate',{object_id:view.object_id,annotations:[{annotation_id:'measured',kind:'line',coordinates:points.flat(),coordinate_space:space,source_object_id:view.panels[0].source_object_id,text:'saved numeric label',status:'user_confirmed',presentation:{marker_shape:'circle',label:{offset:[8,-8],text:spectral?'d = measured':'d = 0.2 nm',measurement_object_id:measurement.object_id,measurement_kind:spectral?'period':'distance'}}}]});
+   await setup.close();setup=null;
+   const worker=new StdioImageClient({workspace,python:executable}),calls=[];let loseRestoreReply=false,failed=false;
+   const audited={rpc:(...args)=>worker.rpc(...args),async tool(name,args){calls.push({name,args:clone(args)});const result=await worker.tool(name,args);if(loseRestoreReply&&name==='image_preview'&&!failed){failed=true;throw new Error('Controlled lost real MCP display response');}return result;},close:()=>worker.close()};
+   panel=await createImagePanel({workspace,python:executable,object_id:annotated.object_id,client:audited});const origin=panel.url.split('/#')[0];
+   const act=async(action,params={},expected=200)=>{const r=await fetch(origin+'/api/action',{method:'POST',headers:{'X-Panel-Token':panel.token,Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({expected_object_id:panel.state().object.object_id,draft_revision:panel.state().edit_state.draft_revision,action,params})}),data=await r.json();assert.equal(r.status,expected,JSON.stringify(data));return data;};
+   const initial=clone(panel.state()),recipe=makeFigureRecipe(initial,{...figurePreferences,preset:spectral?'diffraction':'real-space'}),originalArray=readFileSync(path.join(workspace,'objects',view.object_id,'data.npy')),clean=await act('figure-base'),cleanPixels=pixelDigest(clean.figure_base.clean_png_base64);
+   await act('preview',{gamma:2});assert.equal(panel.state().effective_display.gamma,2);assert.notEqual(pixelDigest(panel.state().png_base64),pixelDigest(initial.png_base64));
+   await act('restore-figure-display',{recipe});assert.equal(panel.state().effective_display.gamma,1);assert.equal(pixelDigest(panel.state().png_base64),pixelDigest(initial.png_base64));
+   await act('preview',{display_range:spectral?[2,15]:[500,3500]});assert.notDeepEqual(panel.state().effective_display.display_range,recipe.display_recipe.display_range);
+   await act('edit-layout',{updates:[{annotation_id:'measured',presentation:{marker_shape:'diamond',label:{offset:[20,6]}}}],auto_commit:true});
+   const count=calls.filter(v=>v.name==='image_preview').length;loseRestoreReply=true;
+   const uncertain=await act('restore-figure-display',{recipe},400);assert.match(uncertain.error,/Original request_id=/);const originalRequest=panel.state().last_operation.request_id;
+   await act('recover');assert.equal(calls.filter(v=>v.name==='image_preview').length,count+1);assert.equal(calls.filter(v=>v.name==='image_result').at(-1).args.request_id,originalRequest);
+   assert.deepEqual(figureDisplayParameters(panel.state().effective_display,panel.state().object.panels),figureDisplayParameters(recipe.display_recipe,recipe.source.panels));
+   await act('edit-layout',{updates:recipe.annotations.map(v=>({...v,presentation_replace:true})),auto_commit:true});
+   const final=panel.state(),finalClean=await act('figure-base');assert.deepEqual(recipeIdentity(final),recipe.source);assert.deepEqual(final.object.annotations[0].presentation,initial.object.annotations[0].presentation);assert.equal(final.object.annotations[0].presentation.label.measurement_object_id,measurement.object_id);
+   assert.equal(pixelDigest(finalClean.figure_base.clean_png_base64),cleanPixels);assert.equal(pixelDigest(final.png_base64),pixelDigest(initial.png_base64));
+   assert.deepEqual(readFileSync(path.join(workspace,'objects',final.render_base_id,'data.npy')),originalArray);assert.deepEqual(readFileSync(source),sourceBytes);assert.ok(calls.every(v=>v.name!=='image_fft'));if(spectral)assert.equal(final.object.fft_recomputed??false,false);
+   const replayed=makeFigureRecipe(final,recipe.preferences);assert.deepEqual(replayed.source,recipe.source);assert.deepEqual(figureDisplayParameters(replayed.display_recipe,replayed.source.panels),figureDisplayParameters(recipe.display_recipe,recipe.source.panels));
+   await panel.close();panel=null;
+  }
+ }finally{await panel?.close();await setup?.close();rmSync(dir,{recursive:true,force:true});}
 });

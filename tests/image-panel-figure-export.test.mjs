@@ -1,10 +1,10 @@
 // Artifact and replay contracts only; browser PNG rendering is checked separately.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildFigureBundle,figureDimensions,figureScaleBar,figureZip,makeFigureRecipe,readFigureRecipe} from '../ui/image-panel/figure-export.mjs';
+import {buildFigureBundle,figureDimensions,figureScaleBar,figureZip,makeFigureRecipe,readFigureRecipe,figureDisplayParameters} from '../ui/image-panel/figure-export.mjs';
 
 const copy=value=>JSON.parse(JSON.stringify(value));
-function state(){return {object:{object_id:'a'.repeat(32),panels:[{domain:'spatial_pixels',source_object_id:'b'.repeat(32),source_rect_xyxy:[16,8,528,392],image_rect_xyxy:[0,0,512,384]}],xy_calibration:{calibration_id:'c'.repeat(32),revision:1,status:'active',xy_scale:{x:.02,y:.02,unit:'nm'}},annotations:[{annotation_id:'peak-1',kind:'point',anchor:{source_object_id:'b'.repeat(32),coordinate_space:'source_pixels',coordinates:[80,60]},status:'user_confirmed',text:'g1',presentation:{marker_shape:'circle',label:{offset:[12,-24],text:'(1 -1 1)',pinned:true}}}]},frame_identity:{frame_index:0,frame_object_id:'d'.repeat(32)}};}
+function state(){return {effective_display:{gamma:1,display_range:[0,65535],max_size:512,upscale:false,interpolation:'lanczos',scale_bar:false},object:{object_id:'a'.repeat(32),panels:[{domain:'spatial_pixels',source_object_id:'b'.repeat(32),source_rect_xyxy:[16,8,528,392],image_rect_xyxy:[0,0,512,384]}],xy_calibration:{calibration_id:'c'.repeat(32),revision:1,status:'active',xy_scale:{x:.02,y:.02,unit:'nm'}},annotations:[{annotation_id:'peak-1',kind:'point',anchor:{source_object_id:'b'.repeat(32),coordinate_space:'source_pixels',coordinates:[80,60]},status:'user_confirmed',text:'g1',presentation:{marker_shape:'circle',label:{offset:[12,-24],text:'(1 -1 1)',pinned:true}}}]},frame_identity:{frame_index:0,frame_object_id:'d'.repeat(32)}};}
 const preferences={preset:'diffraction',mode:'figure',columns:'single',fontPt:8,layers:{experimental:true,simulation_A:false,simulation_B:false},legend:false,scaleBar:false,letter:'a'};
 
 test('figure recipe roundtrip changes only presentation and never its scientific source',()=>{
@@ -32,6 +32,17 @@ test('recipe rejects unknown and duplicate stable references before queuing an e
  const current=state(),recipe=makeFigureRecipe(current,preferences);
  recipe.annotations.push(copy(recipe.annotations[0]));assert.throws(()=>readFigureRecipe(recipe,current),/重复|无效/);
  recipe.annotations=[{annotation_id:'foreign',presentation:{}}];assert.throws(()=>readFigureRecipe(recipe,current),/引用|无效/);
+});
+
+test('recipe requires complete explicit display controls and validates spectral treatment',()=>{
+ const current=state(),recipe=makeFigureRecipe(current,preferences);
+ for(const key of ['display_recipe','source_object_id']){const bad=copy(recipe);delete bad[key];assert.throws(()=>readFigureRecipe(bad,current),/显示/);}
+ for(const [key,value]of [['gamma',NaN],['display_range',[5,1]],['max_size',2048],['upscale','yes'],['interpolation','cubic'],['scale_bar',null]]){const bad=copy(recipe);bad.display_recipe[key]=value;assert.throws(()=>readFigureRecipe(bad,current),/显示/);}
+ for(const key of ['gamma','display_range','max_size','upscale','interpolation','scale_bar']){const bad=copy(recipe);delete bad.display_recipe[key];assert.throws(()=>readFigureRecipe(bad,current),/显示/);}
+ const panel={domain:'frequency',fft_shape_yx:[64,96],fft_rect_xyxy:[8,4,64,48]},display={...current.effective_display,representation:'log_amplitude',spectrum_axes:false,spectrum_filter:null,frequency_rect:[8,4,64,48]};delete display.scale_bar;
+ assert.deepEqual(figureDisplayParameters(display,[panel]),display);
+ for(const patch of [{representation:'phase'},{frequency_rect:[0,0,97,64]},{spectrum_axes:'yes'},{spectrum_filter:{smooth_sigma_bins:2,background_sigma_bins:1}},{display_preset:'fft_detail',display_preset_revision:99}])assert.throws(()=>figureDisplayParameters({...display,...patch},[panel]),/显示/);
+ assert.throws(()=>figureDisplayParameters({...display,representation:undefined},[panel]),/显示/);
 });
 
 test('physical scale bar is absent without an actual visible sourced bar record',()=>{

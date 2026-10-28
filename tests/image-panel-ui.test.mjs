@@ -19,7 +19,7 @@ const panel={domain:'spatial_pixels',source_object_id:sourceId,source_rect_xyxy:
 function fixture(){return {object:{object_id:viewId,kind:'view',panels:[copy(panel)],annotations:[],display:{gamma:1,display_range:[0,255]}},tools:[],png_base64:'synthetic',clean_png_base64:'synthetic-clean',render_base_id:viewId,selection:null,last_operation:null};}
 function pixelBytes(w,h){return Uint8ClampedArray.from({length:w*h*4},(_,i)=>i%4===3?255:(i*17+31)%256);}
 async function harness(initial=fixture()){
- const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null,actionSequence=0,actionFailure=null,waitMeasurement=null,measurementResponse=null;
+ const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null,actionSequence=0,actionFailure=null,waitMeasurement=null,measurementResponse=null,recoveryResponse=null;
  const canvasContexts=[];
  class Context{
   constructor(canvas){this.canvas=canvas;this.lastPixels=null;canvasContexts.push(this);}
@@ -60,7 +60,8 @@ async function harness(initial=fixture()){
      result.state_revision=(server.state_revision??0)+1;result.edit_state=copy(server.edit_state);result.auto_edit_committed=true;server=result;
     }else if(nextActionResult){server=copy(nextActionResult);nextActionResult=null;}
     if(body.action==='measure'||body.action==='select')server.selection=copy(body.params.selection);
-    server.last_operation={...(body.action==='measure'&&measurementResponse?copy(measurementResponse):{}),action:body.action};
+    const measured=body.action==='measure'&&measurementResponse?(typeof measurementResponse==='function'?measurementResponse(body):copy(measurementResponse)):{};
+    server.last_operation=body.action==='recover'&&recoveryResponse?copy(recoveryResponse):{...(body.action==='measure'?{kind:'measure',coordinate_space:body.params.selection.coordinate_space,points:[body.params.selection.coordinates.slice(0,2),body.params.selection.coordinates.slice(2)]}:{}),...measured,action:body.action};
    }
    return {ok:true,json:async()=>copy(server)};
   }
@@ -68,18 +69,19 @@ async function harness(initial=fixture()){
  const renderSource=readFileSync(new URL('../ui/image-panel/viewer-render.mjs',import.meta.url),'utf8').replace(/^export /gm,'');
  const script=renderSource+'\n'+source.replace(/^import .*from '\.\/[^']+\.mjs';\r?\n/gm,'')
   .replace('refresh().then(','globalThis.ready=refresh().then(')
-  +'\nglobalThis.pollUI=pollRevision;globalThis.inspect=()=>({draft,drag,editCoordinates,state,pending,dirty:dirty(),view,draftRevision:historyDraft.revision,queuedEdits:[...queuedEdits],autoFailed,busy});';
+  +'\nglobalThis.pollUI=pollRevision;globalThis.finishSaves=async()=>{do{if(autoSaving)await autoSaving;await Promise.resolve();}while(autoSaving);};globalThis.inspect=()=>({draft,drag,editCoordinates,state,pending,dirty:dirty(),view,draftRevision:historyDraft.revision,queuedEdits:[...queuedEdits],autoFailed,busy});';
  vm.runInNewContext(script,sandbox,{filename:'ui/image-panel/app.mjs'});await sandbox.ready;
  const flush=()=>{for(const [id,callback] of [...frames]){frames.delete(id);callback();}};
  const event=(type,x=10,y=10,extra={})=>{$('canvas').listeners[type]?.({clientX:x,clientY:y,pointerId:1,button:0,...extra});};
  const click=async id=>{await $(id).onclick();flush();};
  const draw=(kind='line')=>{$('mode').value=kind;event('pointerdown',10,10);event('pointermove',40,35);event('pointerup',40,35);flush();};
  return {$,calls,draftCalls,getCalls,stats,frames,flush,event,click,draw,poll:()=>sandbox.pollUI(),inspect:()=>copy(sandbox.inspect()),contexts:canvasContexts,
-  settle:async()=>{for(let i=0;i<80;i++)await Promise.resolve();flush();},
+  settle:async()=>{for(let i=0;i<80;i++)await Promise.resolve();flush();},finish:async()=>{await sandbox.finishSaves();flush();},
   delayAction(promise){waitAction=promise;},
   failAction(message='Synthetic save failure; query original request'){actionFailure=message;},
   actionResult(value){nextActionResult=copy(value);},
-  measureResponse(value){measurementResponse=copy(value);},delayMeasurement(promise){waitMeasurement=promise;},
+  measureResponse(value){measurementResponse=typeof value==='function'?value:copy(value);},delayMeasurement(promise){waitMeasurement=promise;},
+  recoverResponse(value){recoveryResponse=copy(value);},
   setServer(value){server=copy(value);},server:()=>copy(server)};
 }
 
@@ -365,4 +367,83 @@ test('figure mode locks scientific geometry and new selections while leaving the
  assert.equal(h.inspect().drag,null);assert.equal(h.inspect().editCoordinates,null);assert.equal(h.calls.length,0);assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[30,22,60,52]);
  h.$('mode').value='rectangle';h.event('pointerdown',80,60);h.event('pointermove',110,80);h.event('pointerup',110,80);h.flush();await h.settle();
  assert.equal(h.inspect().draft,null);assert.equal(h.inspect().dirty,false);assert.equal(h.calls.length,0);assert.doesNotMatch(h.$('annotation-layer').innerHTML,/data-part="handles"/);
+});
+
+function twoMeasuredLines(){const f=fixture();f.object.annotations=[['A',[25,30,75,30],'1'],['B',[21,70,146,70],'2.5']].map(([annotation_id,coordinates,value])=>({annotation_id,kind:'line',text:`d = ${value} nm`,color:'white',status:'user_confirmed',anchor:{source_object_id:sourceId,coordinate_space:'source_pixels',coordinates},presentation:{label:{text:`d = ${value} nm`,offset:[8,20],visible:true,measurement_object_id:annotation_id.toLowerCase().repeat(32),measurement_kind:'distance'}}}));return f;}
+function selectLine(h,id){h.$('existing').value=id;h.$('existing').onchange();}
+function measuredFromSelection(body){const c=body.params.selection.coordinates;return {object_id:(c[1]===30?'c':'d').repeat(32),physical_distance:Math.hypot(c[2]-c[0],c[3]-c[1])*.02,physical_unit:'nm'};}
+test('P0: saving A then selecting B remeasures saved A, never the global B selection',async()=>{
+ const f=twoMeasuredLines(),h=await harness(f),originalB=copy(f.object.annotations[1]);let release;h.delayAction(new Promise(r=>{release=r;}));h.measureResponse(measuredFromSelection);
+ selectLine(h,'A');h.event('pointerdown',55,18);h.event('pointerup',65,18);h.flush();await h.settle();assert.equal(h.calls[0].action,'edit');
+ selectLine(h,'B');h.event('pointerdown',126,58);h.event('pointerup',126,58);h.flush();assert.deepEqual(h.inspect().draft.coordinates,originalB.anchor.coordinates);
+ release();await h.settle();const saved=h.server().object.annotations;
+ assert.deepEqual(h.calls.find(c=>c.action==='measure').params.selection.coordinates,[25,30,85,30]);
+ assert.equal(saved[0].presentation.label.text,'d = 1.2 nm');assert.deepEqual(saved[1],originalB);assert.deepEqual(h.inspect().draft.coordinates,originalB.anchor.coordinates);
+});
+
+test('P0: a delayed measurement cannot write an older A revision after A moves again',async()=>{
+ const h=await harness(twoMeasuredLines());let release;h.delayMeasurement(new Promise(r=>{release=r;}));h.measureResponse(measuredFromSelection);
+ selectLine(h,'A');h.event('pointerdown',55,18);h.event('pointerup',65,18);h.flush();await h.settle();assert.equal(h.calls.filter(c=>c.action==='measure').length,1);
+ h.event('pointerdown',65,18);h.event('pointerup',75,18);h.flush();await h.settle();assert.equal(h.server().object.annotations[0].presentation.label.visible,false);
+ release();await h.finish();const mark=h.server().object.annotations[0];assert.equal(h.inspect().autoFailed,false,JSON.stringify({calls:h.calls,ui:h.inspect(),message:h.$('message').textContent}));assert.equal(h.inspect().busy,false,JSON.stringify({calls:h.calls,queue:h.inspect().queuedEdits,message:h.$('message').textContent}));assert.deepEqual(mark.anchor.coordinates,[25,30,95,30]);assert.equal(mark.presentation.label.text,'d = 1.4 nm');assert.equal(mark.status,'user_confirmed');
+ assert.deepEqual(h.calls.filter(c=>c.action==='measure').map(c=>c.params.selection.coordinates),[[25,30,85,30],[25,30,95,30]]);
+ assert.ok(!h.calls.some(c=>c.action==='edit'&&c.params.updates.some(u=>u.text==='d = 1.2 nm')),'stale numeric result must never be persisted');
+});
+
+test('P0: consecutive A/B edits each remeasure their own saved anchor; label drag keeps that measurement ID',async()=>{
+ const h=await harness(twoMeasuredLines());let release;h.delayMeasurement(new Promise(r=>{release=r;}));h.measureResponse(measuredFromSelection);
+ selectLine(h,'A');h.event('pointerdown',55,18);h.event('pointerup',65,18);h.flush();await h.settle();
+ selectLine(h,'B');h.event('pointerdown',1,58);h.event('pointerup',11,58);h.flush();release();await h.finish();
+ const [a,b]=h.server().object.annotations;assert.equal(a.presentation.label.text,'d = 1.2 nm');assert.equal(b.presentation.label.text,'d = 2.3 nm');assert.deepEqual(b.anchor.coordinates,[31,70,146,70]);
+ assert.deepEqual(h.calls.filter(c=>c.action==='measure').map(c=>c.params.selection.coordinates),[[25,30,85,30],[31,70,146,70]]);
+ const count=h.calls.filter(c=>c.action==='measure').length,id=a.presentation.label.measurement_object_id,anchor=copy(a.anchor);
+ h.$('mode').value='select';h.event('pointerdown',20,45);h.event('pointerup',30,49);h.flush();await h.finish();
+ const again=h.server().object.annotations[0];assert.deepEqual(again.anchor,anchor);assert.equal(again.presentation.label.measurement_object_id,id);assert.equal(h.calls.filter(c=>c.action==='measure').length,count);
+});
+
+test('P0: unknown measurement response retains drafts and only queries its original request on recovery',async()=>{
+ const h=await harness(twoMeasuredLines());let release;h.delayMeasurement(new Promise(r=>{release=r;}));h.measureResponse(measuredFromSelection);
+ selectLine(h,'A');h.event('pointerdown',55,18);h.event('pointerup',65,18);h.flush();await h.settle();
+ selectLine(h,'B');h.event('pointerdown',1,58);h.event('pointerup',11,58);h.flush();h.failAction('Synthetic response lost. Original request_id=measure-original-42; query it');release();await h.settle();
+ assert.equal(h.inspect().autoFailed,true);assert.equal(h.inspect().dirty,true);assert.equal(h.server().object.annotations[0].presentation.label.visible,false);const requests=h.calls.length;
+ await h.settle();assert.equal(h.calls.length,requests,'unknown measurement is never automatically replayed');
+ h.recoverResponse({kind:'measure',request_id:'measure-original-42',object_id:'e'.repeat(32),coordinate_space:'source_pixels',points:[[25,30],[85,30]],physical_distance:1.2,physical_unit:'nm'});
+ await h.click('recover');await h.finish();assert.equal(h.calls.find(c=>c.action==='recover').params.request_id,'measure-original-42');assert.equal(h.inspect().autoFailed,false);
+ assert.equal(h.server().object.annotations[0].presentation.label.text,'d = 1.2 nm');assert.equal(h.server().object.annotations[1].presentation.label.text,'d = 2.3 nm');assert.equal(h.calls.filter(c=>c.action==='measure'&&c.params.selection.coordinates[1]===30).length,1);
+});
+
+function figureImportFixture(){
+ const saved=annotated();saved.object.display={gamma:1,display_range:[0,255],max_size:128,upscale:false,interpolation:'nearest',scale_bar:false};
+ saved.object.annotations[0].status='user_confirmed';saved.object.annotations[0].presentation={marker_shape:'circle',label:{offset:[8,-8],text:'saved label',measurement_object_id:'e'.repeat(32),measurement_kind:'distance'}};
+ const recipe=figureExport.makeFigureRecipe(saved,{preset:'real-space',mode:'figure',columns:'single',fontPt:8,layers:{experimental:true,simulation_A:false,simulation_B:false},legend:false,scaleBar:false,letter:'a'}),current=copy(saved);
+ current.object.display.gamma=2;current.object.display.display_range=[20,220];current.object.annotations[0].presentation={marker_shape:'diamond',label:{offset:[28,18],text:'later label'}};
+ const restored=copy(current);restored.object.object_id='c'.repeat(32);restored.object.display=copy(saved.object.display);restored.render_base_id=restored.object.object_id;
+ return {saved,current,restored,recipe};
+}
+
+test('P0: paste and file imports await restored display before saving exact presentation replacements',async()=>{
+ for(const route of ['paste','file']){
+  const {saved,current,restored,recipe}=figureImportFixture(),h=await harness(current);let release;h.delayAction(new Promise(resolve=>{release=resolve;}));h.actionResult(restored);
+  const text=JSON.stringify(recipe);let imported;
+  if(route==='paste'){h.$('recipe-text').value=text;imported=h.click('load-recipe-text');}
+  else{h.$('import-figure').files=[{size:text.length,text:async()=>text}];imported=h.$('import-figure').onchange();}
+  await h.settle();assert.equal(h.calls.length,1);assert.equal(h.calls[0].action,'restore-figure-display');assert.deepEqual(h.calls[0].params.recipe,recipe);assert.equal(h.inspect().queuedEdits.length,0);assert.deepEqual(h.server().object.annotations[0].presentation,current.object.annotations[0].presentation);
+  release();await imported;await h.finish();
+  const edit=h.calls.find(c=>c.action==='edit');assert.ok(edit,'presentation saves only after display adoption');assert.equal(edit.expected_object_id,restored.object.object_id);assert.equal(edit.params.updates[0].presentation_replace,true);assert.deepEqual(edit.params.updates[0].presentation,saved.object.annotations[0].presentation);
+  assert.equal(h.inspect().state.object.display.gamma,1);assert.deepEqual(h.inspect().state.object.display.display_range,[0,255]);assert.deepEqual(h.server().object.annotations[0].anchor,saved.object.annotations[0].anchor);assert.equal(h.server().object.annotations[0].status,'user_confirmed');assert.equal(h.server().object.annotations[0].presentation.label.measurement_object_id,'e'.repeat(32));assert.equal(h.$('figure-mode').textContent,'出图模式');assert.match(h.$('figure-export-status').textContent,/已恢复底图显示/);
+ }
+});
+
+test('P0: a local display draft arriving during figure restoration remains intact and blocks label replay',async()=>{
+ const {current,restored,recipe}=figureImportFixture(),h=await harness(current);let release;h.delayAction(new Promise(resolve=>{release=resolve;}));h.actionResult(restored);h.$('recipe-text').value=JSON.stringify(recipe);
+ const imported=h.click('load-recipe-text');await h.settle();assert.equal(h.calls[0].action,'restore-figure-display');
+ h.$('gamma').value='.7';h.$('gamma').oninput();h.flush();const revision=h.inspect().draftRevision;
+ release();await imported;await h.finish();
+ assert.equal(h.calls.length,1);assert.equal(h.inspect().state.object.object_id,current.object.object_id);assert.equal(h.inspect().pending.object.object_id,restored.object.object_id);assert.equal(h.inspect().draftRevision,revision);assert.equal(Number(h.$('gamma').value),.7);assert.equal(h.inspect().dirty,true);assert.equal(h.inspect().queuedEdits.length,0);assert.deepEqual(h.inspect().state.object.annotations[0].presentation,current.object.annotations[0].presentation);assert.equal(h.$('figure-mode').textContent,'分析模式');assert.match(h.$('figure-export-status').textContent,/尚未安全接续/);
+});
+
+test('P0: a provider pending display result cannot apply imported labels or figure preferences',async()=>{
+ const {current,restored,recipe}=figureImportFixture(),h=await harness(current),queued=copy(current);queued.pending_result={object_id:restored.object.object_id,request_id:'display-restore-original',reason:'unsaved_draft'};h.actionResult(queued);h.$('recipe-text').value=JSON.stringify(recipe);
+ await h.click('load-recipe-text');await h.finish();
+ assert.equal(h.calls.length,1);assert.equal(h.calls[0].action,'restore-figure-display');assert.equal(h.inspect().state.object.object_id,current.object.object_id);assert.equal(h.inspect().state.pending_result.request_id,'display-restore-original');assert.equal(h.$('pending-result').hidden,false);assert.equal(h.inspect().queuedEdits.length,0);assert.equal(Number(h.$('gamma').value),2);assert.deepEqual(h.inspect().state.object.annotations[0].presentation,current.object.annotations[0].presentation);assert.equal(h.$('figure-mode').textContent,'分析模式');assert.match(h.$('figure-export-status').textContent,/尚未安全接续/);
 });

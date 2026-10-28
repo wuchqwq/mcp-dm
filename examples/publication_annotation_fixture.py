@@ -209,7 +209,15 @@ def build_twin_revision(output):
     from tools.twin_feedback import prepare_initial, revise
     config_path = build_fixture(output / "twin-input")
     run(json.loads(config_path.read_text(encoding="utf-8")), output / "twin-search")
-    initial = prepare_initial(output / "twin-search" / "report.json", output / "twin-initial")
+    report_path = output / "twin-search" / "report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    # The fixture declares its synthetic FCC candidate explicitly; ranking is
+    # not researcher selection and does not broaden the bounded twin model.
+    chosen = [row for row in report["rows"]
+              if row["label"] == "Cu FCC" and row["zone_axis_uvw"] == [1, -1, 0]]
+    if len(chosen) != 1:
+        raise ValueError("Synthetic twin fixture requires its explicit Cu FCC [1,-1,0] candidate")
+    initial = prepare_initial(report_path, output / "twin-initial", chosen[0]["comparison_path"])
     (output / "twin-observation").mkdir()
     calls = Calls(output / "twin-observation", initial["image_workspace"])
     observation = calls("context", object_id=initial["display_object_id"], metadata={
