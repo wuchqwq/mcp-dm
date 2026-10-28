@@ -90,6 +90,15 @@ frequency/real-space mapping. A selection must remain in one exact panel.
 
 ## Return the current choice to the Agent
 
+The bounded [twin-feedback loop](TWIN_FEEDBACK_LOOP.md) also accepts a scoped
+research observation through this same panel. The researcher can state that
+twinning is present; the saved `image_context` reference is returned as
+`view.research_observation` by `image_panel_current`. The statement confirms
+presence only, never a twin law, orientation or HKL. Synthetic demonstrations
+are explicitly labeled nonhuman input. Submitting it preserves the current
+image, selected peak and unsaved drafts; subsequent results use the ordinary
+`image_panel_show` queue. No automatic model wake is added.
+
 A completed gesture publishes its exact source/frequency coordinates without
 running scientific computation. Say “look here” or “continue”; the Agent calls
 `image_panel_current` and chooses the next ordinary `image_*` tool. There is
