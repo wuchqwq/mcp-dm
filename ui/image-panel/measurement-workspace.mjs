@@ -79,8 +79,16 @@ export class MeasurementWorkspace {
  }
  async run(callback){try{return await callback();}catch(error){this.onError(error);}}
  selected(){return this.entries.find(entry=>asRecord(entry).object_id===this.selectedId)??null;}
- exportSelection({selectedOnly=false}={}){const checked=this.entries.filter(entry=>this.checked.has(asRecord(entry).object_id));return checked.length?checked:selectedOnly&&this.selected()?[this.selected()]:this.visible();}
- visible(){const history=this.el('measurement-history')?.checked??false;let rows=this.entries.filter(e=>history||!['historical','history'].includes(e.status));const sort=this.el('measurement-sort')?.value??'record';if(sort==='name')rows=rows.toSorted?rows.toSorted((a,b)=>measurementName(a).localeCompare(measurementName(b))):[...rows].sort((a,b)=>measurementName(a).localeCompare(measurementName(b)));if(sort==='value')rows=[...rows].sort((a,b)=>(measurementValues(a)[0]?.value??Infinity)-(measurementValues(b)[0]?.value??Infinity));return rows;}
+ displayEntry(entry){
+  const state=this.getState();if(this.current?.object_id!==state?.object?.object_id||!['current','active'].includes(entry.status)||entry.same_grid!==true||entry.annotation_matches_current!==true)return entry;
+  const mark=state.object.annotations?.find(value=>value.annotation_id===entry.annotation_id);
+  // A current automatic label can be saved after the immutable measurement.
+  // Project its exact bound mark name only; numerical columns stay in the
+  // original result and historical names are never rewritten.
+  return typeof mark?.text==='string'&&mark.text.trim()?{...entry,name:mark.text}:entry;
+ }
+ exportSelection({selectedOnly=false}={}){const checked=this.entries.filter(entry=>this.checked.has(asRecord(entry).object_id));return (checked.length?checked:selectedOnly&&this.selected()?[this.selected()]:this.visible()).map(entry=>this.displayEntry(entry));}
+ visible(){const history=this.el('measurement-history')?.checked??false;let rows=this.entries.filter(e=>history||!['historical','history'].includes(e.status)).map(entry=>this.displayEntry(entry));const sort=this.el('measurement-sort')?.value??'record';if(sort==='name')rows=rows.toSorted?rows.toSorted((a,b)=>measurementName(a).localeCompare(measurementName(b))):[...rows].sort((a,b)=>measurementName(a).localeCompare(measurementName(b)));if(sort==='value')rows=[...rows].sort((a,b)=>(measurementValues(a)[0]?.value??Infinity)-(measurementValues(b)[0]?.value??Infinity));return rows;}
  hasAnnotation(id){return Boolean(this.latestForAnnotation(id));}
  latestForAnnotation(id){const entries=this.entries.filter(e=>e.annotation_id===id);return entries.find(e=>['current','active','stale','needs_remeasure','needs_remeasurement'].includes(e.status))??entries.at(-1)??null;}
  selectAnnotation(id){const entry=this.latestForAnnotation(id);if(!entry)return false;this.select(asRecord(entry).object_id,{notify:false});this.el('measurement-rows')?.querySelector(`[data-measurement-id="${asRecord(entry).object_id}"]`)?.scrollIntoView?.({block:'nearest'});return true;}

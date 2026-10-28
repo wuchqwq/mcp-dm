@@ -68,3 +68,14 @@ node --test --test-concurrency=2 tests/user-workflow.test.mjs tests/image-panel-
 允许修复验收揭示的直接问题，不扩展新算法/第二仓库/原生 ABI。保留每项 PASS/FAIL/NOT_TESTED，提交实际截图与 CSV 样例（公共合成数据，不带 token 或私有路径）。
 
 **合并未授权。** 验收后更新这个 Draft PR；未来依赖顺序 #48 → #49 → 本修复 PR。不要把 #46 一起合并，不关闭 #43。
+
+## Codex 实机浏览器收尾
+
+已完成 Computer Use 驱动的真实 Chrome → Panel → stdio MCP → Python 合成验收；
+九项门槛、实际截图、下载的剖面/测量 CSV 和复现入口见
+[浏览器验收样例](examples/gui-human-workflow/README.md)。未涉及 DM、Mac 或实验数据。
+
+验收发现并小修：直接重开 ROI/FFT 时准确区分已保存原图和新全帧显示；
+剖面失效时同时清除旧物理读数、键盘回调和导出按钮；自动数值标签更新后，
+当前结果表与 GUI CSV 仅在严格保存对象/标记绑定下采用当前名称，历史记录不变；
+图外手势提供中文提示。没有改变科学算法、容差、默认后端、原生 ABI 或 CI 工作流。

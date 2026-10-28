@@ -50,6 +50,7 @@ function diagnostics(){
   const button=$(id);if(!button)continue;if(id==='roi-statistics')button.hidden=draft?.kind!=='rectangle';if(id==='line-profile')button.hidden=!['line','arrow'].includes(draft?.kind);const reason=selectionActionReason(action,draft,state?.object??{});button.disabled=Boolean(reason)||busy||Boolean(drag);button.title=reason||({roi:'查看选定区域',fft:'计算当前实空间 ROI 的 FFT',measure:'保存测量结果',select:'可选：把当前选择交给 Agent',full:'仅恢复完整频谱，不返回原图',statistics:'读取保存科学数组的 ROI 统计',profile:'读取当前线的原数组剖面'})[action];
  }
  for(const [id,target]of [['view-back',savedViews.target(-1)],['view-forward',savedViews.target(1)],['view-original',savedViews.original(state)]])if($(id))$(id).disabled=!target||busy||Boolean(drag)||target.id===state?.object?.object_id;
+ const sourceTarget=savedViews.original(state);$('view-original').textContent=sourceTarget?.freshSourceView?'全帧（新显示）':'原图';$('view-original').title=sourceTarget?.freshSourceView?'没有已保存的原图显示配方；使用当前标定新建全帧预览，不重算 FFT':'打开本帧已保存的原图视图';
  if($('view-current'))$('view-current').textContent=savedViews.entries[savedViews.index]?.role??'当前视图';
 }
 function setResultsTab(tab,{expand=true}={}){
@@ -82,7 +83,7 @@ function applyUserHistory(direction){
 }
 async function navigateSavedView(target){
  if(!target)return;if(dirty()||busy||drag){message('先保存或撤销草稿，再切换保存视图。',true);return;}
- await act('show',{object_id:target.id});
+ await act('show',{object_id:target.id,...(target.freshSourceView?{source_view:true}:{})});
 }
 async function api(url,body){const response=await fetch(url,{method:body?'POST':'GET',headers:{'X-Panel-Token':token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const result=await response.json();if(!response.ok)throw new Error(result.error??'本地服务失败');return result;}
 function selection(){if(!draft)throw new Error('先在图中选择位置或区域');const {rendered,...s}=draft;return s;}
@@ -174,9 +175,9 @@ async function act(action,params={}){
   if(r.pending_result&&r.object.object_id===state.object.object_id){state={...state,pending_result:r.pending_result,state_revision:r.state_revision};showPending();message('计算完成；新结果等待查看，期间的新草稿保持原样。');return r;}
   if(historyDraft.revision!==sentRevision||drag){pending=r;showPending();message('保存完成；较新的草稿保持原样，结果等待接续。');return r;}
   if(r.object.object_id===state.object.object_id&&['select','measure','export','statistics','profile'].includes(action)){state={...state,last_operation:r.last_operation,selection:r.selection,state_revision:r.state_revision};renderMeasurement();if(['statistics','profile'].includes(action))dataProbes.renderResult(r.last_operation);}
-  else await load(r,{keepDisplay:keepDisplay?local.display:null,keepMark:keepMark?local:null,role:action==='roi'?'ROI':action==='fft'?'FFT':action==='frame'?'原图':null});
+  else await load(r,{keepDisplay:keepDisplay?local.display:null,keepMark:keepMark?local:null,role:action==='roi'?'ROI':action==='fft'?'FFT':action==='frame'?'原图':action==='show'&&params.source_view?'全帧（新显示）':null});
   if(['measure','statistics','profile'].includes(action))setResultsTab(action==='measure'?'measurements':action);
-  message(action==='export'?`科学数据已保存到 ${r.last_operation?.output_dir??'工作区 exports 目录'}（不是浏览器图片下载）`:({select:'选择已交接；可继续使用当前选区。',measure:'测量完成；当前选区已保留。',show:'已打开保存视图；未重算 FFT。'})[action]??'已保存新版本；原像素与旧版本保留。');return r;
+  message(action==='show'&&params.source_view?'已按当前标定新建全帧显示；未恢复未知的旧显示配方，未重算 FFT。':action==='export'?`科学数据已保存到 ${r.last_operation?.output_dir??'工作区 exports 目录'}（不是浏览器图片下载）`:({select:'选择已交接；可继续使用当前选区。',measure:'测量完成；当前选区已保留。',show:'已打开保存视图；未重算 FFT。'})[action]??'已保存新版本；原像素与旧版本保留。');return r;
  }catch(e){message(e.message,true);}finally{busy=false;perf.action_last_ms=now()-start;diagnostics();await refreshMeasurements();if(queuedEdits.size)Promise.resolve().then(flushEdits);}
 }
 async function refresh(){const next=await api('/api/state');if(state&&(dirty()||drag)){if(next.object.object_id!==state.object.object_id)pending=next;else state={...state,pending_result:next.pending_result,state_revision:next.state_revision,research_observation:next.research_observation};renderObservation();showPending();message('已检查最新状态；本地草稿保持原样。');return;}if(next.pending_result&&state){state.pending_result=next.pending_result;state.research_observation=next.research_observation;renderObservation();showPending();return;}await load(next);}

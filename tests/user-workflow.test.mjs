@@ -18,7 +18,16 @@ test('frequency gamma/range cannot be inherited by spatial frame navigation; spa
  const backend=readFileSync(new URL('../tools/image_panel.mjs',import.meta.url),'utf8');assert.match(backend,/framePreviewRecipe\(current,effectiveDisplay\)/);
 });
 test('view references return to saved objects, update same-grid annotations in place and retain back/forward',()=>{
- const h=new SavedViewHistory();h.remember(state());h.remember(state('b'),{replace:true});assert.equal(h.entries.length,1);h.remember(state('fft','frequency'),{role:'FFT'});assert.equal(h.target(-1).id,'b');h.remember(state('b'));assert.equal(h.target(1).id,'fft');assert.equal(h.original(state('fft','frequency')).id,'b');assert.notEqual(workflowScope(state()),workflowScope(state('fft','frequency')));
+ const h=new SavedViewHistory();h.remember(state(),{role:'原图'});h.remember(state('b'),{replace:true});assert.equal(h.entries.length,1);h.remember(state('fft','frequency'),{role:'FFT'});assert.equal(h.target(-1).id,'b');h.remember(state('b'));assert.equal(h.target(1).id,'fft');assert.equal(h.original(state('fft','frequency')).id,'b');assert.notEqual(workflowScope(state()),workflowScope(state('fft','frequency')));
+});
+test('directly reopened ROI or FFT cannot impersonate a saved full-source display recipe',()=>{
+ for(const domain of ['spatial_pixels','frequency']){
+  const h=new SavedViewHistory(),saved=state('saved-'+domain,domain);
+  h.remember(saved);assert.equal(h.entries[0].role,domain==='frequency'?'FFT':'保存视图');
+  const original=h.original(saved);assert.equal(original.id,'frame');assert.equal(original.freshSourceView,true);assert.equal(original.role,'全帧（新显示）');assert.notEqual(original.id,saved.object.object_id);
+  const full=state('known-full-source');h.remember(full,{role:'原图'});h.remember(state('edited-full-source'),{replace:true});
+  assert.equal(h.original(saved).id,'edited-full-source');assert.equal(h.original(saved).freshSourceView,undefined);
+ }
 });
 const profile={kind:'profile',object_id:'p',parent_object_id:'a',component:'raw',dtype:'uint16',distance_unit:'pixel',physical_distance_unit:'nm',samples:{coordinates_xy:[[0,0],[1,0],[2,0],[3,0],[4,0]],indices_xy:[[0,0],[1,0],[2,0],[3,0],[4,0]],sampled_coordinates_xy:[[0,0],[1,0],[2,0],[3,0],[4,0]],distance:[0,1,2,3,4],physical_distance:[0,.2,.4,.6,.8],value:[10,20,15,28,12]}};
 test('profile ticks/readouts use saved physical or pixel axes and never invent interpolated measurements',()=>{

@@ -19,7 +19,7 @@ test('panel transforms independently preserve spatial centres/edges and odd sign
  }
  const dc=transformCoordinates([0,0],frequency,{inverse:true});assert.deepEqual(transformCoordinates(dc,frequency),[0,0]);
  assert.deepEqual(selectionRectangle(selectionFromDrag([frequency],[60,20],[260,140],{kind:'rectangle'})),[38,22,58,34]);
- assert.throws(()=>panelAt([spatial],100,10),/exactly one/);
+ assert.throws(()=>panelAt([spatial],100,10),/单一数据区域.*避开坐标轴和图外空白/);
  assert.throws(()=>selectionFromDrag([spatial,{...spatial,image_rect_xyxy:[70,0,130,36]}],[5,5],[75,5],{kind:'line'}),/one source/);
 });
 

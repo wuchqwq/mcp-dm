@@ -556,6 +556,13 @@ test('human workflow: saved-view back opens the stored object and never resubmit
  const first=fixture(),h=await harness(first);h.draw('rectangle');const fft=copy(first);fft.object.object_id='c'.repeat(32);fft.object.kind='fft';fft.object.panels=[{domain:'frequency',source_object_id:'d'.repeat(32),fft_shape_yx:[96,128],image_rect_xyxy:[0,0,128,96]}];h.actionResult(fft);await h.click('fft');
  assert.equal(h.$('view-back').disabled,false);h.actionResult(first);await h.click('view-back');assert.equal(h.calls.at(-1).action,'show');assert.equal(h.calls.at(-1).params.object_id,viewId);assert.equal(h.calls.filter(c=>c.action==='fft').length,1);assert.equal(h.inspect().state.object.object_id,viewId);
 });
+test('directly reopened ROI explicitly requests a fresh full-frame display instead of claiming a saved recipe',async()=>{
+ const initial=fixture();initial.frame_identity={frame_object_id:sourceId,frame_index:0};const h=await harness(initial);
+ assert.equal(h.$('view-current').textContent,'保存视图');assert.equal(h.$('view-original').textContent,'全帧（新显示）');assert.match(h.$('view-original').title,/没有已保存/);
+ const full=copy(initial);full.object.object_id='c'.repeat(32);full.object.panels[0].source_rect_xyxy=[0,0,128,96];h.actionResult(full);await h.click('view-original');
+ assert.equal(h.calls.length,1);assert.equal(h.calls[0].action,'show');assert.deepEqual(h.calls[0].params,{object_id:sourceId,source_view:true});assert.match(h.$('message').textContent,/未恢复未知的旧显示配方/);assert.equal(h.$('view-original').disabled,true);
+});
+
 test('human workflow: result tabs expose one result type without changing the scientific object',async()=>{
  const h=await harness();await h.click('results-tab-profile');assert.equal(h.$('results-profile').hidden,false);assert.equal(h.$('results-measurements').hidden,true);assert.equal(h.$('numeric-data').open,true);await h.click('results-tab-measurements');assert.equal(h.$('numeric-data').open,false);assert.equal(h.calls.length,0);
 });

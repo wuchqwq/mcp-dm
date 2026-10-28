@@ -59,19 +59,28 @@ export class DataProbes {
   if(!finite(interval)||interval<100||interval>1000)throw new Error('Scientific probe throttle must be 100–1000 ms');
   Object.assign(this,{getState,api,onError,document:doc,interval,setTimer,clearTimer,now});this.el=id=>doc?.getElementById(id);this.pending=null;this.inflight=false;this.timer=null;this.sequence=0;this.lastStart=-Infinity;this.lastSelection=null;this.currentBinding=null;this.statistics=null;this.profile=null;
   if(this.el('probe-component'))this.el('probe-component').onchange=()=>{this.sequence++;this.pending=null;this.setProbeText('分量已切换；等待原数组采样');if(this.lastSelection)this.observe(this.lastSelection);};
-  if(this.el('profile-csv'))this.el('profile-csv').onclick=()=>{try{if(!this.profile)throw new Error('先保存一条剖面');const url=URL.createObjectURL(new Blob(['\uFEFF',exportProfileCSV(this.profile)],{type:'text/csv;charset=utf-8'})),anchor=this.document.createElement('a');anchor.href=url;anchor.download='mcp-dm-profile.csv';anchor.click();this.setTimer(()=>URL.revokeObjectURL(url),1000);}catch(error){this.onError(error);}};
+  if(this.el('profile-csv')){this.el('profile-csv').disabled=true;this.el('profile-csv').onclick=()=>{try{if(!this.profile)throw new Error('先保存一条剖面');const url=URL.createObjectURL(new Blob(['\uFEFF',exportProfileCSV(this.profile)],{type:'text/csv;charset=utf-8'})),anchor=this.document.createElement('a');anchor.href=url;anchor.download='mcp-dm-profile.csv';anchor.click();this.setTimer(()=>URL.revokeObjectURL(url),1000);}catch(error){this.onError(error);}};}
  }
  component(){return this.el('probe-component')?.value||'raw';}
  setProbeText(text){if(this.el('probe-value'))this.el('probe-value').textContent=text;}
  clear(){this.sequence++;this.pending=null;this.lastSelection=null;if(this.timer!==null){this.clearTimer(this.timer);this.timer=null;}this.setProbeText('尚未读取原数组数值');}
+ clearProfile(summary){
+  this.profile=null;const plot=this.el('profile-plot');plot?.replaceChildren();
+  // The plot handlers close over the saved samples. Remove them as well as
+  // the visible curve so a key press cannot resurrect an old physical axis.
+  if(plot){plot.onpointermove=null;plot.onkeydown=null;}
+  this.el('profile-values')?.replaceChildren();if(this.el('profile-readout'))this.el('profile-readout').textContent='';
+  if(this.el('profile-csv'))this.el('profile-csv').disabled=true;
+  if(this.el('profile-summary'))this.el('profile-summary').textContent=summary;
+ }
  refreshCurrent(){
   const state=this.getState(),binding=objectBinding(state);if(this.currentBinding&&sameBinding(state,this.currentBinding))return false;
   this.clear();this.currentBinding=binding;
   const component=this.el('probe-component'),dtype=state?.object?.dtype,complex=typeof dtype==='string'&&dtype.startsWith('complex')||state?.object?.panels?.some(panel=>panel.domain==='frequency');
   if(component&&(typeof dtype==='string'||state?.object?.panels?.length)){if(complex&&component.value==='raw')component.value='amplitude';else if(!complex)component.value='raw';for(const option of component.options??[])option.disabled=complex?option.value==='raw':option.value!=='raw';}
   const grid=state?.object?.scientific_grid_identity;
-  if(this.profile?.samples?.physical_distance&&!same(this.profile.xy_calibration,state?.object?.xy_calibration)){this.profile=null;this.el('profile-plot')?.replaceChildren();this.el('profile-values')?.replaceChildren();if(this.el('profile-summary'))this.el('profile-summary').textContent='标定已修订；旧剖面物理轴待重测，历史科学记录仍保留';}
-  for(const kind of ['statistics','profile'])if(this[kind]&&(!grid||!same(this[kind].scientific_grid_identity,grid))){this[kind]=null;if(kind==='statistics'&&this.el('statistics-summary'))this.el('statistics-summary').textContent='当前对象已变化；之前的统计记录仍保存，请重新选择 ROI';if(kind==='profile'){this.el('profile-plot')?.replaceChildren();this.el('profile-values')?.replaceChildren();if(this.el('profile-summary'))this.el('profile-summary').textContent='当前对象已变化；之前的剖面记录仍保存';}}
+  if(this.profile?.samples?.physical_distance&&!same(this.profile.xy_calibration,state?.object?.xy_calibration))this.clearProfile('标定已修订；旧剖面物理轴待重测，历史科学记录仍保留');
+  for(const kind of ['statistics','profile'])if(this[kind]&&(!grid||!same(this[kind].scientific_grid_identity,grid))){if(kind==='statistics'){this.statistics=null;if(this.el('statistics-summary'))this.el('statistics-summary').textContent='当前对象已变化；之前的统计记录仍保存，请重新选择 ROI';}else this.clearProfile('当前对象已变化；之前的剖面记录仍保存');}
   return true;
  }
  observe(selection){
@@ -108,6 +117,7 @@ export class DataProbes {
  }
  renderProfile(){
   if(!this.profile)return;const result=this.profile,samples=profileData(result),body=this.el('profile-values'),plot=this.el('profile-plot');
+  if(this.el('profile-csv'))this.el('profile-csv').disabled=false;
   if(this.el('profile-summary'))this.el('profile-summary').textContent=`${samples.value.length} 点 · ${componentNames[result.component]??'未知分量'} · 最近邻 · 线宽 ${result.sampling?.line_width??'未知'} px · 距离 ${result.physical_distance_unit??result.distance_unit??'未知'} · 数值单位未声明${samples.value.length>200?'；表格显示前 200 点，CSV 包含全部采样':''}`;
   const rows=[];if(body&&this.document){body.replaceChildren();for(let i=0;i<Math.min(200,samples.value.length);i++){const row=this.document.createElement('tr');row.tabIndex=0;row.dataset.sampleIndex=String(i);for(const v of [i,...samples.coordinates_xy[i],samples.physical_distance?.[i]??samples.distance[i],samples.value[i]]){const cell=this.document.createElement('td');cell.textContent=numberText(v);row.append(cell);}body.append(row);rows.push(row);}}
   if(!plot||!this.document)return;plot.replaceChildren();plot.setAttribute('viewBox','0 0 560 200');plot.setAttribute('tabindex','0');plot.setAttribute('aria-label','已保存剖面；左右方向键读取原始采样值');

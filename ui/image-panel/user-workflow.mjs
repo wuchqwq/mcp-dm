@@ -57,10 +57,12 @@ export class SavedViewHistory{
   const found=this.entries.findIndex(e=>e.id===id);
   if(found>=0){this.index=found;return;}
   const prior=this.entries[this.index],frequency=state.object.panels?.some(p=>p.domain==='frequency');
-  const entry={id,frame:state.frame_identity?.frame_object_id??null,scope:workflowScope(state),role:role??(replace?prior?.role:null)??(frequency?'FFT':'原图')};
+  // A directly reopened spatial object can be a cropped saved view. Its
+  // existence does not prove that this browser has the full-source recipe.
+  const entry={id,frame:state.frame_identity?.frame_object_id??null,scope:workflowScope(state),role:role??(replace?prior?.role:null)??(frequency?'FFT':'保存视图')};
   if(replace&&prior&&entry.scope===prior.scope)this.entries[this.index]=entry;
   else{this.entries.splice(this.index+1);this.entries.push(entry);if(this.entries.length>this.limit)this.entries.shift();this.index=this.entries.length-1;}
  }
  target(offset){return this.entries[this.index+offset]??null;}
- original(state){const frame=state?.frame_identity?.frame_object_id;return this.entries.find(e=>e.role==='原图'&&e.frame===frame)??(frame?{id:frame,role:'原图',frame}:null);}
+ original(state){const frame=state?.frame_identity?.frame_object_id;return this.entries.find(e=>['原图','全帧（新显示）'].includes(e.role)&&e.frame===frame)??(frame?{id:frame,role:'全帧（新显示）',frame,freshSourceView:true}:null);}
 }
