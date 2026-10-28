@@ -209,6 +209,7 @@ def main():
     print("Created synthetic twin experiment and committed image measurements:")
     print(config)
     print("Next: python tools/hypothesis_explorer.py --config <config.json> --output <new-absolute-search-directory>")
+    print("Then explicitly select the saved Cu FCC [1 -1 0] comparison for twin_feedback.py initial --comparison <comparison_path>; see docs/TWIN_FEEDBACK_LOOP.md")
 
 
 if __name__ == "__main__":

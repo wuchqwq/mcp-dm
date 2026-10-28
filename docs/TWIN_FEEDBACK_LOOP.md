@@ -6,7 +6,10 @@
 
 ## 研究者如何使用
 
-Agent 先把单域解释以已有 `image_annotate` 标到测量图中，再调用 `image_panel_open`。
+Agent 先明确选择 Hypothesis Explorer 已保存的一条候选比较，再把单域解释以已有 `image_annotate` 标到测量图中，调用 `image_panel_open`。
+`initial --comparison` 指定原报告中该行的 `comparison_path`，不按排名、候选名称或相似得分自动选择。
+没有明确选择、路径不在报告中或对应多行时拒绝；所选结构仍须满足上述窄 FCC 范围。
+选择只表示继续检验该假设，不确认物相、孪晶关系或 HKL。原报告及全部候选证据按路径与哈希保留。
 研究者可以在同一 Panel 的“修订解释：这里有孪晶”中输入实际说明并提交，也可以在 Codex 对话中说明，
 由 Agent 用既有 `image_context` 保存同形状的有来源声明。研究者不需要填写内部 ID 或 JSON。
 
@@ -40,7 +43,11 @@ python examples/twin_feedback_demo.py --output $fixtureRoot
 $singleRoot = $fixtureRoot + "-single"
 python tools/hypothesis_explorer.py --config (Join-Path $fixtureRoot "config.json") --output $singleRoot
 $initialRoot = $fixtureRoot + "-initial"
-python tools/twin_feedback.py initial --report (Join-Path $singleRoot "report.json") --output $initialRoot
+# 仅此已知合成样例：明确选择 Cu FCC 的 A 域 [1 -1 0]，不把第一名当作研究者选择。
+$report = Get-Content (Join-Path $singleRoot "report.json") -Raw | ConvertFrom-Json
+$selected = @($report.rows | Where-Object { $_.label -eq "Cu FCC" -and ($_.zone_axis_uvw -join ",") -eq "1,-1,0" })
+if ($selected.Count -ne 1) { throw "Expected one explicitly chosen synthetic Cu FCC [1 -1 0] comparison" }
+python tools/twin_feedback.py initial --report (Join-Path $singleRoot "report.json") --comparison $selected[0].comparison_path --output $initialRoot
 ```
 
 Agent 保留返回的 `display_object_id`，在生成器的 `image-workspace` 中用 `image_panel_open` 打开它。
@@ -73,7 +80,7 @@ python tools/twin_feedback.py revise --initial <initialRoot>/initial.json --obse
    初算配置没有真值 HKL、孪晶关系、域分组或反馈信息。
 4. 单域搜索实际返回 8/15。通过浏览器在同一个 Image Panel 提交 `synthetic_fixture` 声明，
    再用 `image_panel_current` 取回原 context 引用。此次没有声称真人操作或真人确认。
-5. 修订入口保留最佳单域取向和同一个实验→模拟变换，提议四个 ⟨111⟩ 轴、各 ±60°，共八个孪晶关系。
+5. 修订入口保留初算使用的单域取向和同一个实验→模拟变换，提议四个 ⟨111⟩ 轴、各 ±60°，共八个孪晶关系。
    `beam_B=Tᵀ beam_A`、`reference_B=Tᵀ reference_A` 转成互素三指数，交给原 `structure_orient`；
    独立核对 `R_B=R_A T` 后才模拟。具体孪晶关系、取向、域归属和 HKL 一直是 `hypothesized`。
 
