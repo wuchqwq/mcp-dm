@@ -224,6 +224,27 @@ def hkl_key(row):
     return tuple(int(v) for v in row)
 
 
+def assign_within_tolerance(distance, tolerance):
+    """Existing bounded max-cardinality/min-residual assignment, also for domains.
+
+    Columns are caller-defined, unique reflection identities or exactly
+    coincident projection groups. This helper does not calculate coordinates.
+    """
+    distance = np.asarray(distance, dtype=float)
+    require(distance.ndim == 2 and 1 <= len(distance) <= MAX_MEASUREMENTS and
+            distance.shape[1] <= 2*MAX_REFLECTIONS and np.isfinite(distance).all() and
+            bool(np.all(distance >= 0)) and finite(tolerance) and 1e-12 <= tolerance <= 1,
+            "A bounded finite nonnegative residual matrix and fixed tolerance are required")
+    candidates = distance <= tolerance
+    require(int(np.count_nonzero(candidates)) <= MAX_CANDIDATE_EDGES,
+            "Candidate graph exceeds8192edges; no candidates were truncated")
+    dummy = float(len(distance) + 1)
+    costs = np.concatenate((np.where(candidates, distance/tolerance, 2*dummy+1),
+                            np.full((len(distance), len(distance)), dummy)), axis=1)
+    rows, columns = linear_sum_assignment(costs)
+    return [(int(i), int(j)) for i, j in zip(rows, columns) if j < distance.shape[1] and candidates[i, j]]
+
+
 def compare(measurements, simulation, transform, tolerance, experimental_kind, correspondences=None):
     require(experimental_kind in ("real_space_fft", "saed", "other_diffraction"),
             "Declare experimental_kind; FFT contrast and SAED intensities are different formation mechanisms")
@@ -279,10 +300,7 @@ def compare(measurements, simulation, transform, tolerance, experimental_kind, c
         # Lexicographic objective: maximize feasible cardinality first, then
         # minimize total physical residual. Valid normalized costs are <=1;
         # one dummy must cost more than every row's possible residual sum.
-        dummy = float(len(observations) + 1)
-        costs = np.concatenate((np.where(candidates, distance/tolerance, 2*dummy+1), np.full((len(observations), len(observations)), dummy)), axis=1)
-        rows, columns = linear_sum_assignment(costs)
-        assignment = [(int(i), int(j)) for i, j in zip(rows, columns) if j < len(coords) and candidates[i, j]]
+        assignment = assign_within_tolerance(distance, tolerance)
     used_measurements, used_simulation = {i for i, _ in assignment}, {j for _, j in assignment}
     matched = []
     for i, j in assignment:

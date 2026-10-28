@@ -25,6 +25,20 @@ Compare saved un-rasterized reflections/HKL with committed experimental
 measurements. An HRTEM/ptychography FFT and a SAED pattern do not share a general
 intensity interpretation. Prefer geometric residuals; a similar PNG is no phase
 proof. Keep unmatched reflections, alternative candidates and model limitations.
+For 1–3 explicit candidates with unknown HKL, the optional local batch recipe
+`tools/hypothesis_explorer.py` reuses these same scientific tools with bounded
+low-index zones and polar-angle trials; it produces a static overlay/table and
+prospective observation target. See [Hypothesis Explorer](../../../docs/HYPOTHESIS_EXPLORER.md)
+for the executed synthetic example and configuration. This is a CLI recipe,
+not a newly advertised MCP tool or global orientation search. Keep all points
+used to select candidates/roll/HKL labeled search evidence, not held-out validation.
+When the researcher corrects a single-domain explanation with "there is twinning",
+save only that scoped presence statement via `image_context` metadata.research_observation
+(or read its saved reference from `image_panel_current`). Do not confirm a twin
+law or HKL on their behalf. The optional [FCC twin feedback recipe](../../../docs/TWIN_FEEDBACK_LOOP.md)
+retains the initial comparison, tests constrained Sigma3 alternatives and returns
+A/B/shared/unexplained marks to the same Panel. Use `synthetic_fixture` for demo
+input, never impersonate human confirmation; remeasure after peak/scale changes.
 The Agent may propose unconfirmed structures, orientations and reflection
 correspondences and test explicit geometric comparisons. Keep those proposals
 as hypotheses: do not assert `user_confirmed` merely to enter a registration

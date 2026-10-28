@@ -7,6 +7,8 @@ import {readFileSync} from 'node:fs';
 import * as coordinates from '../ui/image-panel/coordinates.mjs';
 import * as viewerState from '../ui/image-panel/viewer-state.mjs';
 import * as viewerRender from '../ui/image-panel/viewer-render.mjs';
+import * as annotationPresentation from '../ui/image-panel/annotation-presentation.mjs';
+import * as figureExport from '../ui/image-panel/figure-export.mjs';
 import {performance} from 'node:perf_hooks';
 import {randomUUID} from 'node:crypto';
 
@@ -17,7 +19,7 @@ const panel={domain:'spatial_pixels',source_object_id:sourceId,source_rect_xyxy:
 function fixture(){return {object:{object_id:viewId,kind:'view',panels:[copy(panel)],annotations:[],display:{gamma:1,display_range:[0,255]}},tools:[],png_base64:'synthetic',clean_png_base64:'synthetic-clean',render_base_id:viewId,selection:null,last_operation:null};}
 function pixelBytes(w,h){return Uint8ClampedArray.from({length:w*h*4},(_,i)=>i%4===3?255:(i*17+31)%256);}
 async function harness(initial=fixture()){
- const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null;
+ const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null,actionSequence=0,actionFailure=null,waitMeasurement=null,measurementResponse=null,recoveryResponse=null;
  const canvasContexts=[];
  class Context{
   constructor(canvas){this.canvas=canvas;this.lastPixels=null;canvasContexts.push(this);}
@@ -38,7 +40,7 @@ async function harness(initial=fixture()){
  const elements=new Map();const $=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
  $('zoom').value='1';$('mode').value='line';$('status').value='hypothesized';$('fft-window').value='hann';$('fft-mean').checked=true;
  const math=Object.create(Math);math.pow=(a,b)=>{stats.pow++;return Math.pow(a,b);};
- const sandbox={...coordinates,...viewerState,...viewerRender,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
+ const sandbox={...coordinates,...viewerState,...viewerRender,...annotationPresentation,...figureExport,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
   document:{getElementById:$,createElement:tag=>new Element(tag),querySelectorAll:()=>[],addEventListener(){}},
   sessionStorage:{getItem:()=> 'synthetic-token',setItem(){}},location:{hash:'',pathname:'/'},history:{replaceState(){}},
   Option:class{constructor(text,value){this.text=text;this.value=value;}},
@@ -48,11 +50,18 @@ async function harness(initial=fixture()){
   fetch:async(url,options)=>{
    if(!options.body){getCalls.push(url);if(url==='/api/revision')return {ok:true,json:async()=>({state_revision:server.state_revision,object_id:server.object.object_id,pending_result:server.pending_result})};}
    if(options.body){const body=JSON.parse(options.body);
-    if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);return {ok:true,json:async()=>copy(server)};}
-    calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;
-    if(nextActionResult){server=copy(nextActionResult);nextActionResult=null;}
+    if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);server.edit_state={...copy(body.params),base_object_id:server.object.object_id};return {ok:true,json:async()=>body.lightweight?{object_id:server.object.object_id,edit_state:copy(server.edit_state)}:copy(server)};}
+    calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;if(body.action==='measure'&&waitMeasurement)await waitMeasurement;
+    if(actionFailure){const error=actionFailure;actionFailure=null;return {ok:false,json:async()=>({error})};}
+    if(['edit','edit-layout'].includes(body.action)&&body.params.auto_commit){
+     const result=nextActionResult?copy(nextActionResult):copy(server);nextActionResult=null;
+     for(const update of body.params.updates){const mark=result.object.annotations.find(m=>m.annotation_id===update.annotation_id);assert.ok(mark,'autosave must update an existing stable mark');for(const [field,value]of Object.entries(update)){if(field==='coordinates')mark.anchor.coordinates=copy(value);else if(!['annotation_id','presentation_replace'].includes(field))mark[field]=copy(value);}}
+     if(result.object.object_id===server.object.object_id)result.object.object_id=(++actionSequence).toString(16).padStart(32,'0');
+     result.state_revision=(server.state_revision??0)+1;result.edit_state=copy(server.edit_state);result.auto_edit_committed=true;server=result;
+    }else if(nextActionResult){server=copy(nextActionResult);nextActionResult=null;}
     if(body.action==='measure'||body.action==='select')server.selection=copy(body.params.selection);
-    server.last_operation={action:body.action};
+    const measured=body.action==='measure'&&measurementResponse?(typeof measurementResponse==='function'?measurementResponse(body):copy(measurementResponse)):{};
+    server.last_operation=body.action==='recover'&&recoveryResponse?copy(recoveryResponse):{...(body.action==='measure'?{kind:'measure',coordinate_space:body.params.selection.coordinate_space,points:[body.params.selection.coordinates.slice(0,2),body.params.selection.coordinates.slice(2)]}:{}),...measured,action:body.action};
    }
    return {ok:true,json:async()=>copy(server)};
   }
@@ -60,16 +69,19 @@ async function harness(initial=fixture()){
  const renderSource=readFileSync(new URL('../ui/image-panel/viewer-render.mjs',import.meta.url),'utf8').replace(/^export /gm,'');
  const script=renderSource+'\n'+source.replace(/^import .*from '\.\/[^']+\.mjs';\r?\n/gm,'')
   .replace('refresh().then(','globalThis.ready=refresh().then(')
-  +'\nglobalThis.pollUI=pollRevision;globalThis.inspect=()=>({draft,drag,editCoordinates,state,pending,dirty:dirty(),view,draftRevision:historyDraft.revision});';
+  +'\nglobalThis.pollUI=pollRevision;globalThis.finishSaves=async()=>{do{if(autoSaving)await autoSaving;await Promise.resolve();}while(autoSaving);};globalThis.inspect=()=>({draft,drag,editCoordinates,state,pending,dirty:dirty(),view,draftRevision:historyDraft.revision,queuedEdits:[...queuedEdits],autoFailed,busy});';
  vm.runInNewContext(script,sandbox,{filename:'ui/image-panel/app.mjs'});await sandbox.ready;
  const flush=()=>{for(const [id,callback] of [...frames]){frames.delete(id);callback();}};
  const event=(type,x=10,y=10,extra={})=>{$('canvas').listeners[type]?.({clientX:x,clientY:y,pointerId:1,button:0,...extra});};
  const click=async id=>{await $(id).onclick();flush();};
  const draw=(kind='line')=>{$('mode').value=kind;event('pointerdown',10,10);event('pointermove',40,35);event('pointerup',40,35);flush();};
  return {$,calls,draftCalls,getCalls,stats,frames,flush,event,click,draw,poll:()=>sandbox.pollUI(),inspect:()=>copy(sandbox.inspect()),contexts:canvasContexts,
-  settle:async()=>{for(let i=0;i<20;i++)await Promise.resolve();},
+  settle:async()=>{for(let i=0;i<80;i++)await Promise.resolve();flush();},finish:async()=>{await sandbox.finishSaves();flush();},
   delayAction(promise){waitAction=promise;},
+  failAction(message='Synthetic save failure; query original request'){actionFailure=message;},
   actionResult(value){nextActionResult=copy(value);},
+  measureResponse(value){measurementResponse=typeof value==='function'?value:copy(value);},delayMeasurement(promise){waitMeasurement=promise;},
+  recoverResponse(value){recoveryResponse=copy(value);},
   setServer(value){server=copy(value);},server:()=>copy(server)};
 }
 
@@ -102,8 +114,16 @@ test('an older server selection does not replace a newer unsent local selection 
  await h.click('share');assert.deepEqual(h.calls.at(-1).params.selection.coordinates,current);
 });
 
-test('changed object never inherits a local selection from an older revision',async()=>{
- const h=await harness();h.draw();const next=fixture();next.object.object_id='c'.repeat(32);h.setServer(next);
+test('same scientific grid display revision preserves the exact local selection despite its new object ID',async()=>{
+ const initial=fixture();initial.object.scientific_grid_identity={array_sha256:'same-scientific-array',source_rect_xyxy:[20,12,148,108]};
+ const h=await harness(initial);h.draw();const selected=h.inspect().draft;
+ const next=copy(initial);next.object.object_id='c'.repeat(32);next.object.display.gamma=1.7;h.setServer(next);
+ await h.click('reload');assert.deepEqual(h.inspect().draft,selected);
+ await h.click('share');assert.equal(h.calls.at(-1).expected_object_id,next.object.object_id);assert.deepEqual(h.calls.at(-1).params.selection.coordinates,selected.coordinates);assert.equal(h.calls.at(-1).params.selection.source_object_id,sourceId);
+});
+
+test('unrelated scientific image does not inherit a local selection from the older image',async()=>{
+ const h=await harness();h.draw();const next=fixture();next.object.object_id='c'.repeat(32);next.object.panels[0].source_object_id='d'.repeat(32);h.setServer(next);
  await h.click('reload');assert.equal(h.inspect().draft,null);
  await h.click('share');assert.equal(h.calls.length,0);
 });
@@ -152,13 +172,35 @@ test('a real tone change invalidates the cache once, not on every overlay move',
  const adjusted=h.stats.pow;h.draw();assert.equal(h.stats.pow,adjusted);
 });
 
+test('Shift and Ctrl constrain a new ROI on the source grid using the final pointerup modifier',async()=>{
+ for(const modifier of ['shiftKey','ctrlKey']){
+  const f=fixture();f.object.panels[0].source_rect_xyxy=[20,12,276,108];const h=await harness(f);h.$('mode').value='rectangle';
+  h.event('pointerdown',10.2,10.3);h.event('pointermove',30,15);h.event('pointerup',40,20,{[modifier]:true});h.flush();
+  assert.deepEqual(h.inspect().draft.coordinates,[40,22,100,82]);assert.deepEqual(coordinates.selectionRectangle(h.inspect().draft),[40,22,100,82]);
+ }
+ const h=await harness();h.$('mode').value='rectangle';h.event('pointerdown',10,10);h.event('pointermove',40,20,{shiftKey:true});
+ assert.deepEqual(h.inspect().drag.end,[40,40]);h.event('pointerup',40,20);h.flush();assert.deepEqual(h.inspect().draft.coordinates,[30,22,60,32]);
+});
+
+test('new line and arrow constrain their final source coordinates without a final pointermove',async()=>{
+ for(const [kind,modifier,end,expected]of [['line','shiftKey',[50,20],[30,22,70,22]],['arrow','ctrlKey',[15,65],[30,22,30,77]]]){
+  const h=await harness();h.$('mode').value=kind;h.event('pointerdown',10,10);h.event('pointerup',...end,{[modifier]:true});h.flush();assert.deepEqual(h.inspect().draft.coordinates,expected);
+ }
+});
+
 function annotated(){const s=fixture();s.object.annotations=[{annotation_id:'line-a',kind:'line',text:'candidate',color:'cyan',status:'hypothesized',anchor:{source_object_id:sourceId,coordinate_space:'source_pixels',coordinates:[30,22,60,52]}}];return s;}
 async function editHarness(){const h=await harness(annotated());h.$('existing').value='line-a';h.$('existing').onchange();return h;}
 
 test('edit uses pointerup position even with no final pointermove event',async()=>{
  const h=await editHarness();h.event('pointerdown',10,10);h.event('pointermove',12,13);h.event('pointerup',18,19);h.flush();
- await h.click('save-mark');assert.deepEqual(h.calls[0].params.updates[0].coordinates,[38,31,60,52]);
- assert.equal(h.calls[0].params.updates[0].status,'hypothesized');
+ await h.settle();assert.equal(h.calls.length,1);assert.equal(h.calls[0].params.auto_commit,true);assert.deepEqual(h.calls[0].params.updates[0].coordinates,[38,31,60,52]);
+ assert.equal(h.calls[0].params.updates[0].status,undefined,'geometry edit must not resubmit confirmation state');
+ assert.equal(h.server().object.annotations[0].status,'hypothesized');
+ assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[38,31,60,52]);assert.notEqual(h.inspect().state.object.object_id,viewId);
+});
+
+test('Shift and Ctrl do not constrain existing annotation geometry drags',async()=>{
+ for(const modifier of ['shiftKey','ctrlKey']){const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19,{[modifier]:true});h.flush();await h.finish();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[38,31,60,52]);}
 });
 
 test('pointercancel and lost capture roll back the current gesture without saving',async()=>{
@@ -168,13 +210,14 @@ test('pointercancel and lost capture roll back the current gesture without savin
  }
 });
 
-test('a second drag starts from the unsaved edited coordinates; cancellation preserves that draft',async()=>{
- const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();
- const first=h.inspect().editCoordinates;
+test('a second drag starts from the queued edit; cancellation preserves it and the latest edit eventually saves',async()=>{
+ const h=await editHarness();let done;h.delayAction(new Promise(resolve=>{done=resolve;}));h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ const first=h.inspect().queuedEdits[0][1].update.coordinates;assert.deepEqual(first,[38,31,60,52]);
  h.event('pointerdown',18,19);h.event('pointermove',21,22);h.event('pointercancel');h.flush();
- assert.deepEqual(h.inspect().editCoordinates,first);
+ assert.equal(h.inspect().editCoordinates,null);assert.deepEqual(h.inspect().queuedEdits[0][1].update.coordinates,first);
  h.event('pointerdown',18,19);h.event('pointerup',22,23);h.flush();
- await h.click('save-mark');assert.deepEqual(h.calls[0].params.updates[0].coordinates,[42,35,60,52]);
+ assert.deepEqual(h.inspect().queuedEdits[0][1].update.coordinates,[42,35,60,52]);done();await h.settle();
+ assert.equal(h.calls.length,2);assert.deepEqual(h.calls.at(-1).params.updates[0].coordinates,[42,35,60,52]);assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[42,35,60,52]);assert.equal(h.inspect().dirty,false);
 });
 
 test('another pointer cannot take over an in-progress gesture',async()=>{
@@ -193,7 +236,7 @@ test('completed gestures publish the exact scientific selection without a model 
 test('default select mode directly finds and drags an anchored mark with no ID entry',async()=>{
  const h=await harness(annotated());h.$('mode').value='select';h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();
  assert.equal(h.$('existing').value,'line-a');assert.equal(h.$('mark-id').value,'line-a');
- await h.click('save-mark');assert.deepEqual(h.calls.at(-1).params.updates[0].coordinates,[38,31,60,52]);
+ await h.settle();assert.deepEqual(h.calls.at(-1).params.updates[0].coordinates,[38,31,60,52]);assert.equal(h.inspect().queuedEdits.length,0);
 });
 
 test('new marks get safe IDs automatically, independent of user text and scientific status',async()=>{
@@ -202,10 +245,12 @@ test('new marks get safe IDs automatically, independent of user text and scienti
  assert.match(h.calls.at(-1).params.annotation_id,/^mark-[a-f0-9]{24}$/);assert.equal(h.calls.at(-1).params.status,'hypothesized');
 });
 
-test('undo and redo restore draft scientific geometry without backend writes',async()=>{
- const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();const moved=h.inspect().editCoordinates;
- await h.click('undo');assert.equal(h.inspect().editCoordinates,null);await h.click('redo');assert.deepEqual(h.inspect().editCoordinates,moved);
- assert.equal(h.calls.length,0);
+test('undo and redo of an autosaved annotation create compensating versions instead of pretending to delete history',async()=>{
+ const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ const moved=copy(h.server().object.annotations[0].anchor.coordinates),firstId=h.server().object.object_id;
+ await h.click('undo');await h.settle();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[30,22,60,52]);assert.notEqual(h.server().object.object_id,firstId);
+ await h.click('redo');await h.settle();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,moved);
+ assert.equal(h.calls.length,3);assert.ok(h.calls.every(c=>c.action==='edit'&&c.params.auto_commit));
 });
 
 test('refresh and read-only measurement never erase unsaved display or mark drafts',async()=>{
@@ -216,16 +261,15 @@ test('refresh and read-only measurement never erase unsaved display or mark draf
 });
 
 test('a late save cannot erase a newer drag and observation remains enabled while waiting',async()=>{
- const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();let done;
- h.delayAction(new Promise(resolve=>{done=resolve;}));const saving=h.click('save-mark');await h.settle();
- h.event('pointerdown',18,19);h.event('pointerup',22,23);h.flush();const newer=h.inspect().editCoordinates;
- assert.deepEqual(newer,[42,35,60,52]);done();await saving;assert.deepEqual(h.inspect().editCoordinates,newer);
- assert.equal(h.inspect().dirty,true);assert.ok(h.inspect().pending);assert.equal(h.$('pending-result').hidden,false);
+ const h=await editHarness();let done;h.delayAction(new Promise(resolve=>{done=resolve;}));h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ assert.equal(h.inspect().busy,true);h.event('pointerdown',18,19);h.event('pointermove',22,23);h.flush();const newer=h.inspect().editCoordinates;
+ assert.deepEqual(newer,[42,35,60,52]);done();await h.settle();assert.deepEqual(h.inspect().editCoordinates,newer);assert.ok(h.inspect().drag);
+ h.event('pointerup',22,23);h.flush();await h.settle();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,newer);assert.equal(h.inspect().dirty,false);
 });
 
 test('saving one mark preserves a separate unsaved display draft',async()=>{
  const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();h.$('gamma').value='1.7';h.$('gamma').oninput();h.flush();
- await h.click('save-mark');assert.equal(h.$('gamma').value,1.7);assert.equal(h.inspect().editCoordinates,null);assert.equal(h.inspect().dirty,true);
+ await h.click('save-mark');await h.settle();assert.equal(Number(h.$('gamma').value),1.7);assert.equal(h.inspect().editCoordinates,null);assert.equal(h.inspect().dirty,true);
 });
 
 test('FFT scientific settings are visible choices and forwarded rather than silently fixed',async()=>{
@@ -257,15 +301,15 @@ test('Agent result notice never overwrites an unsaved local display draft',async
 
 test('reopening a panel with an outstanding dirty lease requires an explicit discard',async()=>{
  const s=fixture();s.edit_state={draft_revision:18,dirty:true,gesture_active:false};const h=await harness(s);assert.equal(h.inspect().dirty,true);
- assert.equal(h.draftCalls.at(-1).params.dirty,true);assert.match(h.$('message').textContent,/无法恢复/);await h.click('discard-local');assert.equal(h.inspect().dirty,false);
+ assert.equal(h.draftCalls.at(-1).params.dirty,true);assert.match(h.$('message').textContent,/先前未保存.*明确撤回/);await h.click('discard-local');assert.equal(h.inspect().dirty,false);
 });
 
-test('drag publishes the exact unsaved annotation edit and undo explicitly clears it',async()=>{
- const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
- const edit=h.draftCalls.at(-1).params.annotation_edit;
- assert.deepEqual(edit,{annotation_id:'line-a',coordinates:[38,31,60,52]});
- assert.equal(h.draftCalls.at(-1).params.dirty,true);
- await h.click('undo');await h.settle();assert.equal(h.draftCalls.at(-1).params.annotation_edit,null);
+test('gesture start publishes a blocking lease while pointer moves stay local and pointerup commits exact coordinates',async()=>{
+ const h=await editHarness();h.event('pointerdown',10,10);h.event('pointermove',18,19);h.flush();await h.settle();
+ assert.deepEqual(h.draftCalls.at(-1).params.annotation_edit,{annotation_id:'line-a',coordinates:[30,22,60,52]});
+ assert.deepEqual(h.inspect().editCoordinates,[38,31,60,52]);
+ assert.equal(h.draftCalls.at(-1).params.gesture_active,true);assert.equal(h.calls.length,0);
+ h.event('pointerup',18,19);h.flush();await h.settle();assert.equal(h.draftCalls.at(-1).params.annotation_edit,null);assert.equal(h.inspect().dirty,false);assert.equal(h.calls.length,1);
 });
 
 test('text/color/status are returned as unsaved edits without committing a scientific object',async()=>{
@@ -273,12 +317,18 @@ test('text/color/status are returned as unsaved edits without committing a scien
  assert.deepEqual(h.draftCalls.at(-1).params.annotation_edit,{annotation_id:'line-a',text:'a revised candidate',color:'orange',status:'retracted'});assert.equal(h.calls.length,0);
 });
 
-test('choosing a different mark cannot silently drop an unsaved edit',async()=>{
+test('choosing another mark queues the prior edit and preserves both edits while a save waits',async()=>{
  const s=annotated();s.object.annotations.push({...copy(s.object.annotations[0]),annotation_id:'line-b',anchor:{...copy(s.object.annotations[0].anchor),coordinates:[90,22,120,52]}});
- const h=await harness(s);h.$('existing').value='line-a';h.$('existing').onchange();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();const edit=h.inspect().editCoordinates;
- h.$('existing').value='line-b';h.$('existing').onchange();assert.equal(h.$('existing').value,'line-a');assert.deepEqual(h.inspect().editCoordinates,edit);assert.match(h.$('message').textContent,/未保存/);
- h.$('mode').value='select';h.event('pointerdown',70,10);h.event('pointerup',80,20);h.flush();assert.equal(h.$('existing').value,'line-a');assert.deepEqual(h.inspect().editCoordinates,edit);assert.equal(h.inspect().drag,null);
- h.$('existing').value='';h.$('existing').onchange();assert.equal(h.$('existing').value,'line-a');assert.deepEqual(h.inspect().editCoordinates,edit);
+ const h=await harness(s);let done;h.delayAction(new Promise(resolve=>{done=resolve;}));h.$('existing').value='line-a';h.$('existing').onchange();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ h.$('existing').value='line-b';h.$('existing').onchange();assert.equal(h.$('existing').value,'line-b');assert.deepEqual(h.inspect().queuedEdits[0][1].update.coordinates,[38,31,60,52]);
+ h.$('mode').value='select';h.event('pointerdown',70,10);h.event('pointerup',80,20);h.flush();assert.equal(h.$('existing').value,'line-b');assert.equal(h.inspect().queuedEdits.length,2);
+ done();await h.settle();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[38,31,60,52]);assert.deepEqual(h.server().object.annotations[1].anchor.coordinates,[100,32,120,52]);assert.equal(h.inspect().dirty,false);
+});
+
+test('failed autosave retains its latest local edit and does not silently replay',async()=>{
+ const h=await editHarness();h.failAction();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+ assert.equal(h.inspect().autoFailed,true);assert.equal(h.inspect().dirty,true);assert.deepEqual(h.inspect().queuedEdits[0][1].update.coordinates,[38,31,60,52]);assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[30,22,60,52]);
+ await h.settle();assert.equal(h.calls.length,1);assert.match(h.$('message').textContent,/失败|保留/);
 });
 
 test('saving a mark advances the visible identity even when a separate Agent result remains queued',async()=>{
@@ -304,4 +354,127 @@ test('reciprocal calibration form uses the current domain and signed scale, not 
  const h=await harness(f);assert.equal(Number(h.$('scale-x').value),.2);assert.equal(Number(h.$('scale-y').value),-.4);assert.equal(h.$('unit').value,'1/nm');assert.equal(h.$('scope').value,'image');
  h.$('source').value='Explicit synthetic calibration correction';await h.click('calibrate');
  assert.equal(h.calls.at(-1).params.coordinate_domain,'reciprocal_space');assert.deepEqual(h.calls.at(-1).params.xy_scale,{x:.2,y:-.4,unit:'1/nm'});
+});
+
+test('dragging an independently positioned label saves presentation only and preserves the confirmed scientific anchor',async()=>{
+ const f=fixture();f.object.annotations=[{annotation_id:'indexed-peak',kind:'point',text:'(1 -1 0)',color:'white',status:'user_confirmed',anchor:{source_object_id:sourceId,coordinate_space:'source_pixels',coordinates:[60,52]},presentation:{category:'A',label:{text:'g₁',offset:[15,12],pinned:true}}}];
+ const h=await harness(f),original=copy(f.object.annotations[0]);h.$('mode').value='select';h.flush();
+ h.event('pointerdown',57,54);assert.equal(h.inspect().drag.kind,'label');h.event('pointermove',67,62);h.flush();
+ assert.deepEqual(h.inspect().state.object.annotations[0].anchor,original.anchor);assert.equal(h.calls.length,0);
+ h.event('pointerup',67,62);h.flush();await h.settle();
+ assert.equal(h.calls.length,1);const update=h.calls[0].params.updates[0];assert.deepEqual(Object.keys(update).sort(),['annotation_id','presentation','presentation_replace']);assert.equal(update.presentation_replace,true);
+ assert.deepEqual(update.presentation.label.offset,[25,20]);assert.equal(update.presentation.label.pinned,true);
+ const saved=h.server().object.annotations[0];assert.deepEqual(saved.anchor,original.anchor);assert.equal(saved.status,'user_confirmed');assert.equal(saved.text,original.text);assert.equal(saved.presentation.label.text,original.presentation.label.text);
+});
+
+test('moving a measured endpoint hides its stale numeric label until a new measurement record supplies valid units',async()=>{
+ for(const result of [{object_id:'new-distance-record',physical_distance:3.2,physical_unit:'nm'},{object_id:'pixel-only-record',physical_distance:null,physical_unit:null,distance_pixels:30}]){
+  const f=annotated();f.object.annotations[0].status='user_confirmed';f.object.annotations[0].text='d = 2.5 nm';f.object.annotations[0].presentation={label:{text:'d = 2.5 nm',offset:[40,5],pinned:true,visible:true,measurement_object_id:'old-distance-record',measurement_kind:'distance'}};
+  const h=await harness(f);let measured;h.delayMeasurement(new Promise(resolve=>{measured=resolve;}));h.measureResponse(result);
+  h.$('existing').value='line-a';h.$('existing').onchange();h.event('pointerdown',10,10);h.event('pointerup',18,19);h.flush();await h.settle();
+  const moved=h.server().object.annotations[0];assert.deepEqual(moved.anchor.coordinates,[38,31,60,52]);assert.equal(moved.status,'user_confirmed');assert.equal(moved.presentation.label.visible,false);assert.equal(moved.presentation.label.measurement_object_id,'old-distance-record');
+  assert.doesNotMatch(h.$('annotation-layer').innerHTML,/data-part="label"/);
+  assert.equal(h.calls[0].action,'edit');assert.equal(h.calls[0].params.updates[0].status,undefined);assert.equal(h.calls[1].action,'measure');assert.deepEqual(h.calls[1].params.selection.coordinates,[38,31,60,52]);
+  measured();await h.settle();const saved=h.server().object.annotations[0];assert.equal(saved.status,'user_confirmed');assert.deepEqual(saved.anchor.coordinates,[38,31,60,52]);
+  if(result.physical_unit){assert.equal(h.calls.length,3);assert.equal(saved.presentation.label.visible,true);assert.equal(saved.presentation.label.measurement_object_id,'new-distance-record');assert.equal(saved.presentation.label.text,'d = 3.2 nm');assert.match(saved.note,/new-distance-record/);}
+  else {assert.equal(h.calls.length,2);assert.equal(saved.presentation.label.visible,false);assert.equal(saved.presentation.label.measurement_object_id,'old-distance-record');assert.match(h.$('message').textContent,/没有可信物理单位/);}
+ }
+});
+
+test('figure mode locks scientific geometry and new selections while leaving the original anchor available',async()=>{
+ const f=annotated();f.object.annotations[0].presentation={label:{visible:false}};const h=await harness(f);await h.click('figure-mode');assert.equal(h.$('figure-mode').textContent,'出图模式');
+ h.$('mode').value='select';h.event('pointerdown',10,10);h.event('pointermove',18,19);h.event('pointerup',18,19);h.flush();await h.settle();
+ assert.equal(h.inspect().drag,null);assert.equal(h.inspect().editCoordinates,null);assert.equal(h.calls.length,0);assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[30,22,60,52]);
+ h.$('mode').value='rectangle';h.event('pointerdown',80,60);h.event('pointermove',110,80);h.event('pointerup',110,80);h.flush();await h.settle();
+ assert.equal(h.inspect().draft,null);assert.equal(h.inspect().dirty,false);assert.equal(h.calls.length,0);assert.doesNotMatch(h.$('annotation-layer').innerHTML,/data-part="handles"/);
+});
+
+function twoMeasuredLines(){const f=fixture();f.object.annotations=[['A',[25,30,75,30],'1'],['B',[21,70,146,70],'2.5']].map(([annotation_id,coordinates,value])=>({annotation_id,kind:'line',text:`d = ${value} nm`,color:'white',status:'user_confirmed',anchor:{source_object_id:sourceId,coordinate_space:'source_pixels',coordinates},presentation:{label:{text:`d = ${value} nm`,offset:[8,20],visible:true,measurement_object_id:annotation_id.toLowerCase().repeat(32),measurement_kind:'distance'}}}));return f;}
+function selectLine(h,id){h.$('existing').value=id;h.$('existing').onchange();}
+function measuredFromSelection(body){const c=body.params.selection.coordinates;return {object_id:(c[1]===30?'c':'d').repeat(32),physical_distance:Math.hypot(c[2]-c[0],c[3]-c[1])*.02,physical_unit:'nm'};}
+test('P0: saving A then selecting B remeasures saved A, never the global B selection',async()=>{
+ const f=twoMeasuredLines(),h=await harness(f),originalB=copy(f.object.annotations[1]);let release;h.delayAction(new Promise(r=>{release=r;}));h.measureResponse(measuredFromSelection);
+ selectLine(h,'A');h.event('pointerdown',55,18);h.event('pointerup',65,18);h.flush();await h.settle();assert.equal(h.calls[0].action,'edit');
+ selectLine(h,'B');h.event('pointerdown',126,58);h.event('pointerup',126,58);h.flush();assert.deepEqual(h.inspect().draft.coordinates,originalB.anchor.coordinates);
+ release();await h.settle();const saved=h.server().object.annotations;
+ assert.deepEqual(h.calls.find(c=>c.action==='measure').params.selection.coordinates,[25,30,85,30]);
+ assert.equal(saved[0].presentation.label.text,'d = 1.2 nm');assert.deepEqual(saved[1],originalB);assert.deepEqual(h.inspect().draft.coordinates,originalB.anchor.coordinates);
+});
+
+test('P0: a delayed measurement cannot write an older A revision after A moves again',async()=>{
+ const h=await harness(twoMeasuredLines());let release;h.delayMeasurement(new Promise(r=>{release=r;}));h.measureResponse(measuredFromSelection);
+ selectLine(h,'A');h.event('pointerdown',55,18);h.event('pointerup',65,18);h.flush();await h.settle();assert.equal(h.calls.filter(c=>c.action==='measure').length,1);
+ h.event('pointerdown',65,18);h.event('pointerup',75,18);h.flush();await h.settle();assert.equal(h.server().object.annotations[0].presentation.label.visible,false);
+ release();await h.finish();const mark=h.server().object.annotations[0];assert.equal(h.inspect().autoFailed,false,JSON.stringify({calls:h.calls,ui:h.inspect(),message:h.$('message').textContent}));assert.equal(h.inspect().busy,false,JSON.stringify({calls:h.calls,queue:h.inspect().queuedEdits,message:h.$('message').textContent}));assert.deepEqual(mark.anchor.coordinates,[25,30,95,30]);assert.equal(mark.presentation.label.text,'d = 1.4 nm');assert.equal(mark.status,'user_confirmed');
+ assert.deepEqual(h.calls.filter(c=>c.action==='measure').map(c=>c.params.selection.coordinates),[[25,30,85,30],[25,30,95,30]]);
+ assert.ok(!h.calls.some(c=>c.action==='edit'&&c.params.updates.some(u=>u.text==='d = 1.2 nm')),'stale numeric result must never be persisted');
+});
+
+test('P0: consecutive A/B edits each remeasure their own saved anchor; label drag keeps that measurement ID',async()=>{
+ const h=await harness(twoMeasuredLines());let release;h.delayMeasurement(new Promise(r=>{release=r;}));h.measureResponse(measuredFromSelection);
+ selectLine(h,'A');h.event('pointerdown',55,18);h.event('pointerup',65,18);h.flush();await h.settle();
+ selectLine(h,'B');h.event('pointerdown',1,58);h.event('pointerup',11,58);h.flush();release();await h.finish();
+ const [a,b]=h.server().object.annotations;assert.equal(a.presentation.label.text,'d = 1.2 nm');assert.equal(b.presentation.label.text,'d = 2.3 nm');assert.deepEqual(b.anchor.coordinates,[31,70,146,70]);
+ assert.deepEqual(h.calls.filter(c=>c.action==='measure').map(c=>c.params.selection.coordinates),[[25,30,85,30],[31,70,146,70]]);
+ const count=h.calls.filter(c=>c.action==='measure').length,id=a.presentation.label.measurement_object_id,anchor=copy(a.anchor);
+ h.$('mode').value='select';h.event('pointerdown',20,45);h.event('pointerup',30,49);h.flush();await h.finish();
+ const again=h.server().object.annotations[0];assert.deepEqual(again.anchor,anchor);assert.equal(again.presentation.label.measurement_object_id,id);assert.equal(h.calls.filter(c=>c.action==='measure').length,count);
+});
+
+test('P0: unknown measurement response retains drafts and only queries its original request on recovery',async()=>{
+ const h=await harness(twoMeasuredLines());let release;h.delayMeasurement(new Promise(r=>{release=r;}));h.measureResponse(measuredFromSelection);
+ selectLine(h,'A');h.event('pointerdown',55,18);h.event('pointerup',65,18);h.flush();await h.settle();
+ selectLine(h,'B');h.event('pointerdown',1,58);h.event('pointerup',11,58);h.flush();h.failAction('Synthetic response lost. Original request_id=measure-original-42; query it');release();await h.settle();
+ assert.equal(h.inspect().autoFailed,true);assert.equal(h.inspect().dirty,true);assert.equal(h.server().object.annotations[0].presentation.label.visible,false);const requests=h.calls.length;
+ await h.settle();assert.equal(h.calls.length,requests,'unknown measurement is never automatically replayed');
+ h.recoverResponse({kind:'measure',request_id:'measure-original-42',object_id:'e'.repeat(32),coordinate_space:'source_pixels',points:[[25,30],[85,30]],physical_distance:1.2,physical_unit:'nm'});
+ await h.click('recover');await h.finish();assert.equal(h.calls.find(c=>c.action==='recover').params.request_id,'measure-original-42');assert.equal(h.inspect().autoFailed,false);
+ assert.equal(h.server().object.annotations[0].presentation.label.text,'d = 1.2 nm');assert.equal(h.server().object.annotations[1].presentation.label.text,'d = 2.3 nm');assert.equal(h.calls.filter(c=>c.action==='measure'&&c.params.selection.coordinates[1]===30).length,1);
+});
+
+function figureImportFixture(){
+ const saved=annotated();saved.object.display={gamma:1,display_range:[0,255],max_size:128,upscale:false,interpolation:'nearest',scale_bar:false};
+ saved.object.annotations[0].status='user_confirmed';saved.object.annotations[0].presentation={marker_shape:'circle',label:{offset:[8,-8],text:'saved label',measurement_object_id:'e'.repeat(32),measurement_kind:'distance'}};
+ const recipe=figureExport.makeFigureRecipe(saved,{preset:'real-space',mode:'figure',columns:'single',fontPt:8,layers:{experimental:true,simulation_A:false,simulation_B:false},legend:false,scaleBar:false,letter:'a'}),current=copy(saved);
+ current.object.display.gamma=2;current.object.display.display_range=[20,220];current.object.annotations[0].presentation={marker_shape:'diamond',label:{offset:[28,18],text:'later label'}};
+ const restored=copy(current);restored.object.object_id='c'.repeat(32);restored.object.display=copy(saved.object.display);restored.render_base_id=restored.object.object_id;
+ return {saved,current,restored,recipe};
+}
+
+test('P0: paste and file imports await restored display before saving exact presentation replacements',async()=>{
+ for(const route of ['paste','file']){
+  const {saved,current,restored,recipe}=figureImportFixture(),h=await harness(current);let release;h.delayAction(new Promise(resolve=>{release=resolve;}));h.actionResult(restored);
+  const text=JSON.stringify(recipe);let imported;
+  if(route==='paste'){h.$('recipe-text').value=text;imported=h.click('load-recipe-text');}
+  else{h.$('import-figure').files=[{size:text.length,text:async()=>text}];imported=h.$('import-figure').onchange();}
+  await h.settle();assert.equal(h.calls.length,1);assert.equal(h.calls[0].action,'restore-figure-display');assert.deepEqual(h.calls[0].params.recipe,recipe);assert.equal(h.inspect().queuedEdits.length,0);assert.deepEqual(h.server().object.annotations[0].presentation,current.object.annotations[0].presentation);
+  release();await imported;await h.finish();
+  const edit=h.calls.find(c=>c.action==='edit');assert.ok(edit,'presentation saves only after display adoption');assert.equal(edit.expected_object_id,restored.object.object_id);assert.equal(edit.params.updates[0].presentation_replace,true);assert.deepEqual(edit.params.updates[0].presentation,saved.object.annotations[0].presentation);
+  assert.equal(h.inspect().state.object.display.gamma,1);assert.deepEqual(h.inspect().state.object.display.display_range,[0,255]);assert.deepEqual(h.server().object.annotations[0].anchor,saved.object.annotations[0].anchor);assert.equal(h.server().object.annotations[0].status,'user_confirmed');assert.equal(h.server().object.annotations[0].presentation.label.measurement_object_id,'e'.repeat(32));assert.equal(h.$('figure-mode').textContent,'出图模式');assert.match(h.$('figure-export-status').textContent,/已恢复底图显示/);
+ }
+});
+
+test('P0: a local display draft arriving during figure restoration remains intact and blocks label replay',async()=>{
+ const {current,restored,recipe}=figureImportFixture(),h=await harness(current);let release;h.delayAction(new Promise(resolve=>{release=resolve;}));h.actionResult(restored);h.$('recipe-text').value=JSON.stringify(recipe);
+ const imported=h.click('load-recipe-text');await h.settle();assert.equal(h.calls[0].action,'restore-figure-display');
+ h.$('gamma').value='.7';h.$('gamma').oninput();h.flush();const revision=h.inspect().draftRevision;
+ release();await imported;await h.finish();
+ assert.equal(h.calls.length,1);assert.equal(h.inspect().state.object.object_id,current.object.object_id);assert.equal(h.inspect().pending.object.object_id,restored.object.object_id);assert.equal(h.inspect().draftRevision,revision);assert.equal(Number(h.$('gamma').value),.7);assert.equal(h.inspect().dirty,true);assert.equal(h.inspect().queuedEdits.length,0);assert.deepEqual(h.inspect().state.object.annotations[0].presentation,current.object.annotations[0].presentation);assert.equal(h.$('figure-mode').textContent,'分析模式');assert.match(h.$('figure-export-status').textContent,/尚未安全接续/);
+});
+
+test('P0: a provider pending display result cannot apply imported labels or figure preferences',async()=>{
+ const {current,restored,recipe}=figureImportFixture(),h=await harness(current),queued=copy(current);queued.pending_result={object_id:restored.object.object_id,request_id:'display-restore-original',reason:'unsaved_draft'};h.actionResult(queued);h.$('recipe-text').value=JSON.stringify(recipe);
+ await h.click('load-recipe-text');await h.finish();
+ assert.equal(h.calls.length,1);assert.equal(h.calls[0].action,'restore-figure-display');assert.equal(h.inspect().state.object.object_id,current.object.object_id);assert.equal(h.inspect().state.pending_result.request_id,'display-restore-original');assert.equal(h.$('pending-result').hidden,false);assert.equal(h.inspect().queuedEdits.length,0);assert.equal(Number(h.$('gamma').value),2);assert.deepEqual(h.inspect().state.object.annotations[0].presentation,current.object.annotations[0].presentation);assert.equal(h.$('figure-mode').textContent,'分析模式');assert.match(h.$('figure-export-status').textContent,/尚未安全接续/);
+});
+
+
+test('P0: recipe layout batch refreshes the selected inspector even when another mark is first',async()=>{
+ const {saved,current,restored}=figureImportFixture();
+ for(const s of [saved,current,restored])s.object.annotations.push({...copy(s.object.annotations[0]),annotation_id:'line-b'});
+ saved.object.annotations[1].presentation.label.font_size=12;current.object.annotations[1].presentation.label.font_size=16;restored.object.annotations[1].presentation.label.font_size=16;
+ const recipe=figureExport.makeFigureRecipe(saved,{preset:'real-space',mode:'figure',layers:{experimental:true},fontPt:8}),h=await harness(current);
+ h.$('existing').value='line-b';h.$('existing').onchange();assert.equal(h.$('label-size').value,16);
+ h.actionResult(restored);h.$('recipe-text').value=JSON.stringify(recipe);await h.click('load-recipe-text');await h.finish();
+ assert.ok(h.calls.some(c=>c.action==='edit-layout'));assert.equal(h.$('label-size').value,12);assert.equal(h.$('marker-shape').value,'circle');assert.deepEqual(h.server().object.annotations[1].anchor,saved.object.annotations[1].anchor);
 });
