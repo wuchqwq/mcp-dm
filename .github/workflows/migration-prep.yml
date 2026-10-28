@@ -52,5 +52,7 @@ jobs:
         with:
           name: independent-provider-candidates
           path: ${{ runner.temp }}/split-candidates
+          # Only the audited export is uploaded; .gitignore/.github are required.
+          include-hidden-files: true
           retention-days: 7
           if-no-files-found: error
