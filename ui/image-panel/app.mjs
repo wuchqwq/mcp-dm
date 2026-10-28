@@ -3,7 +3,7 @@ import {zoomAt,panBy,hitMark,DraftHistory,internalMarkId,relatedViewport,equalRe
 import {tonePixels,drawMark} from './viewer-render.mjs';
 import {layoutAnnotations,renderAnnotationsSVG} from './annotation-presentation.mjs';
 import {buildFigureBundle,downloadBlob,makeFigureRecipe,readFigureRecipe,figureScaleBar} from './figure-export.mjs';
-import {MeasurementWorkspace} from './measurement-workspace.mjs';
+import {MeasurementWorkspace,requiresMeasurementJump} from './measurement-workspace.mjs';
 import {DataProbes} from './data-probes.mjs';
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),baseCanvas=$('base-canvas'),baseContext=baseCanvas.getContext('2d',{willReadFrequently:true}),marksCanvas=$('marks-canvas'),marksContext=marksCanvas.getContext('2d'),stage=$('image-stage'),viewport=$('viewport');
 const key='mcp-dm-panel-token',hash=location.hash.slice(1);if(hash){sessionStorage.setItem(key,hash);history.replaceState(null,'',location.pathname);}const token=sessionStorage.getItem(key);
@@ -23,7 +23,7 @@ function dataProbeState(){const current=measurementWorkspace.current;return stat
 async function refreshMeasurements(){const ok=await measurementWorkspace.refresh();if(ok){renderMeasurement();dataProbes.refreshCurrent();if(['statistics','profile'].includes(state.last_operation?.kind))dataProbes.renderResult(state.last_operation);}return ok;}
 function selectMeasurement(entry){
  if(!entry)return;
- if(!entry.same_grid||!entry.visible_in_current_view||!entry.annotation_matches_current){message('这条结果属于另一帧、视野外或旧版峰位；请点“跳到结果原视图”明确查看。');return;}
+ if(requiresMeasurementJump(entry)){message('这条结果属于另一帧、视野外或旧版峰位；请点“跳到结果原视图”明确查看。');return;}
  const mark=state.object.annotations?.find(value=>value.annotation_id===entry.annotation_id);
  if(mark){chooseMark(mark.annotation_id);const panel=markPanel(mark);draft={kind:mark.kind,...mark.anchor,panel,rendered:transformCoordinates(mark.anchor.coordinates,panel,{inverse:true})};}
  else{message('当前视图没有这条结果的保存标记；可显式跳到其原视图。');return;}
