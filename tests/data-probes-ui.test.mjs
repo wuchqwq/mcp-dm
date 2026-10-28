@@ -8,7 +8,7 @@ const selection=x=>({source_object_id:S,coordinate_space:'source_pixels',coordin
 function response(query,value=query.coordinates[0]){return {object_id:query.expected_object_id,kind:'probe',component:query.component,coordinate_space:query.coordinate_space,samples:[{point:query.coordinates,array_index_xy:query.coordinates,sampled_coordinate_xy:query.coordinates,value}]};}
 function fixture(){
  let time=0,id=0,state={object:{object_id:A,dtype:'uint16',scientific_grid_identity:grid},state_revision:1};const timers=new Map(),calls=[],errors=[];
- const elements=new Map([['probe-value',{textContent:''}],['probe-component',{value:'raw',options:['raw','real','imag','amplitude','power'].map(value=>({value}))}],['statistics-summary',{textContent:''}],['profile-summary',{textContent:''}]]);
+ const elements=new Map([['probe-value',{textContent:''}],['probe-component',{value:'raw',options:['raw','real','imag','amplitude','power'].map(value=>({value}))}],['statistics-summary',{textContent:''}],['profile-summary',{textContent:''}],['profile-readout',{textContent:''}],['profile-csv',{disabled:false}]]);
  const instance=new DataProbes({getState:()=>state,document:{getElementById:key=>elements.get(key)},onError:e=>errors.push(e),now:()=>time,setTimer:(fn,delay)=>{const ident=++id;timers.set(ident,{fn,due:time+delay});return ident;},clearTimer:ident=>timers.delete(ident),api:(url,body)=>new Promise((resolve,reject)=>calls.push({url,body,resolve,reject}))});
  return {instance,calls,errors,elements,get state(){return state;},setState:value=>{state=value;},async tick(delta=0){time+=delta;const due=[...timers].filter(([_id,value])=>value.due<=time);for(const [ident,value]of due){timers.delete(ident);value.fn();}for(let i=0;i<6;i++)await Promise.resolve();},async settle(){for(let i=0;i<6;i++)await Promise.resolve();},timers};
 }
@@ -50,6 +50,25 @@ test('a validated same-array display revision retains saved raw statistics and u
  const f=fixture(),p=profile();assert.equal(f.instance.renderResult(p),true);assert.equal(f.instance.renderResult({kind:'statistics',parent_object_id:A,scientific_grid_identity:grid,component:'raw',statistics:{sample_count:4,mean:22.5,stddev:11,minimum:10,maximum:40}}),true);
  const before=JSON.stringify(f.instance.profile.samples);f.setState({object:{object_id:B,dtype:'uint16',scientific_grid_identity:{...grid},display:{gamma:2}},state_revision:2});f.instance.refreshCurrent();assert.equal(JSON.stringify(f.instance.profile.samples),before);assert.equal(f.instance.statistics.statistics.mean,22.5);assert.equal(f.calls.length,0);
  f.setState({object:{object_id:B,dtype:'uint16'},state_revision:3});f.instance.refreshCurrent();assert.equal(f.instance.profile,null,'unknown grid cannot be assumed equal to the previous scientific array');
+});
+
+test('invalidated grid or calibration clears exact sample readout and its old plot handlers and disables export',()=>{
+ for(const change of ['grid','calibration']){
+  const f=fixture(),xy={calibration_id:'scale-1',revision:1};
+  assert.equal(f.elements.get('profile-csv').disabled,true,'no profile is initially available to export');
+  f.setState({...f.state,object:{...f.state.object,xy_calibration:xy}});
+  const p=profile({xy_calibration:xy,samples:{...profile().samples,physical_distance:[0,.2,.4,.6]},physical_distance_unit:'nm'});
+  assert.equal(f.instance.renderResult(p),true);assert.equal(f.elements.get('profile-csv').disabled,false);
+  const readout=f.elements.get('profile-readout');readout.textContent='采样 1 · 距离 0.2 nm · 原始数值 20';
+  const plot={children:['old curve'],onpointermove:()=>{readout.textContent='old nm';},onkeydown:()=>{readout.textContent='old nm';},replaceChildren(){this.children=[];}};
+  const rows={children:['old sample'],replaceChildren(){this.children=[];}};f.elements.set('profile-plot',plot);f.elements.set('profile-values',rows);
+  const object={...f.state.object,...(change==='grid'?{scientific_grid_identity:{...grid,array_sha256:'new-array'}}:{xy_calibration:{calibration_id:'scale-2',revision:2}})};
+  f.setState({object,state_revision:2});f.instance.refreshCurrent();f.instance.restoreSavedResults({profile:p});
+  assert.equal(f.instance.profile,null);assert.equal(readout.textContent,'');assert.deepEqual(plot.children,[]);assert.deepEqual(rows.children,[]);
+  assert.equal(plot.onpointermove,null);assert.equal(plot.onkeydown,null);assert.equal(f.elements.get('profile-csv').disabled,true);
+  assert.match(f.elements.get('profile-summary').textContent,change==='grid'?/当前对象已变化/:/旧剖面物理轴待重测/);
+  assert.equal(f.calls.length,0,'invalidation and restore checks do not launch new science');
+ }
 });
 
 test('default host timers retain their browser receiver',()=>{

@@ -98,6 +98,13 @@ test('spatial measurements bind the selected saved view or annotation without in
  }
 });
 
+test('fresh source display is restricted to the current frame and never dispatches FFT',async()=>fixture(async({act,calls})=>{
+ const before=calls.length;assert.equal((await act('show',{object_id:A,source_view:true})).status,409);assert.equal(calls.length,before);
+ assert.equal((await act('show',{object_id:F,source_view:false})).status,400);assert.equal(calls.length,before);
+ const reply=await act('show',{object_id:F,source_view:true});assert.equal(reply.status,200);
+ assert.deepEqual(calls.slice(before).filter(c=>c.name!=='image_info').map(c=>({name:c.name,object_id:c.args.object_id})),[{name:'image_preview',object_id:F}]);
+}));
+
 test('presentation draft and sparse save retain the scientific anchor and confirmation',async()=>fixture(async({panel,act,calls,initialMark})=>{
  const changed={...clone(presentation),label:{...presentation.label,text:'display label',offset:[30,12]}};
  const draft=await act('draft',{draft_revision:1,dirty:true,gesture_active:true,selection,annotation_edit:{annotation_id:'first',presentation:changed}},{lightweight:true});

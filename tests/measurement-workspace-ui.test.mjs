@@ -46,3 +46,18 @@ test('newer overlapping read wins, and canvas/table selection does not recompute
  const one=workspace.refresh(),two=workspace.refresh();releaseSecond({current:{object_id:A},entries:[result({object_id:B})]});assert.equal(await two,true);releaseFirst({current:{object_id:A},entries:[result({object_id:C})]});assert.equal(await one,false);assert.equal(workspace.entries[0].object_id,B);
  workspace.select(B);assert.deepEqual(selected,[B]);assert.equal(number,2);
 });
+test('current bound mark names follow saved automatic labels in table/export without changing historical names or scientific records',async()=>{
+ class E{constructor(){this.children=[];this.dataset={};this.attrs={};this.classList={toggle(){}};}replaceChildren(){this.children=[];}append(...values){this.children.push(...values);}setAttribute(key,value){this.attrs[key]=String(value);}}
+ const elements=new Map([['measurement-rows',new E()],['measurement-history',{checked:true}]]),state={object:{object_id:B,annotations:[{annotation_id:'g1',text:'d = 0.09287 nm'}]},state_revision:1};
+ const current=Object.freeze(result({name:'d = 0.0866 nm',d_spacing:.0928706,same_grid:true,annotation_matches_current:true})),historical=Object.freeze(result({object_id:C,name:'d = 0.0866 nm',status:'historical',same_grid:true,annotation_matches_current:true}));
+ const records=[current,historical],original=JSON.stringify(records);let reads=0;
+ const workspace=new MeasurementWorkspace({document:{getElementById:key=>elements.get(key),createElement:()=>new E()},getState:()=>state,api:async()=>{reads++;return {current:{object_id:B},entries:records};}});
+ assert.equal(await workspace.refresh(),true);
+ const rows=elements.get('measurement-rows').children;assert.match(rows[0].children[1].textContent,/d = 0.09287 nm/);assert.match(rows[1].children[1].textContent,/d = 0.0866 nm/);
+ workspace.checked.add(A);const projection=workspace.exportSelection();assert.equal(projection[0].name,'d = 0.09287 nm');assert.equal(projection[0].d_spacing,.0928706);assert.match(exportMeasurementTable(projection),/\r\nd = 0.09287 nm,DC→峰,当前,/);
+ assert.equal(workspace.selected(),null);assert.equal(workspace.entries[0],current);assert.equal(JSON.stringify(records),original);
+ state.object.annotations[0].text='label 999';assert.equal(workspace.visible()[0].name,'label 999');assert.equal(measurementValues(workspace.visible()[0]).find(value=>value.kind==='d_spacing').value,.0928706,'labels are never parsed as scientific values');
+ for(const invalid of [{same_grid:false},{annotation_matches_current:false},{status:'historical'}])assert.equal(workspace.displayEntry({...current,...invalid}).name,current.name);
+ state.object.object_id=C;assert.equal(workspace.displayEntry(current).name,current.name,'a late object selection cannot supply another mark name');
+ assert.equal(reads,1,'name projection and export do not remeasure');assert.equal(JSON.stringify(records),original);
+});

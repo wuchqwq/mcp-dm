@@ -20,7 +20,7 @@ export function transformCoordinates(values,panel,{edges=false,inverse=false}={}
 }
 export function panelAt(panels,x,y,{edges=false}={}) {
   const matches=panels.filter(p=>{const [l,t,r,b]=p.image_rect_xyxy;return x>=l&&y>=t&&x<=(edges?r:r-1)&&y<=(edges?b:b-1);});
-  if(matches.length!==1)throw new Error('Choose a point inside exactly one data panel, away from axes');
+  if(matches.length!==1)throw new Error('请在图像内部的单一数据区域选点或拖动，避开坐标轴和图外空白');
   return matches[0];
 }
 export function constrainSelectionDrag(panel,start,end,{kind,constrained=false}={}) {
