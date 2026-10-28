@@ -49,6 +49,7 @@ jobs:
             tests/analysis-context.test.mjs \
             tests/skill-contracts.test.mjs \
             tests/image-panel-ui.test.mjs \
+            tests/image-panel-drag-constraints.test.mjs \
             tests/image-panel-viewport.test.mjs \
             tests/image-panel-presentation.test.mjs \
             tests/image-panel-figure-export.test.mjs \

@@ -168,3 +168,31 @@ inset composition and full LaTeX are outside this version. Dense labels still
 need researcher judgment and occasional manual positioning. Figure recipes
 require the original workspace. Native DM/GMS, ABI, scientific kernels and the
 full Windows/Python/C++ regression are outside this UI validation scope.
+
+
+## Closeout correctness fixes
+
+An endpoint save snapshots the annotation ID, saved anchor/panel, calibration,
+confirmation state and local geometry revision. Remeasurement uses that saved
+selection and the current saved scientific object, never the later global
+selection. Results are accepted only while that annotation revision and its
+measurement binding remain valid. Editing another mark stays available. Old
+numeric labels remain hidden until a matching tool measurement succeeds.
+Unknown replies retain edits; recovery queries the original journaled request
+ID rather than submitting a replacement. Measuring a saved spatial view uses
+its existing measurement-operand resolution, without extra context/calibration
+writes before measurement. Label-only edits retain the measurement reference.
+
+Loading figure.json first checks source, grid, calibration, exact anchors and
+confirmation states. It verifies the original saved display version, restores
+explicit Gamma/range and domain-specific display controls through image_preview,
+and only then replaces presentation metadata. Missing or altered provenance is
+refused. A new local draft or queued Agent result blocks late restoration.
+No FFT or scientific array is recomputed. Pixel comparisons decode PNGs rather
+than treating encoder metadata as scientific differences. Recipes need their
+original workspace and complete display controls; legacy incomplete recipes
+must be re-exported from their saved source version.
+
+The synthetic twin fixture explicitly selects its existing Cu FCC [1,-1,0]
+comparison. Explorer rank does not establish researcher selection or extend
+the conventional monatomic FCC twin scope.

@@ -68,6 +68,36 @@ async function fixture(run,{calibrated=false,spectral=false,changedGrid=false,lo
  try{await run({panel,act,calls,origin,initialMark,panelGrid});}finally{await panel.close();rmSync(workspace,{recursive:true,force:true});}
 }
 
+test('spatial measurements bind the selected saved view or annotation without intermediate context or calibration writes',async()=>{
+ for(const kind of ['view','annotate']){
+  const workspace=mkdtempSync(path.join(tmpdir(),'dm-bound-spatial-measure-')),calls=[];
+  const selected={kind:'line',coordinate_space:'source_pixels',source_object_id:F,coordinates:[3,4,13,4],panel:grid};
+  const current={object_id:A,kind,parent_object_id:F,display:{gamma:1},panels:[grid],annotations:[],
+   user_context:{data_meaning:'synthetic_demo',source_text:'Explicit routing test'},
+   xy_calibration:{calibration_id:C,status:'active',coordinate_domain:'real_space',xy_scale:{x:.02,y:.02,unit:'nm'}}};
+  let panel;
+  const client={async rpc(method){return {result:method==='tools/list'?{tools:['image_info','image_context','image_calibrate','image_measure'].map(name=>({name,inputSchema:{}}))}:{}};},
+   async tool(name,args){
+    calls.push({name,args:clone(args)});
+    if(name==='image_info')return {data:clone(args.object_id===A?current:{object_id:F,kind:'frame',frame_index:0,source_object_id:B}),png:cleanBytes.toString('base64')};
+    assert.equal(name,'image_measure','measurement must not recreate context or calibration');
+    const request=JSON.parse(readFileSync(path.join(panel.journal,`${args.request_id}.request.json`),'utf8'));
+    assert.equal(request.name,'image_measure');assert.deepEqual(request.arguments,args);
+    assert.equal(args.object_id,A);assert.deepEqual(args.points,[[3,4],[13,4]]);assert.equal(args.coordinate_space,'source_pixels');
+    return {data:{object_id:D,kind:'measure',request_id:args.request_id,parent_object_id:A,points:clone(args.points),coordinate_space:args.coordinate_space,physical_distance:.2,physical_unit:'nm'}};
+   },async close(){}};
+  try{
+   panel=await createImagePanel({workspace,python:path.resolve('unused-python'),object_id:A,client});
+   const origin=panel.url.split('/#')[0],headers={'X-Panel-Token':panel.token,Origin:origin,'Content-Type':'application/json'};
+   const response=await fetch(origin+'/api/action',{method:'POST',headers,body:JSON.stringify({expected_object_id:A,draft_revision:0,action:'measure',params:{selection:selected}})}),result=await response.json();
+   assert.equal(response.status,200,JSON.stringify(result));assert.equal(result.object.object_id,A);assert.deepEqual(result.selection,selected);
+   assert.equal(result.last_operation.parent_object_id,A);assert.equal(result.last_operation.physical_distance,.2);
+   assert.equal(calls.filter(call=>call.name==='image_measure').length,1);
+   assert.equal(calls.filter(call=>['image_context','image_calibrate'].includes(call.name)).length,0);
+  }finally{await panel?.close();rmSync(workspace,{recursive:true,force:true});}
+ }
+});
+
 test('presentation draft and sparse save retain the scientific anchor and confirmation',async()=>fixture(async({panel,act,calls,initialMark})=>{
  const changed={...clone(presentation),label:{...presentation.label,text:'display label',offset:[30,12]}};
  const draft=await act('draft',{draft_revision:1,dirty:true,gesture_active:true,selection,annotation_edit:{annotation_id:'first',presentation:changed}},{lightweight:true});

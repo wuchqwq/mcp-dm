@@ -208,9 +208,9 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
      dc=record.dc_index_xy;
     }else fail('Draw a two-point spatial line, or choose a reciprocal peak with an explicit DC');
    }else if(selected.coordinates.length!==4||!['line','arrow'].includes(selected.kind))fail('Draw a two-point line or select a reciprocal peak');
-   // Reciprocal arrays retain their current calibrated wrapper. Do not replace
-   // it with an older bare source while routing the user's selected indices.
-   const target=spectral||scalar?current.object_id:await withCurrentContext(selected.source_object_id);
+   // measurement_operand resolves the saved view/annotation and its selected
+   // calibration. Measure that exact revision without intermediate writes.
+   const target=current.object_id;
    const args={object_id:target,points:peak?[dc,selected.coordinates]:[selected.coordinates.slice(0,2),selected.coordinates.slice(2)],
     coordinate_space:spectral?'frequency_cycles_per_pixel':scalar?'source_array_indices':'source_pixels'};
    r=await journalCall('image_measure',args);

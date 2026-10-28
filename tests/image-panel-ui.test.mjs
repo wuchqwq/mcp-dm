@@ -172,6 +172,22 @@ test('a real tone change invalidates the cache once, not on every overlay move',
  const adjusted=h.stats.pow;h.draw();assert.equal(h.stats.pow,adjusted);
 });
 
+test('Shift and Ctrl constrain a new ROI on the source grid using the final pointerup modifier',async()=>{
+ for(const modifier of ['shiftKey','ctrlKey']){
+  const f=fixture();f.object.panels[0].source_rect_xyxy=[20,12,276,108];const h=await harness(f);h.$('mode').value='rectangle';
+  h.event('pointerdown',10.2,10.3);h.event('pointermove',30,15);h.event('pointerup',40,20,{[modifier]:true});h.flush();
+  assert.deepEqual(h.inspect().draft.coordinates,[40,22,100,82]);assert.deepEqual(coordinates.selectionRectangle(h.inspect().draft),[40,22,100,82]);
+ }
+ const h=await harness();h.$('mode').value='rectangle';h.event('pointerdown',10,10);h.event('pointermove',40,20,{shiftKey:true});
+ assert.deepEqual(h.inspect().drag.end,[40,40]);h.event('pointerup',40,20);h.flush();assert.deepEqual(h.inspect().draft.coordinates,[30,22,60,32]);
+});
+
+test('new line and arrow constrain their final source coordinates without a final pointermove',async()=>{
+ for(const [kind,modifier,end,expected]of [['line','shiftKey',[50,20],[30,22,70,22]],['arrow','ctrlKey',[15,65],[30,22,30,77]]]){
+  const h=await harness();h.$('mode').value=kind;h.event('pointerdown',10,10);h.event('pointerup',...end,{[modifier]:true});h.flush();assert.deepEqual(h.inspect().draft.coordinates,expected);
+ }
+});
+
 function annotated(){const s=fixture();s.object.annotations=[{annotation_id:'line-a',kind:'line',text:'candidate',color:'cyan',status:'hypothesized',anchor:{source_object_id:sourceId,coordinate_space:'source_pixels',coordinates:[30,22,60,52]}}];return s;}
 async function editHarness(){const h=await harness(annotated());h.$('existing').value='line-a';h.$('existing').onchange();return h;}
 
@@ -181,6 +197,10 @@ test('edit uses pointerup position even with no final pointermove event',async()
  assert.equal(h.calls[0].params.updates[0].status,undefined,'geometry edit must not resubmit confirmation state');
  assert.equal(h.server().object.annotations[0].status,'hypothesized');
  assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[38,31,60,52]);assert.notEqual(h.inspect().state.object.object_id,viewId);
+});
+
+test('Shift and Ctrl do not constrain existing annotation geometry drags',async()=>{
+ for(const modifier of ['shiftKey','ctrlKey']){const h=await editHarness();h.event('pointerdown',10,10);h.event('pointerup',18,19,{[modifier]:true});h.flush();await h.finish();assert.deepEqual(h.server().object.annotations[0].anchor.coordinates,[38,31,60,52]);}
 });
 
 test('pointercancel and lost capture roll back the current gesture without saving',async()=>{
