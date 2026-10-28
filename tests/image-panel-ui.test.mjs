@@ -53,7 +53,7 @@ async function harness(initial=fixture()){
     if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);server.edit_state={...copy(body.params),base_object_id:server.object.object_id};return {ok:true,json:async()=>body.lightweight?{object_id:server.object.object_id,edit_state:copy(server.edit_state)}:copy(server)};}
     calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;if(body.action==='measure'&&waitMeasurement)await waitMeasurement;
     if(actionFailure){const error=actionFailure;actionFailure=null;return {ok:false,json:async()=>({error})};}
-    if(body.action==='edit'&&body.params.auto_commit){
+    if(['edit','edit-layout'].includes(body.action)&&body.params.auto_commit){
      const result=nextActionResult?copy(nextActionResult):copy(server);nextActionResult=null;
      for(const update of body.params.updates){const mark=result.object.annotations.find(m=>m.annotation_id===update.annotation_id);assert.ok(mark,'autosave must update an existing stable mark');for(const [field,value]of Object.entries(update)){if(field==='coordinates')mark.anchor.coordinates=copy(value);else if(!['annotation_id','presentation_replace'].includes(field))mark[field]=copy(value);}}
      if(result.object.object_id===server.object.object_id)result.object.object_id=(++actionSequence).toString(16).padStart(32,'0');
@@ -466,4 +466,15 @@ test('P0: a provider pending display result cannot apply imported labels or figu
  const {current,restored,recipe}=figureImportFixture(),h=await harness(current),queued=copy(current);queued.pending_result={object_id:restored.object.object_id,request_id:'display-restore-original',reason:'unsaved_draft'};h.actionResult(queued);h.$('recipe-text').value=JSON.stringify(recipe);
  await h.click('load-recipe-text');await h.finish();
  assert.equal(h.calls.length,1);assert.equal(h.calls[0].action,'restore-figure-display');assert.equal(h.inspect().state.object.object_id,current.object.object_id);assert.equal(h.inspect().state.pending_result.request_id,'display-restore-original');assert.equal(h.$('pending-result').hidden,false);assert.equal(h.inspect().queuedEdits.length,0);assert.equal(Number(h.$('gamma').value),2);assert.deepEqual(h.inspect().state.object.annotations[0].presentation,current.object.annotations[0].presentation);assert.equal(h.$('figure-mode').textContent,'分析模式');assert.match(h.$('figure-export-status').textContent,/尚未安全接续/);
+});
+
+
+test('P0: recipe layout batch refreshes the selected inspector even when another mark is first',async()=>{
+ const {saved,current,restored}=figureImportFixture();
+ for(const s of [saved,current,restored])s.object.annotations.push({...copy(s.object.annotations[0]),annotation_id:'line-b'});
+ saved.object.annotations[1].presentation.label.font_size=12;current.object.annotations[1].presentation.label.font_size=16;restored.object.annotations[1].presentation.label.font_size=16;
+ const recipe=figureExport.makeFigureRecipe(saved,{preset:'real-space',mode:'figure',layers:{experimental:true},fontPt:8}),h=await harness(current);
+ h.$('existing').value='line-b';h.$('existing').onchange();assert.equal(h.$('label-size').value,16);
+ h.actionResult(restored);h.$('recipe-text').value=JSON.stringify(recipe);await h.click('load-recipe-text');await h.finish();
+ assert.ok(h.calls.some(c=>c.action==='edit-layout'));assert.equal(h.$('label-size').value,12);assert.equal(h.$('marker-shape').value,'circle');assert.deepEqual(h.server().object.annotations[1].anchor,saved.object.annotations[1].anchor);
 });
