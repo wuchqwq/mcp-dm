@@ -24,9 +24,11 @@ import tifffile
 if __package__:
     from .image_annotation_updates import plan_annotation_updates
     from . import image_calibration as calibration
+    from . import image_numeric as numeric
 else:
     from image_annotation_updates import plan_annotation_updates
     import image_calibration as calibration
+    import image_numeric as numeric
 
 BACKEND = "external-image-workspace"
 MAX_PIXELS = 4 * 1024 * 1024
@@ -44,6 +46,8 @@ FIELDS = {
     "fft": {"object_id", "rect", "window", "subtract_mean", "max_size"},
     "annotate": {"object_id", "annotations", "updates"}, "context": {"object_id", "metadata"},
     "measure": {"object_id", "points", "coordinate_space"}, "export": {"object_id", "output_dir"},
+    "statistics": {"object_id", "rect", "frequency_rect", "component"},
+    "profile": {"object_id", "points", "coordinate_space", "component", "sample_count", "line_width", "interpolation"},
     "centre": {"object_id", "center_xy", "coordinate_space", "source_text"},
     "remeasure": {"object_id", "measurement_object_id", "points", "source_text"},
     "calibrate": {"object_id", "scope", "xy_scale", "source_text", "calibration_object_id", "coordinate_domain", "declare_reciprocal"},
@@ -777,7 +781,7 @@ class Workspace:
                                              "Pillow": PIL.__version__, "tifffile": tifffile.__version__,
                                              "worker_sha256": sha_file(Path(__file__)),
                                              "helper_modules_sha256": {name: sha_file(Path(__file__).with_name(name)) for name in
-                                                                       ("image_annotation_updates.py", "image_calibration.py")}})
+                                                                       ("image_annotation_updates.py", "image_calibration.py", "image_numeric.py")}})
         metadata["manifest_path"] = str(directory / "object.json")
         if "preview.png" in files:
             metadata["image_path"] = str(directory / "preview.png")
@@ -908,6 +912,25 @@ class Workspace:
                                                 "pixel_anchor_policy": ("new centre reference; saved peak anchors and old measurements remain unchanged; remeasure the explicit DC endpoint" if action == "centre" else "scale-only revision preserves saved point coordinates"),
                                                 "old_exports_immutable": True},
                             next_step="image_preview on this wrapper to redraw physical scale/axes; image_measure to calculate geometry with the selected record")
+        elif action in ("statistics", "profile"):
+            metadata.update(parent_object_id=request["object_id"])
+            if action == "statistics":
+                metadata.update(numeric.statistics(self, request))
+                write_new(directory / "statistics.json", canonical(metadata["statistics"])+b"\n")
+            else:
+                result, values = numeric.profile(self, request)
+                metadata.update(result)
+                save_array(directory, "profile.npy", values)
+                import csv
+                with (directory / "profile.csv").open("x", encoding="utf-8", newline="") as stream:
+                    writer = csv.writer(stream)
+                    writer.writerow(["sample", "x", "y", "array_x", "array_y", "distance", "distance_unit", "physical_distance", "physical_distance_unit", "value", "component", "dtype"])
+                    samples = result["samples"]
+                    for i in range(len(values)):
+                        writer.writerow([i, *samples["coordinates_xy"][i], *samples["indices_xy"][i], samples["distance"][i], result["distance_unit"],
+                                         samples["physical_distance"][i] if samples["physical_distance"] is not None else "", result["physical_distance_unit"] or "", values[i].item(), result["component"], result["dtype"]])
+                    stream.flush()
+                    os.fsync(stream.fileno())
         elif action in ("view", "fft", "measure"):
             spectral_view = False
             inherited_annotations = []
@@ -1233,7 +1256,8 @@ class Workspace:
                 need(scientific.get("display_calibration_id") == (record["calibration_id"] if record else None),
                      "The selected calibration differs from this PNG's render dependency; call image_preview before export",
                      "STALE_CALIBRATION_DISPLAY")
-            names = [name for name in scientific["files_sha256"] if name.endswith(".npy")]
+            numeric_result = scientific["kind"] in ("statistics", "profile")
+            names = [name for name in scientific["files_sha256"] if name.endswith(".npy") or numeric_result and name in ("statistics.json", "profile.csv")]
             need(names, "Export requires actual scientific arrays; a TIFF metadata handle/context-only record is not pixel data")
             provenance = self.export_provenance(request["object_id"])
             output = absolute(request.get("output_dir"), "output_dir")
@@ -1250,6 +1274,8 @@ class Workspace:
                 write_new(output / "preview.png", Path(image_object["image_path"]).read_bytes())
                 exported["preview.png"] = sha_file(output / "preview.png")
                 export_display = image_object.get("display") or scientific.get("display")
+            elif numeric_result:
+                export_display = None
             else:
                 values = load_array(source_directory / names[0])
                 export_display = display_options({}, [values])

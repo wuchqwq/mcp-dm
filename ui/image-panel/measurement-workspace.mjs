@@ -93,6 +93,7 @@ export class MeasurementWorkspace {
  }
  renderDetails(target,details){if(!target||!this.document)return;target.replaceChildren();const dl=this.document.createElement('dl');for(const [name,value]of details){const dt=this.document.createElement('dt'),dd=this.document.createElement('dd');dt.textContent=name;dd.textContent=typeof value==='object'?JSON.stringify(value):String(value);dl.append(dt,dd);}target.append(dl);}
  render(){
+  this.el('measurement-workspace')?.classList?.toggle('empty-results',this.entries.length===0);
   this.renderDetails(this.el('data-inspector'),inspectorDetails(this.current??{}));const body=this.el('measurement-rows');if(!body||!this.document)return;body.replaceChildren();const visible=this.visible();
   if(this.el('measurement-count'))this.el('measurement-count').textContent=`${visible.length} / ${this.entries.length} 条${this.truncated?' · 达到读取上限':''}`;
   for(const entry of visible){const m=asRecord(entry),row=this.document.createElement('tr');row.dataset.measurementId=m.object_id;row.setAttribute('aria-selected',String(this.selectedId===m.object_id));row.classList.toggle('selected',this.selectedId===m.object_id);row.classList.toggle('stale',['stale','needs_remeasure','needs_remeasurement'].includes(entry.status));row.tabIndex=0;

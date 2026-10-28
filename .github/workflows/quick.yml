@@ -4,7 +4,7 @@ name: Quick smoke (PR only)
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feature/researcher-data-inspector]
     paths:
       - '.github/workflows/**'
       - 'server.mjs'
@@ -50,6 +50,7 @@ jobs:
             tests/skill-contracts.test.mjs \
             tests/image-panel-ui.test.mjs \
             tests/measurement-workspace-ui.test.mjs \
+            tests/data-probes-ui.test.mjs \
             tests/researcher-inspector-launch.test.mjs \
             tests/image-panel-drag-constraints.test.mjs \
             tests/image-panel-viewport.test.mjs \

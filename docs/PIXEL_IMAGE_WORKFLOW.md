@@ -30,7 +30,7 @@ python -m venv .venv-images
 
 For independent TIFF work, use the separate [configuration example](../mcp.images.json.example):
 `DM_MCP_BACKEND=images`, an absolute `DM_IMAGE_WORKSPACE` and the external
-`DM_IMAGE_PYTHON`. Only the twelve image tools are exposed; DM is not contacted.
+`DM_IMAGE_PYTHON`. Only the image tools are exposed; DM is not contacted.
 Alternatively, an explicit `DM_IMAGE_WORKSPACE` adds these tools alongside the
 chosen Python/native catalog. It does not change how any `dm_*` tool executes.
 No installer or client configuration is silently changed.
@@ -46,6 +46,9 @@ No installer or client configuration is silently changed.
 | `image_compare` | Compare 2..4 same-grid planes/ROIs with one shared gray range |
 | `image_fft` | Explicit external FFT, with optional mean subtraction/Hann window |
 | `image_measure` | Pixel/frequency geometry; physical geometry with an active versioned XY record |
+| `image_probe` | Bounded nearest samples from the original saved array, through one persistent read-only worker; no pointer result records |
+| `image_statistics` | Save ROI mean, population standard deviation, minimum and maximum; explicit FFT component |
+| `image_profile` | Save a straight, one-pixel-wide nearest profile, requested/sample coordinates, calibrated path distance when available, NPY and CSV |
 | `image_calibrate` | Create, revise, withdraw or explicitly attach an exact-scope XY record; preserve admitted native calibration and user revisions |
 | `image_context` | Create a revision of user interpretation; legacy scale notes remain descriptive |
 | `image_annotate` | Replace an overlay or update existing stable IDs, including retraction |
