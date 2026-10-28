@@ -194,6 +194,21 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
     if(!(current.annotations??[]).some(m=>m.annotation_id===u.annotation_id)||ids.has(u.annotation_id))fail('Layout edits require distinct existing annotation IDs');ids.add(u.annotation_id);}
    r=await journalCall('image_annotate',{object_id:current.object_id,updates:p.updates});
   }
+  else if(body.action==='statistics'||body.action==='profile'){
+   fields(p,body.action==='statistics'?['selection','component']:['selection','component','sample_count']);
+   const selected=checkSelection(p.selection);
+   if((current.panels??[]).length!==1)fail('Inspect one explicit scientific input, not a comparison composite');
+   let args={object_id:current.object_id,component:p.component??'raw'};
+   if(body.action==='statistics'){
+    if(selected.kind!=='rectangle')fail('Draw an explicit ROI for array statistics');
+    args={...args,[selected.panel.domain==='frequency'?'frequency_rect':'rect']:selectionRectangle(selected)};
+   }else{
+    if(!['line','arrow'].includes(selected.kind)||selected.coordinates.length!==4)fail('Draw a two-point line for an intensity profile');
+    args={...args,points:[selected.coordinates.slice(0,2),selected.coordinates.slice(2)],coordinate_space:selected.coordinate_space,sample_count:p.sample_count??128,line_width:1,interpolation:'nearest'};
+   }
+   r=await journalCall(body.action==='statistics'?'image_statistics':'image_profile',args);
+   lastOperation={...r.data};selection=selected;saveSelection();return state();
+  }
   else if(body.action==='measurement-jump'){
    fields(p,['measurement_object_id']);
    const entry=readImageMeasurements({workspace,objectId:current.object_id}).entries.find(value=>value.object_id===p.measurement_object_id);
@@ -252,7 +267,7 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
   }
   else if(body.action==='export'){fields(p,[]);mkdirSync(path.join(workspace,'exports'),{recursive:true});const output_dir=path.join(workspace,'exports',`panel-${session}-${sequence+1}`);r=await journalCall('image_export',{object_id:current.object_id,output_dir});lastOperation={...publicObject(r.data),output_dir};saveSelection();return state();}
   else if(body.action==='show'){fields(p,['object_id']);if(!objectId.test(p.object_id??''))fail('Explicit existing object_id required');r=await displayObject(await journalCall('image_info',{object_id:p.object_id}));}
-  else if(body.action==='recover'){fields(p,['request_id']);if(p.request_id!==undefined&&(typeof p.request_id!=='string'||!safeId.test(p.request_id)))fail('Valid original request_id required');let operation=lastOperation;const original=p.request_id??operation?.request_id;if(!safeId.test(original??''))fail('No valid saved request to query');if(p.request_id!==undefined){if(!existsSync(path.join(journal,`${original}.request.json`)))fail('Original request is not journaled by this panel',404);if(operation?.request_id!==original)operation={request_id:original};}r=await journalCall('image_result',{request_id:original});if(!r.data.object_id)fail('Original request has not returned an image object');if(operation.action==='figure-base'){if(operation.figure_step==='scale'){figureBars.set(current.object_id,r.data.scale_bar??null);return {...state(),figure_base_recovery:{state:'scale_render_saved_clean_render_not_submitted',request_id:original,object_id:r.data.object_id}};}return figureAsset(r);}if(operation.action==='restore-figure-display')figureRestore=operation.figure_restore;if(r.data.kind==='context'&&r.data.user_context?.research_observation)return saveResearchObservation(r.data);if(['measure','export'].includes(r.data.kind)){lastOperation=publicObject(r.data);saveSelection();return state();}r=await displayObject(r);}
+  else if(body.action==='recover'){fields(p,['request_id']);if(p.request_id!==undefined&&(typeof p.request_id!=='string'||!safeId.test(p.request_id)))fail('Valid original request_id required');let operation=lastOperation;const original=p.request_id??operation?.request_id;if(!safeId.test(original??''))fail('No valid saved request to query');if(p.request_id!==undefined){if(!existsSync(path.join(journal,`${original}.request.json`)))fail('Original request is not journaled by this panel',404);if(operation?.request_id!==original)operation={request_id:original};}r=await journalCall('image_result',{request_id:original});if(!r.data.object_id)fail('Original request has not returned an image object');if(operation.action==='figure-base'){if(operation.figure_step==='scale'){figureBars.set(current.object_id,r.data.scale_bar??null);return {...state(),figure_base_recovery:{state:'scale_render_saved_clean_render_not_submitted',request_id:original,object_id:r.data.object_id}};}return figureAsset(r);}if(operation.action==='restore-figure-display')figureRestore=operation.figure_restore;if(r.data.kind==='context'&&r.data.user_context?.research_observation)return saveResearchObservation(r.data);if(['statistics','profile'].includes(r.data.kind)){lastOperation=r.data;saveSelection();return state();}if(['measure','export'].includes(r.data.kind)){lastOperation=publicObject(r.data);saveSelection();return state();}r=await displayObject(r);}
   else fail('Unknown panel action');
   const prepared=await prepareCurrent(r),nextFrame=await findFrameIdentity(r.data);
   if(figureRestore)verifyFigureDisplay(prepared,nextFrame,figureRestore);
@@ -290,7 +305,7 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
    saveSelection();const response={...state(),presentation:{request_id:body.request_id,status:queued?'queued':'shown',object_id:r.data.object_id}};writeJournal(path.join(presentationDirectory,`${body.request_id}.response.json`),response);return response;
   }catch(error){writeJournal(path.join(presentationDirectory,`${body.request_id}.response.json`),{presentation:{request_id:body.request_id,status:'failed',error:error.message}});throw error;}
  };
- const staticFiles=new Map([['/',['index.html','text/html; charset=utf-8']],['/app.mjs',['app.mjs','text/javascript; charset=utf-8']],['/coordinates.mjs',['coordinates.mjs','text/javascript; charset=utf-8']],['/style.css',['style.css','text/css; charset=utf-8']],['/viewer-state.mjs',['viewer-state.mjs','text/javascript; charset=utf-8']],['/viewer-render.mjs',['viewer-render.mjs','text/javascript; charset=utf-8']],['/annotation-presentation.mjs',['annotation-presentation.mjs','text/javascript; charset=utf-8']],['/figure-export.mjs',['figure-export.mjs','text/javascript; charset=utf-8']],['/measurement-workspace.mjs',['measurement-workspace.mjs','text/javascript; charset=utf-8']]]);
+ const staticFiles=new Map([['/',['index.html','text/html; charset=utf-8']],['/app.mjs',['app.mjs','text/javascript; charset=utf-8']],['/coordinates.mjs',['coordinates.mjs','text/javascript; charset=utf-8']],['/style.css',['style.css','text/css; charset=utf-8']],['/viewer-state.mjs',['viewer-state.mjs','text/javascript; charset=utf-8']],['/viewer-render.mjs',['viewer-render.mjs','text/javascript; charset=utf-8']],['/annotation-presentation.mjs',['annotation-presentation.mjs','text/javascript; charset=utf-8']],['/figure-export.mjs',['figure-export.mjs','text/javascript; charset=utf-8']],['/measurement-workspace.mjs',['measurement-workspace.mjs','text/javascript; charset=utf-8']],['/data-probes.mjs',['data-probes.mjs','text/javascript; charset=utf-8']]]);
  const server=http.createServer(async(req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
   try{
@@ -308,8 +323,18 @@ export async function createImagePanel({workspace,python,object_id,port=0,panel_
    }
    if(req.method==='GET'&&url.pathname==='/api/revision'){res.end(JSON.stringify({state_revision:stateRevision,object_id:current.object_id,pending_result:pendingResult?{object_id:pendingResult.prepared.object.object_id,request_id:pendingResult.request_id}:null,edit_state:{draft_revision:editState.draft_revision,dirty:editState.dirty,gesture_active:editState.gesture_active}}));return;}
    if(req.method==='GET'&&url.pathname==='/api/present'){res.end(JSON.stringify(presentationReceipt(url.searchParams.get('request_id'))));return;}
-   if(req.method!=='POST'||!['/api/action','/api/present'].includes(url.pathname))fail('Not found',404);if(req.headers.origin!==origin||!req.headers['content-type']?.startsWith('application/json'))fail('Same-origin JSON required',403);
+   if(req.method!=='POST'||!['/api/action','/api/present','/api/probe'].includes(url.pathname))fail('Not found',404);if(req.headers.origin!==origin||!req.headers['content-type']?.startsWith('application/json'))fail('Same-origin JSON required',403);
    let raw='',size=0;for await(const chunk of req){size+=chunk.length;if(size>64*1024)fail('Request exceeds 64 KiB',413);raw+=chunk;}let body;try{body=JSON.parse(raw);}catch{fail('Invalid JSON');}
+   if(url.pathname==='/api/probe'){
+    fields(body,['expected_object_id','source_object_id','coordinate_space','coordinates','component']);
+    if(body.expected_object_id!==current.object_id)fail('Probe belongs to a changed current image',409);
+    if((current.panels??[]).length!==1)fail('Inspect a single scientific array, not a comparison PNG');
+    const selected=checkSelection({kind:'point',source_object_id:body.source_object_id,coordinate_space:body.coordinate_space,coordinates:body.coordinates,panel:current.panels[0]}),id=current.object_id,revision=stateRevision;
+    const result=await client.tool('image_probe',{object_id:id,points:[selected.coordinates],coordinate_space:selected.coordinate_space,component:body.component??'raw'});
+    if(current.object_id!==id||stateRevision!==revision)fail('Probe completed for an older image revision',409);
+    if(result.data.object_id!==id)fail('Probe returned a foreign scientific object',409);
+    res.end(JSON.stringify({...result.data,state_revision:revision}));return;
+   }
    if(url.pathname==='/api/action'&&body.action==='draft'){res.end(JSON.stringify(await act(body)));return;}
    const run=busy.then(()=>url.pathname==='/api/present'?present(body):act(body));busy=run.catch(()=>{});res.end(JSON.stringify(await run));
   }catch(error){res.statusCode=error.status??400;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:error.message}));}

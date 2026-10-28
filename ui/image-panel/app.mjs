@@ -4,6 +4,7 @@ import {tonePixels,drawMark} from './viewer-render.mjs';
 import {layoutAnnotations,renderAnnotationsSVG} from './annotation-presentation.mjs';
 import {buildFigureBundle,downloadBlob,makeFigureRecipe,readFigureRecipe,figureScaleBar} from './figure-export.mjs';
 import {MeasurementWorkspace} from './measurement-workspace.mjs';
+import {DataProbes} from './data-probes.mjs';
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),baseCanvas=$('base-canvas'),baseContext=baseCanvas.getContext('2d',{willReadFrequently:true}),marksCanvas=$('marks-canvas'),marksContext=marksCanvas.getContext('2d'),stage=$('image-stage'),viewport=$('viewport');
 const key='mcp-dm-panel-token',hash=location.hash.slice(1);if(hash){sessionStorage.setItem(key,hash);history.replaceState(null,'',location.pathname);}const token=sessionStorage.getItem(key);
 let state,image,basePixels,draft=null,drag=null,editCoordinates=null,busy=false,cleanBase=false,selectedId='',spaceDown=false,pending=null,orphanedDraft=false;
@@ -17,7 +18,9 @@ const geometryRevisions=new Map(),remeasuringMarks=new Map();let failedMeasureme
 const historyDraft=new DraftHistory({}),perf={frames:0,tone_count:0,overlay_count:0,tone_last_ms:0,overlay_last_ms:0,draw_last_ms:0,action_last_ms:0};
 const now=()=>performance.now(),message=(text,error=false)=>{$('message').textContent=text;$('message').classList.toggle('error',error);};
 const measurementWorkspace=new MeasurementWorkspace({getState:()=>state,api,onSelect:selectMeasurement,onJump:jumpMeasurement,onUpdate:updateMeasurement,onError:e=>message('结果读取未完成：'+e.message,true)});
-async function refreshMeasurements(){const ok=await measurementWorkspace.refresh();if(ok)renderMeasurement();return ok;}
+const dataProbes=new DataProbes({getState:dataProbeState,api,onError:e=>message('原数组读取未完成：'+e.message,true)});
+function dataProbeState(){const current=measurementWorkspace.current;return state&&current?.object_id===state.object.object_id?{...state,object:{...state.object,scientific_grid_identity:current.scientific_grid_identity,dtype:current.dtype,xy_calibration:current.xy_calibration}}:state;}
+async function refreshMeasurements(){const ok=await measurementWorkspace.refresh();if(ok){renderMeasurement();dataProbes.refreshCurrent();if(['statistics','profile'].includes(state.last_operation?.kind))dataProbes.renderResult(state.last_operation);}return ok;}
 function selectMeasurement(entry){
  if(!entry)return;
  if(!entry.same_grid||!entry.visible_in_current_view||!entry.annotation_matches_current){message('这条结果属于另一帧、视野外或旧版峰位；请点“跳到结果原视图”明确查看。');return;}
@@ -125,7 +128,7 @@ async function act(action,params={}){
   }
   if(r.pending_result&&r.object.object_id===state.object.object_id){state={...state,pending_result:r.pending_result,state_revision:r.state_revision};showPending();message('计算完成；新结果等待查看，期间的新草稿保持原样。');return r;}
   if(historyDraft.revision!==sentRevision||drag){pending=r;showPending();message('保存完成；较新的草稿保持原样，结果等待接续。');return r;}
-  if(r.object.object_id===state.object.object_id&&['select','measure','export'].includes(action)){state={...state,last_operation:r.last_operation,selection:r.selection,state_revision:r.state_revision};renderMeasurement();}
+  if(r.object.object_id===state.object.object_id&&['select','measure','export','statistics','profile'].includes(action)){state={...state,last_operation:r.last_operation,selection:r.selection,state_revision:r.state_revision};renderMeasurement();if(['statistics','profile'].includes(action))dataProbes.renderResult(r.last_operation);}
   else await load(r,{keepDisplay:keepDisplay?local.display:null,keepMark:keepMark?local:null});
   message(({select:'选择已交接；可继续使用当前选区。',measure:'测量完成；当前选区已保留。',export:'已导出；当前选区已保留。'})[action]??'已保存新版本；原像素与旧版本保留。');return r;
  }catch(e){message(e.message,true);}finally{busy=false;perf.action_last_ms=now()-start;diagnostics();await refreshMeasurements();if(queuedEdits.size)Promise.resolve().then(flushEdits);}
@@ -211,7 +214,8 @@ canvas.addEventListener('pointerdown',event=>{
  }catch(e){message(e.message,true);}
 });
 function updateDrag(event){if(drag.kind==='pan'){view=panBy(drag.originalView,event.clientX-drag.startClient[0],event.clientY-drag.startClient[1]);resize();return;}drag.end=xy(event);if(['rectangle','line','arrow'].includes(drag.kind))Object.assign(drag,constrainSelectionDrag(drag.p,drag.originalStart,drag.end,{kind:drag.kind,constrained:Boolean(event.shiftKey||event.ctrlKey)}));if(drag.kind==='label'){const offset=drag.originalOffset.map((v,i)=>Math.max(-drag.anchor[i],Math.min((i?canvas.height:canvas.width)-drag.anchor[i]-drag.labelSize[i],v+drag.end[i]-drag.start[i])));labelDraft={...labelDraft,label:{...labelDraft.label,offset,pinned:true}};return;}if(drag.kind==='edit'){const from=transformCoordinates(drag.start,drag.p,{edges:drag.edges}),to=transformCoordinates(drag.end,drag.p,{edges:drag.edges}),delta=to.map((v,i)=>v-from[i]);editCoordinates=drag.original.map((v,i)=>drag.handle<0||Math.floor(i/2)===drag.handle?v+delta[i%2]:v);}}
-canvas.addEventListener('pointermove',event=>{if(!drag){if(figurePrefs.mode==='analysis'){const p=xy(event),hit=hitMark(annotationLayout?.items.filter(i=>i.geometryVisible).map(i=>i.mark)??[],p,{scale:view.scale}),next=hit?.mark.annotation_id??'';if(next!==hoverId){hoverId=next;schedulePaint();}}return;}if(event.pointerId!==drag.pointerId)return;updateDrag(event);schedulePaint();});
+canvas.addEventListener('pointermove',event=>{if(!drag){if($('numeric-data').open)try{const p=xy(event);dataProbes.observe(selectionFromDrag(state.object.panels??[],p,p,{kind:'point'}));}catch{dataProbes.clear();}if(figurePrefs.mode==='analysis'){const p=xy(event),hit=hitMark(annotationLayout?.items.filter(i=>i.geometryVisible).map(i=>i.mark)??[],p,{scale:view.scale}),next=hit?.mark.annotation_id??'';if(next!==hoverId){hoverId=next;schedulePaint();}}return;}if(event.pointerId!==drag.pointerId)return;updateDrag(event);schedulePaint();});
+canvas.addEventListener('pointerleave',()=>dataProbes.clear());
 function cancelDrag(event){if(!drag||event.pointerId!==drag.pointerId)return;if(drag.kind==='label')labelDraft=null;if(drag.kind==='edit')editCoordinates=drag.previousEdit;if(drag.kind==='pan'){view=drag.originalView;resize();}drag=null;marksDirty=true;schedulePaint();publishDraft();message('已取消本次拖动；尚未提交任何修改。');}
 canvas.addEventListener('pointercancel',cancelDrag);canvas.addEventListener('lostpointercapture',cancelDrag);
 canvas.addEventListener('pointerup',event=>{if(!drag||event.pointerId!==drag.pointerId)return;const kind=drag.kind,before=drag.before;try{updateDrag(event);if(kind==='pan')return;if(kind==='label'){const update={annotation_id:selectedId,presentation:labelDraft};labelDraft=null;queueEdit(update,before);syncPresentationFields();return;}if(kind==='edit'){const update={annotation_id:selectedId,coordinates:[...editCoordinates],text:$('mark-text').value,color:$('color').value,status:$('status').value};draft={...draft,coordinates:[...editCoordinates],rendered:transformCoordinates(editCoordinates,drag.p,{edges:drag.edges,inverse:true})};editCoordinates=null;fieldDirty=false;queueEdit(update,before);return;}const selected=selectionFromDrag(state.object.panels??[],drag.start,drag.end,{kind});draft={...selected,rendered:transformCoordinates(selected.coordinates,selected.panel,{edges:kind==='rectangle',inverse:true})};showDraft();message('选择已定位；可直接测量或交给 Agent。');}catch(e){message(e.message,true);}finally{drag=null;if(kind!=='pan')record();paint();publishDraft({includeSelection:true,urgent:true});Promise.resolve().then(flushEdits);}});
@@ -231,6 +235,8 @@ $('measure').onclick=guarded(async()=>{
  return act('measure',{selection:{...mark.anchor,kind:mark.kind,panel},annotation_id:mark.annotation_id,...(previous?{measurement_object_id:previous.object_id}:{})});
 });
 $('fft').onclick=guarded(()=>act('fft',{selection:selection(),window:$('fft-window').value,subtract_mean:$('fft-mean').checked}));
+$('roi-statistics').onclick=guarded(()=>act('statistics',{selection:selection(),component:$('probe-component').value}));
+$('line-profile').onclick=guarded(()=>act('profile',{selection:selection(),component:$('probe-component').value,sample_count:Number($('profile-count').value)}));
 $('reload').onclick=guarded(refresh);$('zoom').oninput=()=>{const r=viewport.getBoundingClientRect();view=zoomAt(view,[r.width/2,r.height/2],Number($('zoom').value)/view.scale);resize();};$('fit').onclick=fitView;
 for(const id of ['gamma','low','high','axes','scale'])$(id).oninput=()=>{$('gamma-label').textContent=$('gamma').value;record();schedulePaint();publishDraft();message('显示草稿即时反馈；保存后从原科学数组重绘，不重算 FFT。');};
 $('apply-display').onclick=guarded(()=>{const frequency=state.object.panels?.some(p=>p.domain==='frequency');return act('preview',{gamma:Number($('gamma').value),display_range:$('low').value===''||$('high').value===''?null:[Number($('low').value),Number($('high').value)],...(frequency?{spectrum_axes:$('axes').checked}:{scale_bar:$('scale').checked})});});

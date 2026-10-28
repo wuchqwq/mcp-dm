@@ -9,6 +9,7 @@ import * as viewerState from '../ui/image-panel/viewer-state.mjs';
 import * as viewerRender from '../ui/image-panel/viewer-render.mjs';
 import * as annotationPresentation from '../ui/image-panel/annotation-presentation.mjs';
 import * as figureExport from '../ui/image-panel/figure-export.mjs';
+import {DataProbes as ProviderDataProbes} from '../ui/image-panel/data-probes.mjs';
 import {MeasurementWorkspace as ProviderMeasurementWorkspace} from '../ui/image-panel/measurement-workspace.mjs';
 import {performance} from 'node:perf_hooks';
 import {randomUUID} from 'node:crypto';
@@ -21,7 +22,7 @@ function fixture(){return {object:{object_id:viewId,kind:'view',panels:[copy(pan
 function pixelBytes(w,h){return Uint8ClampedArray.from({length:w*h*4},(_,i)=>i%4===3?255:(i*17+31)%256);}
 async function harness(initial=fixture()){
  const calls=[],draftCalls=[],getCalls=[],frames=new Map(),stats={pow:0,draws:0,uploads:0};let server=copy(initial),frameId=0,waitAction=null,nextActionResult=null,actionSequence=0,actionFailure=null,waitMeasurement=null,measurementResponse=null,recoveryResponse=null;
- const canvasContexts=[];
+ const canvasContexts=[],probeCalls=[],probeTimers=new Map();let probeTimerId=0;
  class Context{
   constructor(canvas){this.canvas=canvas;this.lastPixels=null;canvasContexts.push(this);}
   drawImage(image){stats.draws++;this.lastPixels=image.context?.lastPixels??null;}
@@ -45,6 +46,7 @@ async function harness(initial=fixture()){
  const math=Object.create(Math);math.pow=(a,b)=>{stats.pow++;return Math.pow(a,b);};
  const sandbox={...coordinates,...viewerState,...viewerRender,...annotationPresentation,...figureExport,console,Math:math,Uint8ClampedArray,performance,crypto:{randomUUID},
   MeasurementWorkspace:class extends ProviderMeasurementWorkspace{constructor(options){super({...options,document:sandbox.document});}},
+  DataProbes:class extends ProviderDataProbes{constructor(options){super({...options,document:sandbox.document,setTimer:(fn,delay)=>{const id=++probeTimerId;probeTimers.set(id,{fn,delay});return id;},clearTimer:id=>probeTimers.delete(id)});}},
   document:{getElementById:$,createElement:tag=>new Element(tag),querySelectorAll:()=>[],addEventListener(){}},
   sessionStorage:{getItem:()=> 'synthetic-token',setItem(){}},location:{hash:'',pathname:'/'},history:{replaceState(){}},
   Option:class{constructor(text,value){this.text=text;this.value=value;}},
@@ -54,6 +56,7 @@ async function harness(initial=fixture()){
   fetch:async(url,options)=>{
    if(!options.body){getCalls.push(url);if(url.startsWith('/api/measurements?'))return {ok:true,json:async()=>({current:{...copy(server.object),object_id:server.object.object_id},entries:[],truncated:false})};if(url==='/api/revision')return {ok:true,json:async()=>({state_revision:server.state_revision,object_id:server.object.object_id,pending_result:server.pending_result})};}
    if(options.body){const body=JSON.parse(options.body);
+    if(url==='/api/probe'){probeCalls.push(body);return {ok:true,json:async()=>({object_id:body.expected_object_id,kind:'probe',component:body.component,coordinate_space:body.coordinate_space,samples:[{point:body.coordinates,array_index_xy:body.coordinates,value:17}]})};}
     if(body.action==='draft'){draftCalls.push(body);if(body.params.selection)server.selection=copy(body.params.selection);server.edit_state={...copy(body.params),base_object_id:server.object.object_id};return {ok:true,json:async()=>body.lightweight?{object_id:server.object.object_id,edit_state:copy(server.edit_state)}:copy(server)};}
     calls.push(body);assert.equal(body.expected_object_id,server.object.object_id);if(waitAction)await waitAction;if(body.action==='measure'&&waitMeasurement)await waitMeasurement;
     if(actionFailure){const error=actionFailure;actionFailure=null;return {ok:false,json:async()=>({error})};}
@@ -80,7 +83,7 @@ async function harness(initial=fixture()){
  const event=(type,x=10,y=10,extra={})=>{$('canvas').listeners[type]?.({clientX:x,clientY:y,pointerId:1,button:0,...extra});};
  const click=async id=>{await $(id).onclick();flush();};
  const draw=(kind='line')=>{$('mode').value=kind;event('pointerdown',10,10);event('pointermove',40,35);event('pointerup',40,35);flush();};
- return {$,calls,draftCalls,getCalls,stats,frames,flush,event,click,draw,poll:()=>sandbox.pollUI(),inspect:()=>copy(sandbox.inspect()),contexts:canvasContexts,
+ return {$,calls,draftCalls,getCalls,probeCalls,stats,frames,flush,event,click,draw,flushProbes:async()=>{const timers=[...probeTimers];probeTimers.clear();for(const [_id,timer]of timers)timer.fn();for(let i=0;i<8;i++)await Promise.resolve();},poll:()=>sandbox.pollUI(),inspect:()=>copy(sandbox.inspect()),contexts:canvasContexts,
   settle:async()=>{for(let i=0;i<80;i++)await Promise.resolve();flush();},finish:async()=>{await sandbox.finishSaves();flush();},
   delayAction(promise){waitAction=promise;},
   failAction(message='Synthetic save failure; query original request'){actionFailure=message;},
@@ -484,4 +487,8 @@ test('P0: recipe layout batch refreshes the selected inspector even when another
  h.$('existing').value='line-b';h.$('existing').onchange();assert.equal(h.$('label-size').value,16);
  h.actionResult(restored);h.$('recipe-text').value=JSON.stringify(recipe);await h.click('load-recipe-text');await h.finish();
  assert.ok(h.calls.some(c=>c.action==='edit-layout'));assert.equal(h.$('label-size').value,12);assert.equal(h.$('marker-shape').value,'circle');assert.deepEqual(h.server().object.annotations[1].anchor,saved.object.annotations[1].anchor);
+});
+
+test('pointer probe uses the exact source coordinate request and creates no scientific action',async()=>{
+ const h=await harness();h.event('pointermove',25,26);await h.flushProbes();assert.equal(h.probeCalls.length,0,'closed numerical inspector performs no backend read');h.$('numeric-data').open=true;h.event('pointermove',25,26);h.event('pointermove',30,28);assert.equal(h.probeCalls.length,0);await h.flushProbes();assert.equal(h.probeCalls.length,1);assert.deepEqual(h.probeCalls[0].coordinates,[50,40]);assert.equal(h.probeCalls[0].source_object_id,sourceId);assert.equal(h.probeCalls[0].component,'raw');assert.equal(h.calls.length,0);assert.match(h.$('probe-value').textContent,/原始数值 17/);h.event('pointermove',40,38);h.event('pointerleave');await h.flushProbes();assert.equal(h.probeCalls.length,1);assert.match(h.$('probe-value').textContent,/尚未读取/);
 });
