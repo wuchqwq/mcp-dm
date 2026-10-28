@@ -1,0 +1,66 @@
+# Temporary, branch-scoped preparation. Removed before the review handoff.
+name: GUI repair preparation (temporary)
+on:
+  push:
+    branches: [fix/gui-human-workflow-20261028]
+    paths:
+      - '.github/workflows/gui-repair-preparation.yml'
+      - 'tools/apply_gui_fix.py'
+      - 'tools/apply_gui_fix_tail.py'
+permissions:
+  contents: write
+concurrency:
+  group: gui-repair-preparation
+  cancel-in-progress: true
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/fix/gui-human-workflow-20261028'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/gui-human-workflow-20261028
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply source-guarded changes
+        run: python3 tools/apply_gui_fix.py
+      - name: Syntax and focused UI regression only
+        run: |
+          set -o pipefail
+          node --check ui/image-panel/app.mjs
+          node --check ui/image-panel/data-probes.mjs
+          node --check tools/image_panel.mjs
+          node --test --test-concurrency=2 tests/user-workflow.test.mjs tests/image-panel-ui.test.mjs tests/data-probes-ui.test.mjs tests/measurement-workspace-ui.test.mjs tests/image-panel-presentation-transport.test.mjs tests/image-panel-draft-transport.test.mjs | tee /tmp/gui-repair-tests.log
+          git diff --check
+      - name: Commit only reviewed GUI and focused tests to this feature branch
+        run: |
+          test "$GITHUB_REF" = 'refs/heads/fix/gui-human-workflow-20261028'
+          git add ui/image-panel/app.mjs ui/image-panel/data-probes.mjs ui/image-panel/index.html ui/image-panel/style.css tools/image_panel.mjs tests/image-panel-ui.test.mjs
+          git config user.name 'MCP-DM GUI maintenance'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): prevent accidental edits and complete direct researcher workflows'
+          git push origin HEAD:refs/heads/fix/gui-human-workflow-20261028
+          git rev-parse HEAD
+      - name: Keep small source-bound inspection bundle
+        if: always()
+        shell: python
+        run: |
+          import pathlib, zipfile, hashlib, json, subprocess
+          files=list(pathlib.Path('ui/image-panel').glob('*.mjs'))+list(pathlib.Path('ui/image-panel').glob('*.html'))+list(pathlib.Path('ui/image-panel').glob('*.css'))+[pathlib.Path('tools/image_panel.mjs'),pathlib.Path('tests/user-workflow.test.mjs'),pathlib.Path('tests/image-panel-ui.test.mjs')]
+          evidence=pathlib.Path('/tmp/gui-repair-evidence');evidence.mkdir()
+          with zipfile.ZipFile(evidence/'source.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for p in files:
+                  if p.is_file(): z.write(p,str(p))
+          log=pathlib.Path('/tmp/gui-repair-tests.log')
+          if log.exists(): (evidence/'tests.log').write_bytes(log.read_bytes())
+          report={'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.is_file()},'scope':'Node UI/transport checks only; no Mac, GMS, scientific-worker or real-browser acceptance'}
+          (evidence/'report.json').write_text(json.dumps(report,indent=2))
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gui-repair-preparation-${{ github.run_id }}
+          path: /tmp/gui-repair-evidence/
+          retention-days: 2
