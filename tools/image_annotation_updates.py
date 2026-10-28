@@ -8,10 +8,10 @@ import re
 
 _ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _EDITABLE = frozenset(("coordinates", "text", "note", "status", "color",
-                       "line_width", "arrowhead_size", "arrow_length"))
+                       "line_width", "arrowhead_size", "arrow_length", "presentation"))
 _INPUT_FIELDS = frozenset(("kind", "coordinates", "text", "note", "status",
                            "color", "line_width", "arrowhead_size", "arrow_length",
-                           "annotation_id", "coordinate_space", "source_object_id"))
+                           "annotation_id", "coordinate_space", "source_object_id", "presentation"))
 
 
 class AnnotationUpdateError(ValueError):
@@ -54,8 +54,10 @@ def plan_annotation_updates(saved, updates):
             indexed[ident] = mark
     edits = {}
     for edit in updates:
-        _require(type(edit) is dict and set(edit) <= _EDITABLE | {"annotation_id"},
+        _require(type(edit) is dict and set(edit) <= _EDITABLE | {"annotation_id", "presentation_replace"},
                  "An update cannot change kind, source, coordinate domain or derived fields")
+        _require("presentation_replace" not in edit or type(edit["presentation_replace"]) is bool and "presentation" in edit,
+                 "presentation_replace must be an explicit boolean with presentation metadata")
         ident = edit.get("annotation_id")
         _require(type(ident) is str and _ID.fullmatch(ident), "Every update requires a stable annotation_id")
         _require(ident in indexed, "Unknown annotation_id; inspect this exact view before editing")
@@ -67,7 +69,16 @@ def plan_annotation_updates(saved, updates):
     planned = []
     for mark in saved:
         edit = edits.get(mark.get("annotation_id"), {})
-        changes = {key: deepcopy(value) for key, value in edit.items() if key != "annotation_id"}
+        changes = {key: deepcopy(value) for key, value in edit.items() if key not in ("annotation_id", "presentation_replace")}
+        if isinstance(changes.get("presentation"), dict) and not edit.get("presentation_replace", False):
+            # A label adjustment is a sparse display patch, never a new anchor.
+            # Omitted presentation and label fields remain unchanged just like
+            # the existing top-level style/text fields.
+            old = mark.get("presentation", {})
+            merged = {**deepcopy(old), **changes["presentation"]}
+            if isinstance(changes["presentation"].get("label"), dict):
+                merged["label"] = {**deepcopy(old.get("label", {})), **changes["presentation"]["label"]}
+            changes["presentation"] = merged
         anchor = mark.get("anchor")
         if "coordinates" in changes:
             # Reuse the stable source/domain, never the displayed short shaft.
