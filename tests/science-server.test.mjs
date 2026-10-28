@@ -19,6 +19,10 @@ test('standalone registry has science tools, optional providers and no DM tool e
       MICROSCOPY_STRUCTURE_WORKSPACE:path.join(dir,'structures'),
       MICROSCOPY_PYTHON:'/nonexistent/python',
       MICROSCOPY_PANEL:'1',
+      // Inherited/broken DM configuration must never affect the independent provider.
+      DM_MCP_BACKEND:'native',
+      DM_NATIVE_SESSION:'definitely-not-a-valid-native-session',
+      DM_BRIDGE_HOST:'192.0.2.1',
     }});
     const names=runtime.registry.listTools().map(tool=>tool.name);
     assert.ok(names.includes('image_open'));
@@ -55,6 +59,8 @@ test('standalone stdio initializes without DM, rejects dm_status and validates i
       MICROSCOPY_IMAGE_WORKSPACE:path.join(dir,'images'),
       MICROSCOPY_PYTHON:'/nonexistent/python',
       MICROSCOPY_PANEL:'0',
+      DM_MCP_BACKEND:'native',
+      DM_NATIVE_SESSION:'definitely-not-a-valid-native-session',
       MICROSCOPY_CONTEXT_WORKSPACE:'',
       MICROSCOPY_STRUCTURE_WORKSPACE:'',
     },stdio:['pipe','pipe','pipe']});
