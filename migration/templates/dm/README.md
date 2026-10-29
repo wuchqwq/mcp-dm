@@ -6,6 +6,11 @@ It does not require Microscopy Core, ASE/diffsims, its GUI or scientific Skills.
 Independent TIFF/FFT/structure analysis belongs to the separate science MCP;
 Windows users do not need DM for that workflow.
 
+Use the [DM-only Agent guide](README.agent.md),
+[reference](REFERENCE.en.md) and [registration helper](setup/register_codex.ps1).
+The helper accepts only `python` / `native`, refuses duplicate provider names,
+and supports `-CheckOnly` without contacting a host.
+
 Use Node >=18. For the default backend start `bridge/dm_bridge.py` in the supported
 DigitalMicrograph embedded Python environment, then register `node server.mjs`
 in your MCP client. The independent external Python used by optional preview/

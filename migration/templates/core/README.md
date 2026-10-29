@@ -10,6 +10,10 @@ This is a migration candidate, not a newly qualified instrument integration.
 and every copied/generated file. The original repository retains historical Git
 attribution; this snapshot export does not rewrite or pretend to preserve blame.
 
+Current [client setup](docs/CLIENT_SETUP.md) includes Windows and macOS/Linux
+configuration; the [Agent guide](README.agent.md) defines the independent tool
+boundary. Do not use the old combined DM registrar for this package.
+
 ## Install and test
 
 Use Node >=18 and a separate Python >=3.10 environment. Install

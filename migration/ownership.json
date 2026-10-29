@@ -57,7 +57,12 @@
         "docs/CRYSTALLOGRAPHY_*.md",
         "docs/CONTINUING_DIFFRACTION.md",
         "docs/CONSTRAINED_REGISTRATION.md",
-        "docs/REFLECTION_COMPARISON.md"
+        "docs/REFLECTION_COMPARISON.md",
+        "docs/PUBLICATION_ANNOTATIONS.md",
+        "docs/examples/researcher-inspector/canvas-results.png",
+        "docs/examples/researcher-inspector/measurements.csv",
+        "docs/examples/researcher-inspector/profile-workspace.png",
+        "docs/examples/researcher-inspector/profile.csv"
       ],
       "required": [
         "science-server.mjs",
@@ -67,16 +72,24 @@
         "tools/image_numeric.py",
         "ui/image-panel/user-workflow.mjs",
         "lib/image_measurement_records.mjs",
-        "LICENSE"
+        "LICENSE",
+        "docs/PUBLICATION_ANNOTATIONS.md",
+        "docs/examples/researcher-inspector/canvas-results.png",
+        "docs/examples/researcher-inspector/measurements.csv",
+        "docs/examples/researcher-inspector/profile-workspace.png",
+        "docs/examples/researcher-inspector/profile.csv"
       ],
       "templates": {
         "tests/standalone-boundary.test.mjs": "migration/templates/shared/tests/standalone-boundary.test.mjs",
+        ".github/workflows/quick.yml": "migration/templates/shared/.github/workflows/quick.yml",
+        ".gitignore": "migration/templates/shared/.gitignore",
+        "tests/packaged-entrypoints.test.mjs": "migration/templates/shared/tests/packaged-entrypoints.test.mjs",
         "server.mjs": "migration/templates/core/server.mjs",
         "README.md": "migration/templates/core/README.md",
         "AGENTS.md": "migration/templates/core/AGENTS.md",
+        "README.agent.md": "migration/templates/core/README.agent.md",
+        "docs/CLIENT_SETUP.md": "migration/templates/core/docs/CLIENT_SETUP.md",
         "tests/standalone-science-smoke.mjs": "migration/templates/core/standalone-science-smoke.mjs",
-        ".github/workflows/quick.yml": "migration/templates/shared/.github/workflows/quick.yml",
-        ".gitignore": "migration/templates/shared/.gitignore",
         "tests/image-client-entry-env.test.mjs": "migration/templates/core/image-client-entry-env.test.mjs"
       },
       "unit_tests": [
@@ -96,7 +109,8 @@
         "tests/data-probes-ui.test.mjs",
         "tests/measurement-workspace-ui.test.mjs",
         "tests/user-workflow.test.mjs",
-        "tests/image-client-entry-env.test.mjs"
+        "tests/image-client-entry-env.test.mjs",
+        "tests/packaged-entrypoints.test.mjs"
       ],
       "launcher_adaptation": "migration/image-panel-environment.json"
     },
@@ -116,7 +130,6 @@
         "tools/native_snapshot_handoff.mjs",
         "tools/verify_native_region.py",
         "setup/start_bridge.ps1",
-        "setup/register_codex.ps1",
         "setup/install_gms_python.bat",
         "requirements-preview.txt",
         "requirements-analysis.txt",
@@ -130,9 +143,6 @@
         "tests/native-preview.test.mjs",
         "tests/native-import-contract.test.mjs",
         "tests/native-frame.test.mjs",
-        "README.agent.md",
-        "REFERENCE.md",
-        "REFERENCE.en.md",
         "docs/NATIVE_*.md",
         "docs/SCIENTIFIC_HANDOFF.md",
         "docs/DM_NUMERIC_RELAY.md",
@@ -147,18 +157,24 @@
       ],
       "templates": {
         "tests/standalone-boundary.test.mjs": "migration/templates/shared/tests/standalone-boundary.test.mjs",
+        ".github/workflows/quick.yml": "migration/templates/shared/.github/workflows/quick.yml",
+        ".gitignore": "migration/templates/shared/.gitignore",
+        "tests/packaged-entrypoints.test.mjs": "migration/templates/shared/tests/packaged-entrypoints.test.mjs",
         "server.mjs": "migration/templates/dm/server.mjs",
         "lib/tools/create_dm_runtime.mjs": "migration/templates/dm/lib/tools/create_dm_runtime.mjs",
         "README.md": "migration/templates/dm/README.md",
         "AGENTS.md": "migration/templates/dm/AGENTS.md",
-        ".github/workflows/quick.yml": "migration/templates/shared/.github/workflows/quick.yml",
-        ".gitignore": "migration/templates/shared/.gitignore"
+        "README.agent.md": "migration/templates/dm/README.agent.md",
+        "REFERENCE.md": "migration/templates/dm/REFERENCE.md",
+        "REFERENCE.en.md": "migration/templates/dm/REFERENCE.en.md",
+        "setup/register_codex.ps1": "migration/templates/dm/setup/register_codex.ps1"
       },
       "unit_tests": [
         "tests/native-bridge.test.mjs",
         "tests/native-preview.test.mjs",
         "tests/native-import-contract.test.mjs",
-        "tests/native-frame.test.mjs"
+        "tests/native-frame.test.mjs",
+        "tests/packaged-entrypoints.test.mjs"
       ],
       "source_map": {
         "DM_QUALIFICATION_CONTRACT.md": "AGENTS.md"
