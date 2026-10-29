@@ -80,3 +80,8 @@ DM can be installed as a separate peer provider on a qualified Windows host.
 Do not register this server with the old DM-only PowerShell helper or set
 `DM_MCP_BACKEND=images`. A repository rename is not permission to move an old
 scientific workspace whose saved paths and identities have not been validated.
+
+The public screenshot assets retain their original source names and bytes; some
+legacy `.png` names contain JPEG data. Browsers detect the actual format. They are
+UI evidence, not raw scientific arrays, and their hashes are recorded in the
+migration manifest. This import does not re-encode them or assert new acceptance.

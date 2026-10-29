@@ -6,6 +6,7 @@ import path from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const core=JSON.parse(readFileSync(path.join(root,'package.json'),'utf8')).name==='microscopy-core';
 const read=name=>readFileSync(path.join(root,name),'utf8');
@@ -28,7 +29,14 @@ if(core){
  test('core includes the four explicitly public synthetic inspector assets',()=>{
   for(const name of ['canvas-results.png','profile-workspace.png']){
    const data=readFileSync(path.join(root,'docs/examples/researcher-inspector',name));
-   assert.equal(data.subarray(0,8).toString('hex'),'89504e470d0a1a0a');assert.ok(data.length>8);
+   // Source screenshots have legacy .png names, including JPEG bytes. Keep
+   // the original evidence byte-for-byte; the suffix is not its codec contract.
+   const png=data.subarray(0,8).toString('hex')==='89504e470d0a1a0a';
+   const jpeg=data.subarray(0,3).toString('hex')==='ffd8ff'&&data.subarray(-2).toString('hex')==='ffd9';
+   assert.ok(data.length>8&&(png||jpeg),`${name}: expected a source PNG/JPEG screenshot`);
+   const source=JSON.parse(read('MIGRATION_MANIFEST.json')).files.find(entry=>entry.path==='docs/examples/researcher-inspector/'+name);
+   assert.equal(source?.source?.kind,'copied');
+   assert.equal(createHash('sha256').update(data).digest('hex'),source.sha256,'screenshot must preserve its committed source bytes');
   }
   for(const name of ['measurements.csv','profile.csv'])assert.ok(read('docs/examples/researcher-inspector/'+name).trim().split('\n').length>1);
   assert.match(read('docs/CLIENT_SETUP.md'),/MICROSCOPY_IMAGE_WORKSPACE/);
