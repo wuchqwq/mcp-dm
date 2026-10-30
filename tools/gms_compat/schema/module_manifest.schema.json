@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mcp-dm/gms-compat/module-manifest",
+  "title": "Static module manifest",
+  "type": "object",
+  "description": "Output of `gms-compat inspect`. Describes what a PE file declares; it never asserts that any call is safe or qualified.",
+  "required": ["schema", "schema_version", "modules"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "mcp-dm/gms-compat/module-manifest"},
+    "schema_version": {"const": 1},
+    "tool": {
+      "type": "object",
+      "properties": {"name": {"type": "string"}, "version": {"type": "string"}}
+    },
+    "generated_by": {"type": "string", "enum": ["inspect", "external"]},
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "path_disclosure": {"enum": ["none", "basename", "relative", "full"]},
+        "requested": {"type": "integer"},
+        "inspected": {"type": "integer"},
+        "failed": {"type": "integer"},
+        "read_only": {"type": "boolean"},
+        "loaded_any_module": {"type": "boolean", "const": false},
+        "executed_any_target_code": {"type": "boolean", "const": false}
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^pe_"},
+          "module": {"type": ["string", "null"]},
+          "detail": {"type": "string"}
+        }
+      }
+    },
+    "modules": {"type": "array", "items": {"$ref": "#/definitions/module"}}
+  },
+  "definitions": {
+    "module": {
+      "type": "object",
+      "required": ["name", "sha256", "architecture", "exports", "imports"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z0-9._\\-]{1,260}$"},
+        "source": {"type": ["string", "null"]},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "architecture": {"type": "string", "enum": ["x86", "x64", "arm64", "arm", "ia64", "unknown"]},
+        "pe": {
+          "type": "object",
+          "properties": {
+            "format": {"enum": ["pe32", "pe32+", "unknown"]},
+            "machine": {"type": "string"},
+            "subsystem": {"type": "integer"},
+            "timestamp": {"type": "integer"},
+            "characteristics": {"type": "string"},
+            "image_base": {"type": "integer"},
+            "size_of_image": {"type": "integer"},
+            "sections": {"type": "array"}
+          }
+        },
+        "version": {
+          "type": "object",
+          "required": ["file_version", "source"],
+          "properties": {
+            "file_version": {"type": ["string", "null"]},
+            "product_version": {"type": ["string", "null"]},
+            "source": {"enum": ["vs_fixed_file_info", "absent", "invalid_resource_directory",
+                                "invalid_version_resource", "version_resource_without_fixed_info"]}
+          }
+        },
+        "exports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ordinal", "name", "rva", "forwarder"],
+            "properties": {
+              "ordinal": {"type": "integer", "minimum": 0},
+              "name": {"type": ["string", "null"]},
+              "rva": {"type": "integer", "minimum": 0},
+              "section": {"type": ["string", "null"]},
+              "executable": {"type": "boolean"},
+              "forwarder": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "export_summary": {"type": "object"},
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["module", "kind"],
+            "properties": {
+              "module": {"type": "string"},
+              "kind": {"enum": ["import", "delay_import", "import+delay_import"]},
+              "function_count": {"type": "integer", "minimum": 0},
+              "thunk_count_bounded": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

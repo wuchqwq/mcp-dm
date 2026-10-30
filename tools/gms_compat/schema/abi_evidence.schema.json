@@ -1,0 +1,198 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mcp-dm/gms-compat/abi-evidence",
+  "title": "GMS native ABI evidence inventory",
+  "type": "object",
+  "description": "Machine-readable companion of docs/GMS_COMPAT_ABI_EVIDENCE.md. The normative validator is tools/gms_compat/evidence.py; this schema states the same contract for non-Python consumers.",
+  "required": ["schema", "schema_version", "build", "known_operations", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "mcp-dm/gms-compat/abi-evidence"},
+    "schema_version": {"const": 1},
+    "build": {
+      "type": "object",
+      "required": ["profile_id", "host", "version", "architecture", "identity_source", "version_policy", "modules"],
+      "properties": {
+        "profile_id": {"type": "string"},
+        "host": {"type": "string"},
+        "version": {"type": "string"},
+        "architecture": {"type": "string", "enum": ["x64", "x86", "arm64"]},
+        "identity_source": {"type": "string"},
+        "version_policy": {"type": "string"},
+        "modules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "sha256", "check_version"],
+            "properties": {
+              "name": {"type": "string"},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "check_version": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "known_operations": {"type": "array", "items": {"type": "string"}},
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/entry"}
+    }
+  },
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "required": [
+        "id", "title", "area", "build_profile", "modules", "symbols", "call_shape",
+        "layout", "static_evidence", "verification", "uncertainties", "conflicts",
+        "scope", "qualification", "derivation", "revalidation"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+\\.[a-z0-9_]+$"},
+        "title": {"type": "string"},
+        "area": {"type": "string"},
+        "build_profile": {"type": "string"},
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["module", "sha256"],
+            "properties": {
+              "module": {"type": "string"},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["module", "kind"],
+            "properties": {
+              "module": {"type": "string"},
+              "kind": {"enum": ["export", "export_ordinal", "export_name_unverified", "rva"]},
+              "name": {"type": ["string", "null"]},
+              "ordinal": {"type": ["integer", "null"]},
+              "entry_contract": {"type": "string"},
+              "rva": {"type": ["integer", "null"], "description": "Always null here; the pinned value stays in the version profile."},
+              "note": {"type": "string"}
+            }
+          }
+        },
+        "unbound_reason": {"type": "string"},
+        "call_shape": {
+          "type": ["object", "null"],
+          "required": ["abi", "returns", "params"],
+          "properties": {
+            "abi": {"type": "string"},
+            "hidden_sret": {"type": "boolean"},
+            "returns": {"type": "string"},
+            "params": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "type"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "type": {"type": "string"},
+                  "notes": {"type": "string"}
+                }
+              }
+            },
+            "notes": {"type": "string"}
+          }
+        },
+        "call_shape_absent_reason": {"type": "string"},
+        "layout": {
+          "type": ["object", "null"],
+          "required": ["ownership", "evidence_source", "evidence_anchor"],
+          "properties": {
+            "structures": {"type": "array"},
+            "ownership": {"type": "string"},
+            "evidence_source": {"type": "string"},
+            "evidence_anchor": {"type": "string"}
+          }
+        },
+        "layout_absent_reason": {"type": "string"},
+        "static_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["source", "anchor", "claim"],
+            "properties": {
+              "source": {"type": "string"},
+              "anchor": {"type": "string"},
+              "claim": {"type": "string"}
+            }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "required": ["offline_tests", "real_host"],
+          "properties": {
+            "offline_tests": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path"],
+                "properties": {"path": {"type": "string"}, "note": {"type": "string"}}
+              }
+            },
+            "real_host": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["status", "record", "anchor"],
+                "properties": {
+                  "status": {"enum": ["PASS", "PASS_LIMITED", "FAIL", "NOT_TESTED"]},
+                  "record": {"type": "string"},
+                  "anchor": {"type": "string"},
+                  "note": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "uncertainties": {"type": "array", "items": {"type": "string"}},
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["summary", "resolved"],
+            "properties": {
+              "summary": {"type": "string"},
+              "resolved": {"type": "boolean"}
+            }
+          }
+        },
+        "scope": {
+          "type": "object",
+          "required": ["operations", "dtypes", "versions", "limits"],
+          "properties": {
+            "operations": {"type": "array", "items": {"type": "string"}},
+            "dtypes": {"type": "array", "items": {"type": "string"}},
+            "versions": {"type": "array", "items": {"type": "string"}},
+            "limits": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "qualification": {
+          "enum": ["QUALIFIED_LIMITED", "STATIC_CANDIDATE", "UNRESOLVED", "BLOCKED"],
+          "description": "QUALIFIED_LIMITED requires a recorded real-host PASS and a documented or static_inspection derivation."
+        },
+        "derivation": {"enum": ["documented", "static_inspection", "similarity_only", "name_only"]},
+        "revalidation": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"enum": ["sha256", "export_name", "ordinal", "rva", "call_shape", "layout",
+                             "ownership", "string_allocator", "allocator_pairing",
+                             "type_code_mapping", "dtype_budget", "dtype_semantics",
+                             "numerical_convention", "rounding_model", "pool_budget",
+                             "count_invariants", "vtable_identity", "entry_page_gate",
+                             "file_semantics"]}
+        }
+      }
+    }
+  }
+}
